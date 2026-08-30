@@ -1,0 +1,6 @@
+{
+  "version": "1.0.0",
+  "build": 6,
+  "releaseUrl": "https://github.com/yiming-space/flight-footprint/releases/tag/v1.0.0",
+  "notes": "首个公开版本：本地优先的飞行记录、旅行足迹与离线地图。"
+}

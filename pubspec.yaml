@@ -1,0 +1,48 @@
+name: flight_footprint
+description: "A local-first, offline flight and travel footprint journal."
+publish_to: 'none'
+version: 1.0.0+6
+
+environment:
+  sdk: ^3.13.1
+
+dependencies:
+  archive: ^3.6.1
+  excel2003: ^1.0.0
+  file_picker: ^12.1.1
+  flutter:
+    sdk: flutter
+  flutter_svg: ^2.2.0
+  flutter_localizations:
+    sdk: flutter
+  flutter_secure_storage: ^10.3.1
+  http: ^1.6.0
+  intl: ^0.20.3
+  package_info_plus: ^10.2.1
+  path: ^1.9.1
+  path_provider: ^2.1.6
+  photo_manager: ^3.12.0
+  share_plus: ^13.3.0
+  sqflite: ^2.4.3
+  uuid: ^4.6.0
+  url_launcher: ^6.3.2
+  xml: ^7.0.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/data/airport-coordinates.json
+    - assets/data/china-city-centers.json
+    - assets/data/world-countries-50m.geo.json
+    - assets/data/world-land-50m.geo.json
+    - assets/data/china-provinces.geo.json
+    - assets/data/china-national-boundary.geo.json
+    - assets/data/china-internal-boundaries.geo.json
+    - assets/data/china-maritime-marks.geo.json
+    - assets/flags/FLAG-ICONS-LICENSE
+    - assets/flags/1x1/

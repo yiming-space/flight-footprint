@@ -1,0 +1,142 @@
+package com.hjmingg.flight_footprint
+
+import android.Manifest
+import android.content.pm.PackageManager
+import android.provider.CalendarContract
+import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.embedding.android.FlutterActivity
+import io.flutter.plugin.common.MethodChannel
+
+/**
+ * Calendar access stays behind a very small platform channel.  The Flutter
+ * side owns parsing and import decisions; Android only asks for READ_CALENDAR
+ * and returns the provider's raw event fields.  Keeping the provider query
+ * here avoids adding a heavyweight calendar plugin to the release client.
+ */
+class MainActivity : FlutterActivity() {
+    companion object {
+        private const val CALENDAR_CHANNEL = "flight_footprint/calendar"
+        private const val READ_CALENDAR_REQUEST = 4101
+    }
+
+    private var pendingCalendarArguments: Map<*, *>? = null
+    private var pendingCalendarResult: MethodChannel.Result? = null
+
+    override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
+        super.configureFlutterEngine(flutterEngine)
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            CALENDAR_CHANNEL,
+        ).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "queryEvents" -> queryEvents(call.arguments, result)
+                else -> result.notImplemented()
+            }
+        }
+    }
+
+    private fun queryEvents(arguments: Any?, result: MethodChannel.Result) {
+        if (checkSelfPermission(Manifest.permission.READ_CALENDAR) != PackageManager.PERMISSION_GRANTED) {
+            if (pendingCalendarResult != null) {
+                result.error(
+                    "calendar_request_in_progress",
+                    "Calendar permission request is already in progress.",
+                    null,
+                )
+                return
+            }
+            pendingCalendarArguments = arguments as? Map<*, *>
+            pendingCalendarResult = result
+            requestPermissions(
+                arrayOf(Manifest.permission.READ_CALENDAR),
+                READ_CALENDAR_REQUEST,
+            )
+            return
+        }
+        result.success(readCalendarEvents(arguments as? Map<*, *>))
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray,
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode != READ_CALENDAR_REQUEST) return
+
+        val result = pendingCalendarResult
+        val arguments = pendingCalendarArguments
+        pendingCalendarResult = null
+        pendingCalendarArguments = null
+        if (result == null) return
+
+        if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) {
+            result.success(readCalendarEvents(arguments))
+        } else {
+            result.error(
+                "calendar_permission_denied",
+                "Calendar read permission was not granted.",
+                null,
+            )
+        }
+    }
+
+    private fun readCalendarEvents(arguments: Map<*, *>?): List<Map<String, Any?>> {
+        val startMillis = (arguments?.get("startMillis") as? Number)?.toLong()
+            ?: 0L
+        val endMillis = (arguments?.get("endMillis") as? Number)?.toLong()
+            ?: Long.MAX_VALUE
+        val projection = arrayOf(
+            CalendarContract.Events._ID,
+            CalendarContract.Events.TITLE,
+            CalendarContract.Events.DESCRIPTION,
+            CalendarContract.Events.EVENT_LOCATION,
+            CalendarContract.Events.DTSTART,
+            CalendarContract.Events.DTEND,
+            CalendarContract.Events.EVENT_TIMEZONE,
+            CalendarContract.Events.ALL_DAY,
+            CalendarContract.Events.CALENDAR_ID,
+        )
+        val selection = "${CalendarContract.Events.DTSTART} <= ? AND " +
+            "(${CalendarContract.Events.DTEND} IS NULL OR " +
+            "${CalendarContract.Events.DTEND} >= ?)"
+        val selectionArgs = arrayOf(endMillis.toString(), startMillis.toString())
+        val events = mutableListOf<Map<String, Any?>>()
+
+        contentResolver.query(
+            CalendarContract.Events.CONTENT_URI,
+            projection,
+            selection,
+            selectionArgs,
+            "${CalendarContract.Events.DTSTART} ASC",
+        )?.use { cursor ->
+            val idIndex = cursor.getColumnIndex(CalendarContract.Events._ID)
+            val titleIndex = cursor.getColumnIndex(CalendarContract.Events.TITLE)
+            val descriptionIndex = cursor.getColumnIndex(CalendarContract.Events.DESCRIPTION)
+            val locationIndex = cursor.getColumnIndex(CalendarContract.Events.EVENT_LOCATION)
+            val startIndex = cursor.getColumnIndex(CalendarContract.Events.DTSTART)
+            val endIndex = cursor.getColumnIndex(CalendarContract.Events.DTEND)
+            val timezoneIndex = cursor.getColumnIndex(CalendarContract.Events.EVENT_TIMEZONE)
+            val allDayIndex = cursor.getColumnIndex(CalendarContract.Events.ALL_DAY)
+            val calendarIdIndex = cursor.getColumnIndex(CalendarContract.Events.CALENDAR_ID)
+
+            // A calendar can contain years of unrelated events. The Flutter
+            // parser filters flight-like rows, while this cap protects older
+            // devices from returning an unbounded provider cursor.
+            while (cursor.moveToNext() && events.size < 5000) {
+                events += mapOf(
+                    "id" to if (idIndex >= 0) cursor.getLong(idIndex).toString() else "",
+                    "title" to if (titleIndex >= 0) cursor.getString(titleIndex) else null,
+                    "description" to if (descriptionIndex >= 0) cursor.getString(descriptionIndex) else null,
+                    "location" to if (locationIndex >= 0) cursor.getString(locationIndex) else null,
+                    "startMillis" to if (startIndex >= 0 && !cursor.isNull(startIndex)) cursor.getLong(startIndex) else null,
+                    "endMillis" to if (endIndex >= 0 && !cursor.isNull(endIndex)) cursor.getLong(endIndex) else null,
+                    "timezone" to if (timezoneIndex >= 0) cursor.getString(timezoneIndex) else null,
+                    "allDay" to (allDayIndex >= 0 && !cursor.isNull(allDayIndex) && cursor.getInt(allDayIndex) != 0),
+                    "calendarId" to if (calendarIdIndex >= 0 && !cursor.isNull(calendarIdIndex)) cursor.getLong(calendarIdIndex) else null,
+                )
+            }
+        }
+        return events
+    }
+}

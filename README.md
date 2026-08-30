@@ -23,33 +23,6 @@ flutter test
 flutter run
 ```
 
-## 构建 Android APK
-
-```bash
-flutter build apk --release
-```
-
-输出位于 `build/app/outputs/flutter-apk/app-release.apk`。
-
-正式维护者构建时，需要在本机准备 `android/key.properties` 和对应的
-`android/keystores/flight_footprint_release.jks`；这两个文件已被 Git 忽略，
-不会进入公开仓库。没有维护者密钥的公开克隆仍可构建测试用 release APK，
-但不能覆盖安装到正式签名版本。
-
-### GitHub 更新检查
-
-当前官方仓库为 [yiming-space/flight-footprint](https://github.com/yiming-space/flight-footprint)。
-官方构建也可以通过 dart-define 覆盖仓库地址，方便 fork 后使用自己的更新源：
-
-```bash
-flutter build apk --release \
-  --dart-define=FLIGHT_FOOTPRINT_GITHUB_URL=https://github.com/<owner>/<repo>
-```
-
-应用只在用户点击「检查更新」时读取仓库中的 `update.json`（未找到时回退到
-GitHub Releases API）；未配置地址或无网络时，核心记录、地图和统计功能不受影响。
-发布新版本时同步更新 `pubspec.yaml` 和 `update.json` 的版本 / build 字段即可。
-
 ## 数据原则
 
 - SQLite 是设备内唯一真实数据源。
@@ -69,7 +42,3 @@ GitHub Releases API）；未配置地址或无网络时，核心记录、地图�
 4. 「本地覆盖云端」只上传本机的飞行记录和旅行足迹；「云端恢复到本地」会先完整校验云端快照，再替换本机这两类记录。两种操作都用 `revision` compare-and-swap 防止误覆盖。
 
 设备令牌和恢复码使用 Android 安全存储，不提交到源码或备份截图。当前版本是手动同步；云端快照只保存飞行记录（含轨迹点）和旅行足迹，统计数据在设备本地重新计算。删除记录暂未使用墓碑标记，因此删除同步策略会在后续版本单独设计。航班资料补全是独立的可插拔、尽力而为数据源，不影响本地记录与云端同步；当前优先查询 ADSBdb，并兼容 FlightBoard 使用的 adsb.im / adsb.lol 路线接口。
-
-## 从网页版迁移
-
-在网页版「我的」页面点击「导出记录」，将得到 JSON 文件；在 App 的「我的 → 导入网页数据」中选择该文件即可。旧版网页导出的航班数组和新版包含 `visitedPlaces` 的完整 envelope 都受支持，轨迹点会一并保存在本地。

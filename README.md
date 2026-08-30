@@ -1,6 +1,8 @@
 # 航迹 · Flight Footprint
 
 一个独立、离线、本地优先的 Flutter 飞行记录应用。1.0 先支持 Android，数据无需登录即可记录在设备内；云同步和版本检查都是可选的自建能力。
+<img width="4646" height="2000" alt="app001" src="https://github.com/user-attachments/assets/5e748ff7-1738-4226-b1e4-d3fc370261d6" />
+<img width="4646" height="2000" alt="app002" src="https://github.com/user-attachments/assets/ead33335-ac84-4cc8-8848-cbd23788f243" />
 
 ## 1.0 功能
 

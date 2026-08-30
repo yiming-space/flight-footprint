@@ -54,3 +54,17 @@ flutter run
 5. 当前为手动同步，使用前后按需操作；未配置云端时 App 仍可离线使用。
 
 安全提示：初始化密钥、恢复码和设备令牌只应由自己保存，不要上传到公开仓库或放进截图。云端只保存飞行记录（含航迹点）和旅行足迹，统计数据会在设备本地重新计算。
+
+## 致谢
+
+本项目参考并使用了以下开源项目与公开数据：
+
+- [Flutter](https://flutter.dev/)：应用开发框架。
+- [PaddleOCR](https://github.com/PaddlePaddle/PaddleOCR)：本地图片文字识别能力，遵循 Apache-2.0 许可。
+- [ONNX Runtime](https://github.com/microsoft/onnxruntime)：本地模型推理，遵循 MIT 许可。
+- [OpenCV](https://opencv.org/)：图像预处理，遵循 Apache-2.0 许可。
+- [flag-icons](https://github.com/lipis/flag-icons)：国家和地区旗帜素材，遵循 MIT 许可；许可文本见 `assets/flags/FLAG-ICONS-LICENSE`。
+- [Natural Earth](https://www.naturalearthdata.com/)：世界地图数据，公共领域。
+- [OurAirports](https://ourairports.com/data/)：机场索引数据，公共领域。
+
+产品交互与视觉方向参考过 Flighty 等飞行记录产品，仅作为设计参考，不包含其代码或素材。

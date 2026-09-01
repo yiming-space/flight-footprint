@@ -1,7 +1,7 @@
 name: flight_footprint
 description: "A local-first, offline flight and travel footprint journal."
 publish_to: 'none'
-version: 1.1.0+7
+version: 1.1.1+8
 
 environment:
   sdk: ^3.13.1

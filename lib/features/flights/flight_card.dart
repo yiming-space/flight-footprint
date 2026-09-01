@@ -1,3 +1,5 @@
+import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
@@ -51,12 +53,17 @@ class FlightCard extends StatelessWidget {
       child: GestureDetector(
         onLongPress: onLongPress,
         child: Container(
-          padding: const EdgeInsets.fromLTRB(22, 19, 22, 18),
+          padding: const EdgeInsets.fromLTRB(22, 20, 22, 20),
           decoration: ShapeDecoration(
             gradient: LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
-              colors: [color, Color.lerp(color, Colors.white, .06)!],
+              stops: const [0, .7, 1],
+              colors: [
+                color,
+                Color.lerp(color, Colors.white, .035)!,
+                Color.lerp(color, Colors.white, .10)!,
+              ],
             ),
             shape: AppShapes.large,
           ),
@@ -82,16 +89,20 @@ class FlightCard extends StatelessWidget {
                     ),
                     if (aircraft.isNotEmpty) ...[
                       const SizedBox(width: 10),
-                      _MetaPill(label: aircraft),
+                      ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 132),
+                        child: _MetaPill(label: aircraft),
+                      ),
                     ],
                   ],
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 17),
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
                     Expanded(
                       child: _Airport(
+                        label: '出发',
                         code: flight.departureIata,
                         city: from == null
                             ? '机场'
@@ -106,6 +117,7 @@ class FlightCard extends StatelessWidget {
                     const SizedBox(width: 10),
                     Expanded(
                       child: _Airport(
+                        label: '抵达',
                         code: flight.arrivalIata,
                         city: to == null
                             ? '机场'
@@ -115,7 +127,7 @@ class FlightCard extends StatelessWidget {
                     ),
                   ],
                 ),
-                const SizedBox(height: 14),
+                const SizedBox(height: 16),
                 _DateTimeStrip(
                   departure: flight.departedAt,
                   arrival: arrivalAt,
@@ -158,7 +170,7 @@ class _FlightDuration extends StatelessWidget {
         height: 42,
         decoration: ShapeDecoration(
           color: Colors.black.withValues(alpha: .08),
-          shape: AppShapes.small,
+          shape: AppShapes.pill,
         ),
         child: const Icon(
           Icons.flight_takeoff_rounded,
@@ -221,19 +233,15 @@ class _DateTimeStrip extends StatelessWidget {
   Widget build(BuildContext context) => DecoratedBox(
     decoration: ShapeDecoration(
       color: Colors.black.withValues(alpha: .075),
-      shape: AppShapes.small,
+      shape: AppShapes.medium,
     ),
     child: Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 9),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           Expanded(child: _DateTimeInfo(value: departure)),
-          Container(
-            width: 1,
-            height: 31,
-            color: Colors.black.withValues(alpha: .12),
-          ),
+          const SizedBox(width: 24),
           Expanded(child: _DateTimeInfo(value: arrival, alignEnd: true)),
         ],
       ),
@@ -369,10 +377,12 @@ class _SwipeActionButton extends StatelessWidget {
 
 class _Airport extends StatelessWidget {
   const _Airport({
+    required this.label,
     required this.code,
     required this.city,
     this.alignEnd = false,
   });
+  final String label;
   final String code;
   final String city;
   final bool alignEnd;
@@ -383,18 +393,37 @@ class _Airport extends StatelessWidget {
         : CrossAxisAlignment.start,
     children: [
       Text(
-        code,
-        style: const TextStyle(
-          fontSize: 37,
+        label,
+        style: TextStyle(
+          color: Colors.black.withValues(alpha: .47),
+          fontSize: 10,
           height: 1,
-          fontWeight: FontWeight.w600,
-          letterSpacing: -1.7,
+          fontWeight: FontWeight.w700,
+          letterSpacing: .8,
         ),
       ),
-      const SizedBox(height: 5),
+      const SizedBox(height: 7),
       SizedBox(
         width: double.infinity,
-        height: 30,
+        height: 38,
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: alignEnd ? Alignment.centerRight : Alignment.centerLeft,
+          child: Text(
+            code,
+            style: const TextStyle(
+              fontSize: 37,
+              height: 1,
+              fontWeight: FontWeight.w700,
+              letterSpacing: -1.7,
+            ),
+          ),
+        ),
+      ),
+      const SizedBox(height: 3),
+      SizedBox(
+        width: double.infinity,
+        height: 29,
         child: Text(
           city,
           textAlign: alignEnd ? TextAlign.end : TextAlign.start,
@@ -428,33 +457,49 @@ class _DateTimeInfo extends StatelessWidget {
         : DateFormat('HH:mm').format(value!.toLocal());
     final alignment = alignEnd ? TextAlign.end : TextAlign.start;
     return Column(
+      mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: alignEnd
           ? CrossAxisAlignment.end
           : CrossAxisAlignment.start,
       children: [
-        Text(
-          date,
-          textAlign: alignment,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(
-            color: Colors.black.withValues(alpha: .62),
-            fontSize: 10.5,
-            height: 1,
-            fontWeight: FontWeight.w700,
-            letterSpacing: .1,
+        SizedBox(
+          width: double.infinity,
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: alignEnd ? Alignment.centerRight : Alignment.centerLeft,
+            child: Text(
+              date,
+              textAlign: alignment,
+              maxLines: 1,
+              style: TextStyle(
+                color: Colors.black.withValues(alpha: .58),
+                fontSize: 10.5,
+                height: 1,
+                fontWeight: FontWeight.w700,
+                letterSpacing: .1,
+                fontFeatures: const [ui.FontFeature.tabularFigures()],
+              ),
+            ),
           ),
         ),
-        const SizedBox(height: 4),
-        Text(
-          time,
-          textAlign: alignment,
-          style: const TextStyle(
-            color: Color(0xFF0B0E12),
-            fontSize: 19,
-            height: 1,
-            fontWeight: FontWeight.w700,
-            letterSpacing: -.3,
+        const SizedBox(height: 6),
+        SizedBox(
+          width: double.infinity,
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: alignEnd ? Alignment.centerRight : Alignment.centerLeft,
+            child: Text(
+              time,
+              textAlign: alignment,
+              style: const TextStyle(
+                color: Color(0xFF0B0E12),
+                fontSize: 21,
+                height: 1,
+                fontWeight: FontWeight.w700,
+                letterSpacing: -.45,
+                fontFeatures: [ui.FontFeature.tabularFigures()],
+              ),
+            ),
           ),
         ),
       ],

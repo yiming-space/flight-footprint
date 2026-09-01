@@ -1,7 +1,9 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:http/http.dart' as http;
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:path_provider/path_provider.dart';
 
 import '../app/app_links.dart';
 
@@ -13,6 +15,8 @@ class AppUpdateResult {
     this.currentVersion,
     this.latestVersion,
     this.releaseUrl,
+    this.downloadUrl,
+    this.downloadSize,
     this.releaseNotes,
     this.errorMessage,
   });
@@ -21,12 +25,16 @@ class AppUpdateResult {
     required String currentVersion,
     required String latestVersion,
     required Uri releaseUrl,
+    Uri? downloadUrl,
+    int? downloadSize,
     String? releaseNotes,
   }) : this._(
          status: UpdateCheckStatus.available,
          currentVersion: currentVersion,
          latestVersion: latestVersion,
          releaseUrl: releaseUrl,
+         downloadUrl: downloadUrl,
+         downloadSize: downloadSize,
          releaseNotes: releaseNotes,
        );
 
@@ -47,10 +55,14 @@ class AppUpdateResult {
   final String? currentVersion;
   final String? latestVersion;
   final Uri? releaseUrl;
+  final Uri? downloadUrl;
+  final int? downloadSize;
   final String? releaseNotes;
   final String? errorMessage;
 
   bool get hasUpdate => status == UpdateCheckStatus.available;
+
+  bool get canDownloadInApp => downloadUrl != null;
 }
 
 /// Checks the latest public GitHub release without making update checks
@@ -85,45 +97,89 @@ class AppUpdateService {
         if (manifestResponse.statusCode == 200) {
           final manifest = _decodeMap(manifestResponse.body);
           final result = _resultFromManifest(manifest, currentVersion);
-          if (result != null) return result;
+          if (result != null) {
+            if (!result.hasUpdate || result.canDownloadInApp) return result;
+            // Older manifests only carried the release page. Enrich them with
+            // the APK asset exposed by GitHub so existing installations can
+            // still use the in-app updater without a manifest migration.
+            final asset = await _latestApkAsset(repository);
+            if (asset != null) {
+              return AppUpdateResult.available(
+                currentVersion: result.currentVersion!,
+                latestVersion: result.latestVersion!,
+                releaseUrl: result.releaseUrl!,
+                downloadUrl: asset.uri,
+                downloadSize: asset.size,
+                releaseNotes: result.releaseNotes,
+              );
+            }
+            return result;
+          }
         }
       }
 
       // Keep a releases API fallback so the checker remains useful if a fork
       // has not committed update.json yet.
-      final endpoint = Uri.https(
-        'api.github.com',
-        '/repos/${repository.owner}/${repository.repository}/releases/latest',
-      );
-      final response = await _get(endpoint);
-      if (response.statusCode != 200) {
-        return AppUpdateResult.unavailable(
-          errorMessage: 'GitHub HTTP ${response.statusCode}',
-        );
-      }
-      final payload = _decodeMap(response.body);
-      final tag = _text(payload?['tag_name']);
-      final version = _normalizeVersion(tag ?? _text(payload?['name']));
-      final releaseUrl = Uri.tryParse(_text(payload?['html_url']) ?? '');
-      if (version == null || releaseUrl == null || !releaseUrl.hasScheme) {
-        return const AppUpdateResult.unavailable(
-          errorMessage: 'Release version is missing',
-        );
-      }
-
-      final notes = _text(payload?['body']);
-      if (_compareVersions(version, currentVersion) > 0) {
-        return AppUpdateResult.available(
-          currentVersion: currentVersion,
-          latestVersion: version,
-          releaseUrl: releaseUrl,
-          releaseNotes: notes,
-        );
-      }
-      return AppUpdateResult.upToDate(currentVersion: currentVersion);
+      return await _checkLatestRelease(repository, currentVersion);
     } catch (error) {
       return AppUpdateResult.unavailable(errorMessage: error.toString());
     }
+  }
+
+  /// Downloads the APK into the app cache and reports byte progress. The
+  /// returned file is handed to Android's package installer by the UI layer;
+  /// no browser or external download page is involved.
+  Future<File> downloadApk(
+    AppUpdateResult update, {
+    void Function(int received, int? total)? onProgress,
+  }) async {
+    final uri = update.downloadUrl;
+    if (uri == null) {
+      throw StateError('This release does not provide an APK asset.');
+    }
+    if (uri.scheme != 'https') {
+      throw StateError('APK download must use HTTPS.');
+    }
+
+    final request = http.Request('GET', uri)
+      ..headers['Accept'] = 'application/vnd.android.package-archive';
+    final response = await _client
+        .send(request)
+        .timeout(const Duration(seconds: 12));
+    if (response.statusCode != 200) {
+      throw StateError('APK download failed: HTTP ${response.statusCode}.');
+    }
+
+    final cache = await getTemporaryDirectory();
+    final directory = Directory('${cache.path}/flight-footprint-updates');
+    await directory.create(recursive: true);
+    final version = _safeFilePart(update.latestVersion ?? 'latest');
+    final file = File('${directory.path}/flight-footprint-$version.apk');
+    if (await file.exists()) await file.delete();
+
+    var received = 0;
+    final sink = file.openWrite();
+    try {
+      await for (final chunk in response.stream.timeout(
+        const Duration(seconds: 30),
+      )) {
+        sink.add(chunk);
+        received += chunk.length;
+        onProgress?.call(received, response.contentLength);
+      }
+      await sink.flush();
+    } catch (_) {
+      if (await file.exists()) await file.delete();
+      rethrow;
+    } finally {
+      await sink.close();
+    }
+
+    if (received == 0 || !await file.exists()) {
+      if (await file.exists()) await file.delete();
+      throw StateError('Downloaded APK is empty.');
+    }
+    return file;
   }
 
   Future<http.Response> _get(Uri endpoint) => _client
@@ -135,6 +191,99 @@ class AppUpdateService {
         },
       )
       .timeout(const Duration(seconds: 8));
+
+  Future<AppUpdateResult> _checkLatestRelease(
+    ({String owner, String repository}) repository,
+    String currentVersion,
+  ) async {
+    final endpoint = Uri.https(
+      'api.github.com',
+      '/repos/${repository.owner}/${repository.repository}/releases/latest',
+    );
+    final response = await _get(endpoint);
+    if (response.statusCode != 200) {
+      return AppUpdateResult.unavailable(
+        errorMessage: 'GitHub HTTP ${response.statusCode}',
+      );
+    }
+    final payload = _decodeMap(response.body);
+    final tag = _text(payload?['tag_name']);
+    final version = _normalizeVersion(tag ?? _text(payload?['name']));
+    final releaseUrl = Uri.tryParse(_text(payload?['html_url']) ?? '');
+    if (version == null || releaseUrl == null || !releaseUrl.hasScheme) {
+      return const AppUpdateResult.unavailable(
+        errorMessage: 'Release version is missing',
+      );
+    }
+
+    final asset = _apkAsset(payload?['assets']);
+    final notes = _text(payload?['body']);
+    if (_compareVersions(version, currentVersion) > 0) {
+      return AppUpdateResult.available(
+        currentVersion: currentVersion,
+        latestVersion: version,
+        releaseUrl: releaseUrl,
+        downloadUrl: asset?.uri,
+        downloadSize: asset?.size,
+        releaseNotes: notes,
+      );
+    }
+    return AppUpdateResult.upToDate(currentVersion: currentVersion);
+  }
+
+  Future<({Uri uri, int? size})?> _latestApkAsset(
+    ({String owner, String repository}) repository,
+  ) async {
+    final endpoint = Uri.https(
+      'api.github.com',
+      '/repos/${repository.owner}/${repository.repository}/releases/latest',
+    );
+    final response = await _get(endpoint);
+    if (response.statusCode != 200) return null;
+    final payload = _decodeMap(response.body);
+    return _apkAsset(payload?['assets']);
+  }
+
+  static ({Uri uri, int? size})? _apkAsset(Object? rawAssets) {
+    if (rawAssets is! List) return null;
+    final candidates = <({Uri uri, int? size, String name})>[];
+    for (final raw in rawAssets) {
+      if (raw is! Map) continue;
+      final name = _text(raw['name'])?.toLowerCase();
+      final uri = _safeDownloadUrl(_text(raw['browser_download_url']));
+      if (name == null || !name.endsWith('.apk') || uri == null) continue;
+      final size = int.tryParse(_text(raw['size']) ?? '');
+      candidates.add((uri: uri, size: size, name: name));
+    }
+    if (candidates.isEmpty) return null;
+    candidates.sort((a, b) {
+      final aScore = a.name.contains('universal') || a.name.contains('release')
+          ? 1
+          : 0;
+      final bScore = b.name.contains('universal') || b.name.contains('release')
+          ? 1
+          : 0;
+      return bScore.compareTo(aScore);
+    });
+    final selected = candidates.first;
+    return (uri: selected.uri, size: selected.size);
+  }
+
+  static Uri? _safeDownloadUrl(String? raw) {
+    if (raw == null) return null;
+    final uri = Uri.tryParse(raw);
+    if (uri == null || uri.scheme != 'https') return null;
+    final allowedHosts = {
+      'github.com',
+      'objects.githubusercontent.com',
+      'github-releases.githubusercontent.com',
+    };
+    if (!allowedHosts.contains(uri.host.toLowerCase())) return null;
+    return uri;
+  }
+
+  static String _safeFilePart(String value) =>
+      value.replaceAll(RegExp(r'[^A-Za-z0-9._-]+'), '_');
 
   static Uri? _manifestUri(({String owner, String repository}) repository) {
     return Uri.https(
@@ -163,6 +312,10 @@ class AppUpdateService {
       return null;
     }
     final build = int.tryParse(_text(manifest['build']) ?? '');
+    final downloadUrl = _safeDownloadUrl(
+      _text(manifest['apkUrl']) ?? _text(manifest['downloadUrl']),
+    );
+    final downloadSize = int.tryParse(_text(manifest['apkSize']) ?? '');
     final currentBuild = int.tryParse(currentVersion.split('+').last) ?? 0;
     final isNewer =
         _compareVersions(version, currentVersion) > 0 ||
@@ -177,6 +330,8 @@ class AppUpdateService {
       currentVersion: currentVersion,
       latestVersion: version,
       releaseUrl: releaseUrl,
+      downloadUrl: downloadUrl,
+      downloadSize: downloadSize,
       releaseNotes: notes,
     );
   }

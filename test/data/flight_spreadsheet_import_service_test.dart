@@ -147,4 +147,27 @@ void main() {
       expect(result.rows.single.flight.arrivalIata, 'SZX');
     },
   );
+
+  test('resolves Pittsburgh and Changbaishan names from Excel rows', () {
+    final catalog = AirportCatalog.fromJsonString(
+      '{"PIT":[-80.232903,40.491501,"Pittsburgh International Airport",'
+      '"Pittsburgh","US","KPIT","large_airport",true,"US-PA",[]],'
+      '"NBS":[127.602222,42.066944,"Changbaishan Airport",'
+      '"Baishan","CN","ZYBS","medium_airport",true,"CN-22",[]]}',
+    );
+    final source = [
+      '日期,航空公司,航班号,出发城市,出发时间,到达城市,到达时间',
+      '2026-07-08,示例航空,EX100,匹兹堡机场,09:00,长白山机场,18:00',
+    ].join('\n');
+
+    final result = FlightSpreadsheetImportService(airports: catalog).parse(
+      bytes: utf8.encode(source),
+      fileName: '行程记录.csv',
+      now: DateTime(2026, 7, 1),
+    );
+
+    expect(result.issues, isEmpty);
+    expect(result.rows.single.flight.departureIata, 'PIT');
+    expect(result.rows.single.flight.arrivalIata, 'NBS');
+  });
 }

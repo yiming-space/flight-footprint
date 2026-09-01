@@ -14,6 +14,7 @@ import '../../ui/theme/app_theme.dart';
 import '../../ui/widgets/country_flag.dart';
 import '../map/map_models.dart';
 import '../map/offline_map.dart';
+import 'route_viewport_policy.dart';
 
 /// A shareable 3:4 summary of the traveller's completed flights.
 ///
@@ -250,7 +251,7 @@ class _PassportArtwork extends StatelessWidget {
           ? constraints.maxWidth
           : 320.0;
       final horizontal = (width * .06).clamp(18.0, 26.0).toDouble();
-      final routeOrientation = _RouteOrientation.fromRoutes(routes);
+      final routeViewport = RouteViewportPolicy.fromRoutes(routes);
       return AspectRatio(
         aspectRatio: 3 / 4,
         child: Stack(
@@ -260,17 +261,22 @@ class _PassportArtwork extends StatelessWidget {
             Positioned.fill(
               child: IgnorePointer(
                 child: ClipRect(
-                  child: Transform.rotate(
-                    angle: routeOrientation.angle,
-                    alignment: Alignment.center,
+                  child: AnimatedRotation(
+                    turns: routeViewport.angle / (2 * math.pi),
+                    duration: const Duration(milliseconds: 420),
+                    curve: Curves.easeOutCubic,
                     child: OfflineMap(
                       mode: MapMode.flight,
                       airports: airports,
                       routes: routes,
                       enableInteraction: false,
-                      fitToData: true,
+                      fitToData: routeViewport.fitToData,
                       showGrid: false,
                       minimalWorldStyle: false,
+                      transparentBackground: true,
+                      bottomFade: routeViewport.usesWorldView,
+                      excludePolarShelf: true,
+                      animateRouteReveal: true,
                       showPassportTexture: false,
                       compactWorldViewport: true,
                       horizontalPadding: 0,
@@ -278,30 +284,14 @@ class _PassportArtwork extends StatelessWidget {
                       // Keep route endpoints in the upper artwork area; the
                       // lower area is reserved for the distance and metrics.
                       fitDataHeightFactor: .5,
-                      fitDataCenterY: .34,
-                      fitZoomMultiplier: routeOrientation.fitZoomMultiplier,
+                      fitDataCenterY: routeViewport.usesWorldView ? .31 : .34,
+                      fitZoomMultiplier: routeViewport.fitZoomMultiplier,
                     ),
                   ),
                 ),
               ),
             ),
-            const DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    Color(0xcc060b11),
-                    Color(0x28060b11),
-                    Color(0x00060b11),
-                    Color(0x40060b11),
-                    Color(0xe8060b11),
-                    Color(0xff060b11),
-                  ],
-                  stops: [0, .12, .38, .54, .72, 1],
-                ),
-              ),
-            ),
+            _PassportDataFadeOverlay(isWorldView: routeViewport.usesWorldView),
             Padding(
               padding: EdgeInsets.fromLTRB(horizontal, 16, horizontal, 24),
               child: Column(
@@ -335,86 +325,53 @@ class _PassportArtwork extends StatelessWidget {
   );
 }
 
-/// Chooses a restrained map rotation only when the recorded route network has
-/// a strong directional bias. Dense clusters and global footprints remain
-/// north-up so geography stays instantly recognizable.
-class _RouteOrientation {
-  const _RouteOrientation({
-    required this.angle,
-    required this.fitZoomMultiplier,
-  });
+/// A card-fixed lower fade that restores the quiet depth behind the data
+/// block. It stays transparent through the route area, then settles into the
+/// card surface underneath the metrics and flags.
+class _PassportDataFadeOverlay extends StatelessWidget {
+  const _PassportDataFadeOverlay({required this.isWorldView});
 
-  final double angle;
-  final double fitZoomMultiplier;
+  final bool isWorldView;
 
-  static const _maxAngle = math.pi / 10; // 18 degrees
-
-  factory _RouteOrientation.fromRoutes(List<MapRoute> routes) {
-    final points = <Offset>[];
-    for (final route in routes) {
-      final fromLatitude = route.from.latitude * math.pi / 180;
-      final toLatitude = route.to.latitude * math.pi / 180;
-      points.add(
-        Offset(
-          route.from.longitude * math.cos(fromLatitude),
-          -route.from.latitude,
+  @override
+  Widget build(BuildContext context) {
+    // Match the earlier passport treatment: a restrained top vignette, a
+    // clear middle map window, and a longer, denser fade behind the data.
+    final stops = isWorldView
+        ? const [0.0, .45, .58, .7, .84, 1.0]
+        : const [0.0, .12, .36, .5, .64, .78, .92, 1.0];
+    final colors = isWorldView
+        ? const [
+            Color(0x00060b11),
+            Color(0x00060b11),
+            Color(0x12060b11),
+            Color(0x40060b11),
+            Color(0xb0060b11),
+            Color(0xff060b11),
+          ]
+        : const [
+            Color(0xb8060b11),
+            Color(0x16060b11),
+            Color(0x00060b11),
+            Color(0x08060b11),
+            Color(0x40060b11),
+            Color(0x9a060b11),
+            Color(0xfc060b11),
+            Color(0xff060b11),
+          ];
+    return Positioned.fill(
+      child: IgnorePointer(
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: colors,
+              stops: stops,
+            ),
+          ),
         ),
-      );
-      points.add(
-        Offset(route.to.longitude * math.cos(toLatitude), -route.to.latitude),
-      );
-    }
-    if (points.length < 4)
-      return const _RouteOrientation(angle: 0, fitZoomMultiplier: .94);
-
-    final center =
-        points.fold<Offset>(Offset.zero, (sum, point) => sum + point) /
-        points.length.toDouble();
-    var xx = 0.0;
-    var yy = 0.0;
-    var xy = 0.0;
-    for (final point in points) {
-      final dx = point.dx - center.dx;
-      final dy = point.dy - center.dy;
-      xx += dx * dx;
-      yy += dy * dy;
-      xy += dx * dy;
-    }
-    final covarianceScale = 1 / points.length;
-    xx *= covarianceScale;
-    yy *= covarianceScale;
-    xy *= covarianceScale;
-    final spread = xx + yy;
-    if (spread < .0001) {
-      return const _RouteOrientation(angle: 0, fitZoomMultiplier: .94);
-    }
-
-    final discriminant = math.sqrt(math.pow(xx - yy, 2) + 4 * xy * xy);
-    final major = (spread + discriminant) / 2;
-    final minor = math.max(.0001, (spread - discriminant) / 2);
-    final anisotropy = major / minor;
-    if (anisotropy < 1.45) {
-      return const _RouteOrientation(angle: 0, fitZoomMultiplier: .94);
-    }
-
-    var angle = -0.5 * math.atan2(2 * xy, xx - yy);
-    while (angle > math.pi / 2) {
-      angle -= math.pi;
-    }
-    while (angle < -math.pi / 2) {
-      angle += math.pi;
-    }
-    if (angle.abs() > _maxAngle) {
-      return const _RouteOrientation(angle: 0, fitZoomMultiplier: .94);
-    }
-
-    final confidence = ((anisotropy - 1.45) / 2.2).clamp(0.0, 1.0);
-    angle *= confidence;
-    return _RouteOrientation(
-      angle: angle,
-      // Rotating a fitted viewport exposes the corners sooner. The extra
-      // margin keeps the route endpoints and decorative arcs inside the map.
-      fitZoomMultiplier: .94 - confidence * .04,
+      ),
     );
   }
 }

@@ -156,26 +156,12 @@ class _AddFlightPageState extends State<AddFlightPage> {
                                 child: SizedBox(
                                   width: 48,
                                   height: 72,
-                                  child: Stack(
-                                    alignment: Alignment.center,
-                                    children: [
-                                      Container(
-                                        width: 48,
-                                        height: 48,
-                                        alignment: Alignment.center,
-                                        decoration: BoxDecoration(
-                                          color: AppColors.purple.withValues(
-                                            alpha: .22,
-                                          ),
-                                          shape: BoxShape.circle,
-                                        ),
-                                        child: const Icon(
-                                          Icons.flight_takeoff_rounded,
-                                          color: AppColors.lime,
-                                          size: 22,
-                                        ),
-                                      ),
-                                    ],
+                                  child: const Center(
+                                    child: Icon(
+                                      Icons.flight_takeoff_rounded,
+                                      color: AppColors.lime,
+                                      size: 28,
+                                    ),
                                   ),
                                 ),
                               ),
@@ -420,20 +406,26 @@ class _AddFlightPageState extends State<AddFlightPage> {
     labelStyle: AppTextStyles.label,
     floatingLabelStyle: const TextStyle(
       color: AppColors.lime,
+      backgroundColor: AppColors.surface,
+      fontSize: 12,
+      height: 1,
       fontWeight: FontWeight.w600,
     ),
     contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 18),
     border: ShapedInputBorder(
       shape: AppShapes.medium,
       borderSide: const BorderSide(color: AppColors.border),
+      gapPadding: 8,
     ),
     enabledBorder: ShapedInputBorder(
       shape: AppShapes.medium,
       borderSide: const BorderSide(color: AppColors.border),
+      gapPadding: 8,
     ),
     focusedBorder: ShapedInputBorder(
       shape: AppShapes.medium,
       borderSide: const BorderSide(color: AppColors.lime, width: 1.5),
+      gapPadding: 8,
     ),
   );
 

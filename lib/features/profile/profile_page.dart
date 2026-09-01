@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
@@ -11,6 +12,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../app/app_links.dart';
 import '../../app/app_controller.dart';
+import '../../data/app_update_installer.dart';
 import '../../core/localization/app_strings.dart';
 import '../../data/app_update_service.dart';
 import '../../data/calendar_import_service.dart';
@@ -491,17 +493,7 @@ class _ProfilePageState extends State<ProfilePage> {
 
     switch (result.status) {
       case UpdateCheckStatus.available:
-        _message(
-          context,
-          '${strings.t('updateAvailable')} · v${result.latestVersion}',
-          action: result.releaseUrl == null
-              ? null
-              : SnackBarAction(
-                  label: strings.t('openRelease'),
-                  onPressed: () =>
-                      _openExternalUrl(context, result.releaseUrl!),
-                ),
-        );
+        await _showUpdatePrompt(context, result);
       case UpdateCheckStatus.upToDate:
         _message(context, strings.t('upToDate'));
       case UpdateCheckStatus.notConfigured:
@@ -523,6 +515,8 @@ class _ProfilePageState extends State<ProfilePage> {
 
     final strings = context.strings;
     final currentVersion = result.currentVersion ?? '—';
+    final canInstallInApp =
+        result.canDownloadInApp && AppUpdateInstaller.isSupported;
     final shouldOpen = await showDialog<bool>(
       context: context,
       barrierColor: Colors.black.withValues(alpha: .72),
@@ -584,8 +578,17 @@ class _ProfilePageState extends State<ProfilePage> {
                       foregroundColor: Colors.black,
                       shape: AppShapes.pill,
                     ),
-                    icon: const Icon(Icons.open_in_new_rounded, size: 18),
-                    label: Text(strings.t('openRelease')),
+                    icon: Icon(
+                      canInstallInApp
+                          ? Icons.download_rounded
+                          : Icons.open_in_new_rounded,
+                      size: 18,
+                    ),
+                    label: Text(
+                      canInstallInApp
+                          ? strings.t('updateNow')
+                          : strings.t('openRelease'),
+                    ),
                   ),
                 ],
               ),
@@ -595,8 +598,62 @@ class _ProfilePageState extends State<ProfilePage> {
       ),
     );
 
-    if (shouldOpen == true && context.mounted && result.releaseUrl != null) {
+    if (shouldOpen != true || !context.mounted) return;
+    if (canInstallInApp) {
+      await _downloadAndInstallUpdate(context, result);
+    } else if (result.releaseUrl != null) {
       await _openExternalUrl(context, result.releaseUrl!);
+    }
+  }
+
+  Future<void> _downloadAndInstallUpdate(
+    BuildContext context,
+    AppUpdateResult result,
+  ) async {
+    final strings = context.strings;
+    final progress = ValueNotifier<double?>(0);
+    var dialogVisible = true;
+    var apkDownloaded = false;
+    final dialogFuture = showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      barrierColor: AppColors.background.withValues(alpha: .86),
+      builder: (_) => _UpdateDownloadDialog(progress: progress),
+    );
+
+    try {
+      // Give the progress surface one frame to appear before network I/O.
+      await WidgetsBinding.instance.endOfFrame;
+      final apk = await _updateService.downloadApk(
+        result,
+        onProgress: (received, total) {
+          progress.value = total == null || total <= 0
+              ? null
+              : (received / total).clamp(0.0, 1.0).toDouble();
+        },
+      );
+      apkDownloaded = true;
+      if (context.mounted && dialogVisible) {
+        Navigator.of(context, rootNavigator: true).pop();
+        dialogVisible = false;
+      }
+      if (context.mounted) await dialogFuture;
+      if (!context.mounted) return;
+      await AppUpdateInstaller.install(apk);
+    } catch (error) {
+      if (context.mounted && dialogVisible) {
+        Navigator.of(context, rootNavigator: true).pop();
+        dialogVisible = false;
+        await dialogFuture;
+      }
+      if (context.mounted) {
+        final message = apkDownloaded
+            ? strings.t('installUpdateFailed')
+            : strings.t('downloadUpdateFailed');
+        _message(context, '$message: $error');
+      }
+    } finally {
+      progress.dispose();
     }
   }
 
@@ -1185,6 +1242,59 @@ class _ProfileAboutButton extends StatelessWidget {
               ),
             ],
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _UpdateDownloadDialog extends StatelessWidget {
+  const _UpdateDownloadDialog({required this.progress});
+
+  final ValueListenable<double?> progress;
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = context.strings;
+    return Dialog(
+      backgroundColor: AppColors.surfaceElevated,
+      surfaceTintColor: Colors.transparent,
+      shape: AppShapes.large,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(24, 26, 24, 24),
+        child: ValueListenableBuilder<double?>(
+          valueListenable: progress,
+          builder: (context, value, _) => Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Icon(
+                Icons.downloading_rounded,
+                color: AppColors.lime,
+                size: 30,
+              ),
+              const SizedBox(height: 16),
+              Text(
+                strings.t('downloadingUpdate'),
+                style: AppTextStyles.sectionTitle,
+              ),
+              const SizedBox(height: 18),
+              LinearProgressIndicator(
+                value: value,
+                minHeight: 6,
+                borderRadius: BorderRadius.circular(99),
+                color: AppColors.lime,
+                backgroundColor: AppColors.lime.withValues(alpha: .14),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                value == null
+                    ? strings.t('preparingUpdate')
+                    : '${(value * 100).round()}%',
+                style: AppTextStyles.label,
+              ),
+            ],
+          ),
         ),
       ),
     );

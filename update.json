@@ -1,6 +1,7 @@
 {
-  "version": "1.1.0",
-  "build": 7,
-  "releaseUrl": "https://github.com/yiming-space/flight-footprint/releases/tag/v1.1.0",
-  "notes": "优化全局圆角 UI、航班卡片与洲际航线展示；新增进入关于页自动检查更新和新版本提示。"
+  "version": "1.1.1",
+  "build": 8,
+  "releaseUrl": "https://github.com/yiming-space/flight-footprint/releases/tag/v1.1.1",
+  "apkUrl": "https://github.com/yiming-space/flight-footprint/releases/download/v1.1.1/flight-footprint-1.1.1.apk",
+  "notes": "新增应用内更新；优化地图全屏与航线动画、飞行统计卡片和洲际航线展示；修复机场导入识别与多种卡片排版问题。"
 }

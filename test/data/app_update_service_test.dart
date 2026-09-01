@@ -35,6 +35,8 @@ void main() {
   const repository = 'https://github.com/example/flight-footprint';
 
   test('reports a newer GitHub release', () async {
+    const apk =
+        'https://github.com/example/flight-footprint/releases/download/v1.0.1/app-release.apk';
     final service = AppUpdateService(
       repositoryUrl: Uri.parse(repository),
       client: _FakeClient((request) {
@@ -44,6 +46,7 @@ void main() {
             'version': '1.0.1',
             'build': 7,
             'releaseUrl': '$repository/releases/tag/v1.0.1',
+            'apkUrl': apk,
             'notes': 'Fixes map rendering.',
           }),
           200,
@@ -59,6 +62,43 @@ void main() {
     expect(result.currentVersion, '1.0.0+6');
     expect(result.latestVersion, '1.0.1');
     expect(result.releaseNotes, 'Fixes map rendering.');
+    expect(result.downloadUrl, Uri.parse(apk));
+  });
+
+  test('finds an APK asset from the GitHub releases fallback', () async {
+    const apk =
+        'https://github.com/example/flight-footprint/releases/download/v1.0.1/app-release.apk';
+    final service = AppUpdateService(
+      repositoryUrl: Uri.parse(repository),
+      client: _FakeClient((request) {
+        if (request.url.host == 'raw.githubusercontent.com') {
+          return http.Response('{}', 404);
+        }
+        return http.Response(
+          jsonEncode({
+            'tag_name': 'v1.0.1',
+            'html_url': '$repository/releases/tag/v1.0.1',
+            'body': 'Fixes map rendering.',
+            'assets': [
+              {
+                'name': 'app-release.apk',
+                'browser_download_url': apk,
+                'size': 123456,
+              },
+            ],
+          }),
+          200,
+        );
+      }),
+      packageInfo: () async => _package('1.0.0'),
+    );
+
+    final result = await service.checkForUpdates();
+    service.dispose();
+
+    expect(result.status, UpdateCheckStatus.available);
+    expect(result.downloadUrl, Uri.parse(apk));
+    expect(result.downloadSize, 123456);
   });
 
   test('reports up to date when the release is not newer', () async {

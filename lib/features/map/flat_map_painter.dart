@@ -25,6 +25,10 @@ class FlatMapPainter extends CustomPainter {
     this.showLabels = false,
     this.showGrid = true,
     this.minimalWorldStyle = false,
+    this.transparentBackground = false,
+    this.bottomFade = false,
+    this.excludePolarShelf = false,
+    this.routeRevealProgress = 1,
     this.showPassportTexture = false,
     this.compactWorldViewport = false,
     this.visualScale = 1,
@@ -41,6 +45,25 @@ class FlatMapPainter extends CustomPainter {
   final bool showLabels;
   final bool showGrid;
   final bool minimalWorldStyle;
+
+  /// Keeps the surrounding composition visible through the map canvas. This
+  /// is useful for the passport card, whose map is translated independently
+  /// from its bottom gradient.
+  final bool transparentBackground;
+
+  /// Fades only the Antarctic landform into the transparent composition
+  /// surface. Routes and the rest of the world keep their original contrast.
+  final bool bottomFade;
+
+  /// Hides Antarctica's country-outline layer in compact passport artwork.
+  /// The base land fill remains visible; only the clipped outline that can
+  /// read as a straight line below Antarctica is omitted.
+  final bool excludePolarShelf;
+
+  /// Reveals flight paths progressively from departure to arrival. The
+  /// default keeps dashboard maps static; passport cards drive this value
+  /// during a year change.
+  final double routeRevealProgress;
 
   /// Paints a restrained engraved texture for the passport artwork. The
   /// texture is drawn before routes and markers so those remain crisp.
@@ -114,7 +137,7 @@ class FlatMapPainter extends CustomPainter {
     // The passport card supplies its own dark surface. Leave the compact map
     // canvas untouched so only the world silhouette, routes, and markers
     // appear; dashboard maps retain their opaque map panel.
-    if (!minimalWorldStyle) {
+    if (!minimalWorldStyle && !transparentBackground) {
       canvas.drawColor(const Color(0xff0b1015), BlendMode.src);
     }
     if (horizontalWrap) {
@@ -152,7 +175,14 @@ class FlatMapPainter extends CustomPainter {
       _drawMinimalWorld(canvas, size);
       if (showPassportTexture) _drawPassportTexture(canvas, size);
     } else {
-      _drawPolygons(canvas, size, data.land.polygons, _landFill, null);
+      _drawPolygons(
+        canvas,
+        size,
+        data.land.polygons,
+        _landFill,
+        null,
+        fadeAntarctic: bottomFade,
+      );
     }
 
     if (!minimalWorldStyle && mode == MapMode.travelFootprint) {
@@ -184,6 +214,7 @@ class FlatMapPainter extends CustomPainter {
         data.countries.polygons,
         const Color(0xff3a4757),
         .65,
+        skipPolarShelf: excludePolarShelf,
       );
       _drawPolygonOutlines(
         canvas,
@@ -198,6 +229,7 @@ class FlatMapPainter extends CustomPainter {
         data.countries.lines,
         const Color(0xff3a4757),
         .65,
+        skipPolarShelf: excludePolarShelf,
       );
       _drawLines(
         canvas,
@@ -227,12 +259,29 @@ class FlatMapPainter extends CustomPainter {
         final offset = reverseIndex >= 0
             ? (index < reverseIndex ? -2.4 : 2.4)
             : 0.0;
-        _drawRoute(canvas, size, route, index, offset: _screen(offset));
+        _drawRoute(
+          canvas,
+          size,
+          route,
+          index,
+          offset: _screen(offset),
+          routeProgress: _routeProgressForIndex(index, routes.length),
+        );
       }
       _drawAirports(canvas, size);
     } else {
       _drawPlaces(canvas, size);
     }
+  }
+
+  double _routeProgressForIndex(int index, int count) {
+    final progress = routeRevealProgress.clamp(0.0, 1.0).toDouble();
+    if (count < 2) return progress;
+    // A small stagger gives the network a readable rhythm without making a
+    // dense year feel slow. The paths still overlap heavily and settle with
+    // the camera in one continuous transition.
+    final start = index / (count - 1) * .24;
+    return ((progress - start) / .78).clamp(0.0, 1.0).toDouble();
   }
 
   _ProjectedGeometry _geometryFor(Size size) {
@@ -275,7 +324,6 @@ class FlatMapPainter extends CustomPainter {
     final paths = _polygonPaths(data.land.polygons, size);
     final paint = Paint()..color = const Color(0xff303a45);
     for (var index = 0; index < paths.length; index++) {
-      if (_isAntarctica(data.land.polygons[index])) continue;
       canvas.drawPath(paths[index], paint);
     }
   }
@@ -293,7 +341,6 @@ class FlatMapPainter extends CustomPainter {
     final paths = _polygonPaths(data.land.polygons, size);
     final land = Path();
     for (var index = 0; index < paths.length; index++) {
-      if (_isAntarctica(data.land.polygons[index])) continue;
       land.addPath(paths[index], Offset.zero);
     }
     canvas.save();
@@ -323,8 +370,8 @@ class FlatMapPainter extends CustomPainter {
     final maxLatitude = points.reduce(math.max);
     final minLatitude = points.reduce(math.min);
     // The Natural Earth land layer contains Antarctica as a detached polygon
-    // below roughly 60°S. Keep southern islands, but remove the polar shelf
-    // from the compact passport silhouette.
+    // below roughly 60°S. Keep southern islands separate from the Antarctic
+    // mainland when deciding whether its outline should be suppressed.
     return maxLatitude < -58 && minLatitude < -60;
   }
 
@@ -374,8 +421,9 @@ class FlatMapPainter extends CustomPainter {
     Size size,
     List<MapPolygon> polygons,
     Color Function(int index) fill,
-    Color? stroke,
-  ) {
+    Color? stroke, {
+    bool fadeAntarctic = false,
+  }) {
     final strokePaint = stroke == null
         ? null
         : (Paint()
@@ -385,9 +433,57 @@ class FlatMapPainter extends CustomPainter {
     final paths = _polygonPaths(polygons, size);
     for (var index = 0; index < paths.length; index++) {
       final path = paths[index];
-      canvas.drawPath(path, Paint()..color = fill(index));
+      final color = fill(index);
+      final paint = fadeAntarctic && _isAntarctica(polygons[index])
+          ? _antarcticFadePaint(path.getBounds(), color, size.height)
+          : (Paint()..color = color);
+      canvas.drawPath(path, paint);
       if (strokePaint != null) canvas.drawPath(path, strokePaint);
     }
+  }
+
+  Paint _antarcticFadePaint(
+    Rect bounds,
+    Color landColor,
+    double viewportBottom,
+  ) {
+    // The source Antarctica polygon reaches the geographic South Pole, which
+    // can sit below the compact passport canvas. Use the visible canvas edge
+    // as the fade's end so the rendered strip dissolves before it is clipped.
+    final fadeBottom = math.min(bounds.bottom, viewportBottom);
+    final visibleHeight = math.max(1.0, fadeBottom - bounds.top);
+    // Start the shader slightly above the coastline. The polygon still keeps
+    // its fill, but its first visible pixels enter the composition already
+    // softened instead of creating a second, hard horizontal card edge.
+    final fadeTop = math.max(0.0, bounds.top - visibleHeight * .18);
+    final fadeBounds = Rect.fromLTRB(
+      bounds.left,
+      fadeTop,
+      bounds.right,
+      math.max(bounds.top + 1, fadeBottom),
+    );
+    const surfaceColor = Color(0xff060b11);
+    // Antarctica is part of the map, not another visual panel. Keeping a
+    // quieter version of the land tone at the coastline lets the lower edge
+    // become genuinely transparent and hand off to the card's fixed fade.
+    final polarLandColor = Color.lerp(surfaceColor, landColor, .42)!;
+    final shader = LinearGradient(
+      begin: Alignment.topCenter,
+      end: Alignment.bottomCenter,
+      colors: [
+        polarLandColor,
+        polarLandColor.withValues(alpha: .94),
+        polarLandColor.withValues(alpha: .85),
+        polarLandColor.withValues(alpha: .72),
+        polarLandColor.withValues(alpha: .56),
+        polarLandColor.withValues(alpha: .38),
+        polarLandColor.withValues(alpha: .21),
+        polarLandColor.withValues(alpha: .08),
+        const Color(0x00060b11),
+      ],
+      stops: const [0.0, .12, .27, .43, .59, .73, .85, .95, 1.0],
+    ).createShader(fadeBounds);
+    return Paint()..shader = shader;
   }
 
   void _drawFootprintPolygons(
@@ -458,14 +554,21 @@ class FlatMapPainter extends CustomPainter {
     Size size,
     List<MapLine> lines,
     Color color,
-    double width,
-  ) {
+    double width, {
+    bool skipPolarShelf = false,
+  }) {
     final paint = Paint()
       ..color = color
       ..style = PaintingStyle.stroke
       ..strokeWidth = _screen(width);
-    for (final path in _linePaths(lines, size)) {
-      canvas.drawPath(path, paint);
+    final paths = _linePaths(lines, size);
+    for (var index = 0; index < paths.length; index++) {
+      if (skipPolarShelf &&
+          index < lines.length &&
+          _isAntarcticaLine(lines[index])) {
+        continue;
+      }
+      canvas.drawPath(paths[index], paint);
     }
   }
 
@@ -474,15 +577,24 @@ class FlatMapPainter extends CustomPainter {
     Size size,
     List<MapPolygon> polygons,
     Color color,
-    double width,
-  ) {
+    double width, {
+    bool skipPolarShelf = false,
+  }) {
     final paint = Paint()
       ..color = color
       ..style = PaintingStyle.stroke
       ..strokeWidth = _screen(width);
-    for (final path in _polygonPaths(polygons, size)) {
-      canvas.drawPath(path, paint);
+    final paths = _polygonPaths(polygons, size);
+    for (var index = 0; index < paths.length; index++) {
+      if (skipPolarShelf && _isAntarctica(polygons[index])) continue;
+      canvas.drawPath(paths[index], paint);
     }
+  }
+
+  bool _isAntarcticaLine(MapLine line) {
+    if (line.points.isEmpty) return false;
+    final latitudes = [for (final point in line.points) point[1]];
+    return latitudes.reduce(math.max) < -58 && latitudes.reduce(math.min) < -60;
   }
 
   void _drawRoute(
@@ -491,6 +603,7 @@ class FlatMapPainter extends CustomPainter {
     MapRoute route,
     int index, {
     double offset = 0,
+    double routeProgress = 1,
   }) {
     // Use one consistent spherical interpolation for every flight. Besides
     // keeping the map visually coherent, this prevents imported sampled
@@ -523,43 +636,70 @@ class FlatMapPainter extends CustomPainter {
     // copies, so a route never leaks through a neighbouring tile or leaves
     // its endpoint in a different copy.
     final routeSegments = _splitRouteAtWorldSeam(offsetPoints, size);
+    final segmentPaths = <Path>[];
+    var routeLength = 0.0;
     for (final segment in routeSegments) {
       if (segment.length < 2) continue;
       final path = Path()..moveTo(segment.first.dx, segment.first.dy);
       for (final projected in segment.skip(1)) {
         path.lineTo(projected.dx, projected.dy);
       }
-      canvas.drawPath(path, paint);
+      segmentPaths.add(path);
+      for (final metric in path.computeMetrics()) {
+        routeLength += metric.length;
+      }
+    }
+    if (routeLength <= 0) return;
+    final revealLength = routeLength * routeProgress.clamp(0.0, 1.0).toDouble();
+    var remaining = revealLength;
+    outer:
+    for (final path in segmentPaths) {
+      for (final metric in path.computeMetrics()) {
+        final visibleLength = math.min(remaining, metric.length).toDouble();
+        if (visibleLength > 0) {
+          canvas.drawPath(metric.extractPath(0, visibleLength), paint);
+        }
+        remaining -= visibleLength;
+        if (remaining <= 0) break outer;
+      }
     }
 
-    final arrowIndex = (((offsetPoints.length - 1) / 2).round())
-        .clamp(1, offsetPoints.length - 1)
-        .toInt();
-    final rawArrowEnd = offsetPoints[arrowIndex];
-    final rawArrowBefore = offsetPoints[arrowIndex - 1];
-    final arrowEnd = _canonicalWorldPoint(rawArrowEnd, size);
-    var arrowDirection =
-        _canonicalWorldPoint(rawArrowEnd, size) -
-        _canonicalWorldPoint(rawArrowBefore, size);
-    final worldWidth = _worldPixelWidth(size);
-    if (arrowDirection.dx > worldWidth / 2) {
-      arrowDirection = Offset(
-        arrowDirection.dx - worldWidth,
-        arrowDirection.dy,
-      );
-    } else if (arrowDirection.dx < -worldWidth / 2) {
-      arrowDirection = Offset(
-        arrowDirection.dx + worldWidth,
-        arrowDirection.dy,
-      );
+    // The arrow appears exactly when the stroke reaches the route midpoint,
+    // so it feels discovered by the drawing rather than popping in globally.
+    if (routeProgress >= .5) {
+      final arrowIndex = (((offsetPoints.length - 1) / 2).round())
+          .clamp(1, offsetPoints.length - 1)
+          .toInt();
+      final rawArrowEnd = offsetPoints[arrowIndex];
+      final rawArrowBefore = offsetPoints[arrowIndex - 1];
+      final arrowEnd = _canonicalWorldPoint(rawArrowEnd, size);
+      var arrowDirection =
+          _canonicalWorldPoint(rawArrowEnd, size) -
+          _canonicalWorldPoint(rawArrowBefore, size);
+      final worldWidth = _worldPixelWidth(size);
+      if (arrowDirection.dx > worldWidth / 2) {
+        arrowDirection = Offset(
+          arrowDirection.dx - worldWidth,
+          arrowDirection.dy,
+        );
+      } else if (arrowDirection.dx < -worldWidth / 2) {
+        arrowDirection = Offset(
+          arrowDirection.dx + worldWidth,
+          arrowDirection.dy,
+        );
+      }
+      final arrowBefore = arrowEnd - arrowDirection;
+      _drawArrowhead(canvas, arrowBefore, arrowEnd, color);
     }
-    final arrowBefore = arrowEnd - arrowDirection;
-    _drawArrowhead(canvas, arrowBefore, arrowEnd, color);
-    final start = _canonicalWorldPoint(offsetPoints.first, size);
-    final end = _canonicalWorldPoint(offsetPoints.last, size);
     final endpointRadius = showPassportTexture ? 1.92 : 3.2;
-    canvas.drawCircle(start, _screen(endpointRadius), Paint()..color = color);
-    canvas.drawCircle(end, _screen(endpointRadius), Paint()..color = color);
+    if (routeProgress > 0) {
+      final start = _canonicalWorldPoint(offsetPoints.first, size);
+      canvas.drawCircle(start, _screen(endpointRadius), Paint()..color = color);
+    }
+    if (routeProgress >= 1) {
+      final end = _canonicalWorldPoint(offsetPoints.last, size);
+      canvas.drawCircle(end, _screen(endpointRadius), Paint()..color = color);
+    }
   }
 
   /// Splits an unwrapped route whenever it crosses the map's date-line seam.
@@ -997,6 +1137,10 @@ class FlatMapPainter extends CustomPainter {
       old.mode != mode ||
       old.showLabels != showLabels ||
       old.minimalWorldStyle != minimalWorldStyle ||
+      old.transparentBackground != transparentBackground ||
+      old.bottomFade != bottomFade ||
+      old.excludePolarShelf != excludePolarShelf ||
+      old.routeRevealProgress != routeRevealProgress ||
       old.showPassportTexture != showPassportTexture ||
       old.compactWorldViewport != compactWorldViewport ||
       old.visualScale != visualScale ||

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -32,6 +33,7 @@ class _HomePageState extends State<HomePage> {
   MapMode _mode = MapMode.flight;
   late final Future<CityCatalog> _chinaCatalog = CityCatalog.loadChina();
   CityCatalog? _mapCatalog;
+  final _mapPreviewKey = GlobalKey();
 
   @override
   void initState() {
@@ -158,6 +160,7 @@ class _HomePageState extends State<HomePage> {
                 ),
                 const SizedBox(height: 18),
                 Container(
+                  key: _mapPreviewKey,
                   height: mapHeight,
                   clipBehavior: Clip.antiAlias,
                   decoration: ShapeDecoration(
@@ -582,11 +585,15 @@ class _HomePageState extends State<HomePage> {
     required List<MapPlace> places,
     required Future<void> Function(List<MapPlace> candidates) onPlaceLongPress,
   }) {
+    final mapPreviewRect = _mapPreviewRect();
     Navigator.of(context).push(
       PageRouteBuilder<void>(
+        // Let the preview remain visible around the expanding map. The route
+        // itself fills the window by the end of the transition.
+        opaque: false,
         fullscreenDialog: true,
-        transitionDuration: const Duration(milliseconds: 360),
-        reverseTransitionDuration: const Duration(milliseconds: 280),
+        transitionDuration: const Duration(milliseconds: 420),
+        reverseTransitionDuration: const Duration(milliseconds: 320),
         pageBuilder: (_, animation, secondaryAnimation) => MapFullscreenPage(
           mode: mode,
           airports: airports,
@@ -605,16 +612,20 @@ class _HomePageState extends State<HomePage> {
             curve: Curves.easeOutCubic,
             reverseCurve: Curves.easeInCubic,
           );
-          return FadeTransition(
-            opacity: curve,
-            child: ScaleTransition(
-              scale: Tween<double>(begin: .94, end: 1).animate(curve),
-              child: child,
-            ),
+          return _MapFullscreenTransition(
+            animation: curve,
+            sourceRect: mapPreviewRect,
+            child: child,
           );
         },
       ),
     );
+  }
+
+  Rect? _mapPreviewRect() {
+    final renderObject = _mapPreviewKey.currentContext?.findRenderObject();
+    if (renderObject is! RenderBox || !renderObject.hasSize) return null;
+    return renderObject.localToGlobal(Offset.zero) & renderObject.size;
   }
 
   List<MapPlace> _mapPlacesSnapshot() {
@@ -755,6 +766,85 @@ class _HomePageState extends State<HomePage> {
       ),
     );
   }
+}
+
+class _MapFullscreenTransition extends AnimatedWidget {
+  const _MapFullscreenTransition({
+    required Animation<double> animation,
+    required this.sourceRect,
+    required this.child,
+  }) : super(listenable: animation);
+
+  static const _cardRadius = 44.0;
+
+  final Rect? sourceRect;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final animation = listenable as Animation<double>;
+    final progress = animation.value.clamp(0.0, 1.0).toDouble();
+    final viewport = MediaQuery.sizeOf(context);
+    final destinationRect = Offset.zero & viewport;
+    final startRect =
+        sourceRect ??
+        Rect.fromCenter(
+          center: destinationRect.center,
+          width: viewport.width * .96,
+          height: viewport.height * .96,
+        );
+    final visibleRect = Rect.lerp(startRect, destinationRect, progress)!;
+
+    // Use one uniform scale so the map never stretches while it grows from
+    // the portrait preview into the full-screen surface. The clip reveals a
+    // cover crop at the first frame, then releases it as the surface expands.
+    final startScale = math.max(
+      startRect.width / viewport.width,
+      startRect.height / viewport.height,
+    );
+    final scale = startScale + (1 - startScale) * progress;
+    final viewportCenter = Offset(viewport.width / 2, viewport.height / 2);
+    final startDx = startRect.center.dx - viewportCenter.dx * startScale;
+    final startDy = startRect.center.dy - viewportCenter.dy * startScale;
+    final dx = startDx * (1 - progress);
+    final dy = startDy * (1 - progress);
+    final transform = Matrix4.identity()
+      ..translateByDouble(dx, dy, 0, 1)
+      ..scaleByDouble(scale, scale, 1, 1);
+
+    return ClipPath(
+      clipper: _MapFullscreenClipper(
+        rect: visibleRect,
+        radius: _cardRadius * (1 - progress),
+      ),
+      child: Transform(
+        alignment: Alignment.topLeft,
+        transform: transform,
+        child: FadeTransition(
+          // A small amount of opacity easing prevents the destination map's
+          // first loaded frame from flashing over the preview underneath.
+          opacity: Tween<double>(begin: .9, end: 1).animate(animation),
+          child: child,
+        ),
+      ),
+    );
+  }
+}
+
+class _MapFullscreenClipper extends CustomClipper<Path> {
+  const _MapFullscreenClipper({required this.rect, required this.radius});
+
+  final Rect rect;
+  final double radius;
+
+  @override
+  Path getClip(Size size) =>
+      RoundedSuperellipseBorder(borderRadius: BorderRadius.circular(radius))
+          .getOuterPath(rect);
+
+  @override
+  bool shouldReclip(covariant _MapFullscreenClipper oldClipper) =>
+      oldClipper.rect != rect || oldClipper.radius != radius;
 }
 
 class _HomeGreeting extends StatelessWidget {

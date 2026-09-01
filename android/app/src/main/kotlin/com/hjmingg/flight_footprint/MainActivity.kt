@@ -1,11 +1,15 @@
 package com.hjmingg.flight_footprint
 
 import android.Manifest
+import android.content.ActivityNotFoundException
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.provider.CalendarContract
+import androidx.core.content.FileProvider
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.plugin.common.MethodChannel
+import java.io.File
 
 /**
  * Calendar access stays behind a very small platform channel.  The Flutter
@@ -16,6 +20,7 @@ import io.flutter.plugin.common.MethodChannel
 class MainActivity : FlutterActivity() {
     companion object {
         private const val CALENDAR_CHANNEL = "flight_footprint/calendar"
+        private const val UPDATE_CHANNEL = "flight_footprint/update"
         private const val READ_CALENDAR_REQUEST = 4101
     }
 
@@ -32,6 +37,45 @@ class MainActivity : FlutterActivity() {
                 "queryEvents" -> queryEvents(call.arguments, result)
                 else -> result.notImplemented()
             }
+        }
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            UPDATE_CHANNEL,
+        ).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "installApk" -> installApk(call.argument<String>("path"), result)
+                else -> result.notImplemented()
+            }
+        }
+    }
+
+    private fun installApk(path: String?, result: MethodChannel.Result) {
+        if (path.isNullOrBlank()) {
+            result.error("update_file_missing", "The update file path is empty.", null)
+            return
+        }
+        val apk = File(path)
+        if (!apk.isFile) {
+            result.error("update_file_missing", "The update APK does not exist.", null)
+            return
+        }
+        try {
+            val uri = FileProvider.getUriForFile(
+                this,
+                "${applicationContext.packageName}.fileprovider",
+                apk,
+            )
+            val intent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, "application/vnd.android.package-archive")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            startActivity(intent)
+            result.success(true)
+        } catch (error: ActivityNotFoundException) {
+            result.error("update_installer_missing", error.message, null)
+        } catch (error: IllegalArgumentException) {
+            result.error("update_file_invalid", error.message, null)
         }
     }
 

@@ -31,6 +31,11 @@ class OfflineMap extends StatefulWidget {
     this.verticalPadding = 14,
     this.showGrid = true,
     this.minimalWorldStyle = false,
+    this.transparentBackground = false,
+    this.bottomFade = false,
+    this.excludePolarShelf = false,
+    this.animateRouteReveal = false,
+    this.routeRevealProgress = 1,
     this.showPassportTexture = false,
     this.enableInteraction = false,
     this.horizontalWrap = false,
@@ -99,6 +104,30 @@ class OfflineMap extends StatefulWidget {
   /// Paint a single clean world silhouette without country, province, or
   /// maritime boundaries. This is used by the share card's editorial map.
   final bool minimalWorldStyle;
+
+  /// Leaves the map canvas transparent so a surrounding composition can own
+  /// its background and fade. Dashboard maps keep the opaque panel by default;
+  /// passport cards opt in to prevent the translated map canvas from exposing
+  /// a rectangular bottom edge over their gradient.
+  final bool transparentBackground;
+
+  /// Fades only the Antarctic landform into the transparent map surface before
+  /// the scene transform is applied. Other continents and routes retain their
+  /// original contrast.
+  final bool bottomFade;
+
+  /// Hides the clipped Antarctic outline in compact passport compositions.
+  /// The base land fill remains visible, while the outline that can read as a
+  /// straight edge beneath the map's fade is omitted.
+  final bool excludePolarShelf;
+
+  /// Animates route strokes when the supplied flight set changes. Kept off
+  /// for ordinary maps; the passport card opts in for year transitions.
+  final bool animateRouteReveal;
+
+  /// Progressively reveals flight routes from departure to arrival. It is
+  /// static by default so ordinary maps keep their existing behavior.
+  final double routeRevealProgress;
 
   /// Adds the static engraved texture used by the shareable passport card.
   /// It is opt-in so dashboard and fullscreen maps keep their existing clean
@@ -335,9 +364,14 @@ class _MapCircleButton extends StatelessWidget {
   );
 }
 
-class _OfflineMapState extends State<OfflineMap> {
+class _OfflineMapState extends State<OfflineMap> with TickerProviderStateMixin {
   late Future<GeoJsonMapBundle> _future;
   late final TransformationController _transform;
+  AnimationController? _fitAnimation;
+  CurvedAnimation? _fitCurve;
+  AnimationController? _routeRevealAnimation;
+  CurvedAnimation? _routeRevealCurve;
+  Matrix4Tween? _fitTween;
   String _fitKey = '';
   bool _showLabels = false;
   double _sceneScale = 1;
@@ -346,17 +380,63 @@ class _OfflineMapState extends State<OfflineMap> {
   double _minScale = 1;
   Size? _lastMapSize;
   bool _normalizingHorizontalPan = false;
+  bool _hasPresentedFit = false;
+  double _routeRevealProgress = 1;
+  int _routeRevealGeneration = 0;
 
   @override
   void initState() {
     super.initState();
     _transform = TransformationController();
     _transform.addListener(_onTransformChanged);
+    _ensureAnimations();
     _future = _loadBundle();
+  }
+
+  void _ensureAnimations() {
+    if (_fitAnimation == null || _fitCurve == null) {
+      final fitAnimation = AnimationController(
+        vsync: this,
+        duration: const Duration(milliseconds: 420),
+      );
+      final fitCurve = CurvedAnimation(
+        parent: fitAnimation,
+        curve: Curves.easeOutCubic,
+      );
+      _fitAnimation = fitAnimation;
+      _fitCurve = fitCurve;
+      fitAnimation.addListener(_applyFitAnimation);
+    }
+    if (_routeRevealAnimation == null || _routeRevealCurve == null) {
+      final routeRevealAnimation = AnimationController(
+        vsync: this,
+        // The route network needs more breathing room than the camera move,
+        // especially when a world card contains many overlapping flights.
+        duration: const Duration(milliseconds: 720),
+      );
+      final routeRevealCurve = CurvedAnimation(
+        parent: routeRevealAnimation,
+        curve: Curves.easeInOutCubic,
+      );
+      _routeRevealAnimation = routeRevealAnimation;
+      _routeRevealCurve = routeRevealCurve;
+      routeRevealAnimation.addListener(_applyRouteRevealAnimation);
+    }
+    // Keep an already-mounted controller in sync after a hot reload too.
+    _routeRevealAnimation?.duration = const Duration(milliseconds: 720);
+    _routeRevealCurve?.curve = Curves.easeInOutCubic;
   }
 
   @override
   void dispose() {
+    _fitCurve?.dispose();
+    _fitAnimation
+      ?..removeListener(_applyFitAnimation)
+      ..dispose();
+    _routeRevealCurve?.dispose();
+    _routeRevealAnimation
+      ?..removeListener(_applyRouteRevealAnimation)
+      ..dispose();
     _transform.removeListener(_onTransformChanged);
     _transform.dispose();
     super.dispose();
@@ -371,16 +451,73 @@ class _OfflineMapState extends State<OfflineMap> {
         .getMaxScaleOnAxis()
         .clamp(_minScale, 30.0)
         .toDouble();
-    if ((scale - _sceneScale).abs() < .01) return;
+    if (widget.enableInteraction && (scale - _sceneScale).abs() < .01) {
+      return;
+    }
     setState(() => _sceneScale = scale);
+  }
+
+  void _applyFitAnimation() {
+    final tween = _fitTween;
+    final fitCurve = _fitCurve;
+    if (!mounted || tween == null || fitCurve == null) return;
+    _transform.value = tween.evaluate(fitCurve);
+  }
+
+  void _applyRouteRevealAnimation() {
+    final routeRevealCurve = _routeRevealCurve;
+    if (!mounted || routeRevealCurve == null) return;
+    setState(() => _routeRevealProgress = routeRevealCurve.value);
+  }
+
+  void _queueRouteReveal() {
+    _ensureAnimations();
+    final animation = _routeRevealAnimation;
+    if (animation == null) return;
+    final generation = ++_routeRevealGeneration;
+    animation.stop();
+    _routeRevealProgress = 0;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || generation != _routeRevealGeneration) return;
+      animation.forward(from: 0);
+    });
+  }
+
+  void _presentFit(Matrix4 target) {
+    _ensureAnimations();
+    if (!_hasPresentedFit) {
+      _fitAnimation?.stop();
+      _transform.value = target;
+      _hasPresentedFit = true;
+      return;
+    }
+
+    // Retarget from the matrix currently on screen. This keeps a quick series
+    // of year taps continuous instead of restarting each transition from the
+    // previous logical target.
+    final fitAnimation = _fitAnimation;
+    if (fitAnimation == null) {
+      _transform.value = target;
+      return;
+    }
+    fitAnimation.stop();
+    _fitTween = Matrix4Tween(
+      begin: Matrix4.copy(_transform.value),
+      end: Matrix4.copy(target),
+    );
+    fitAnimation.forward(from: 0);
   }
 
   @override
   void didUpdateWidget(covariant OfflineMap oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.assetPath != widget.assetPath ||
-        oldWidget.loader != widget.loader ||
-        oldWidget.fitZoomMultiplier != widget.fitZoomMultiplier ||
+        oldWidget.loader != widget.loader) {
+      _future = _loadBundle();
+      _fitKey = '';
+      _hasPresentedFit = false;
+    }
+    if (oldWidget.fitZoomMultiplier != widget.fitZoomMultiplier ||
         oldWidget.fitVerticalBias != widget.fitVerticalBias ||
         oldWidget.fitDataHeightFactor != widget.fitDataHeightFactor ||
         oldWidget.fitDataCenterY != widget.fitDataCenterY ||
@@ -390,8 +527,18 @@ class _OfflineMapState extends State<OfflineMap> {
         oldWidget.horizontalPadding != widget.horizontalPadding ||
         oldWidget.verticalPadding != widget.verticalPadding ||
         oldWidget.horizontalWrap != widget.horizontalWrap) {
-      _future = _loadBundle();
       _fitKey = '';
+    }
+    final shouldRevealRoutes =
+        widget.animateRouteReveal &&
+        (oldWidget.routes != widget.routes ||
+            oldWidget.mode != widget.mode ||
+            !oldWidget.animateRouteReveal);
+    if (shouldRevealRoutes) {
+      _queueRouteReveal();
+    } else if (!widget.animateRouteReveal) {
+      _routeRevealAnimation?.stop();
+      _routeRevealProgress = 1;
     }
   }
 
@@ -435,7 +582,7 @@ class _OfflineMapState extends State<OfflineMap> {
           final mapSize = Size(width, height);
           _lastMapSize = mapSize;
           _scheduleFit(mapSize);
-          final map = GestureDetector(
+          Widget map = GestureDetector(
             behavior: HitTestBehavior.opaque,
             onTapUp: (details) {
               setState(() => _showLabels = !_showLabels);
@@ -463,6 +610,12 @@ class _OfflineMapState extends State<OfflineMap> {
                 showLabels: _showLabels,
                 showGrid: widget.showGrid,
                 minimalWorldStyle: widget.minimalWorldStyle,
+                transparentBackground: widget.transparentBackground,
+                bottomFade: widget.bottomFade,
+                excludePolarShelf: widget.excludePolarShelf,
+                routeRevealProgress: widget.animateRouteReveal
+                    ? _routeRevealProgress
+                    : 1,
                 showPassportTexture: widget.showPassportTexture,
                 compactWorldViewport: widget.compactWorldViewport,
                 visualScale: _sceneScale,
@@ -647,7 +800,7 @@ class _OfflineMapState extends State<OfflineMap> {
     _minScale = _interactionFloor(size);
     final matrix = _fitMatrix(size, points);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && _fitKey == key) _transform.value = matrix;
+      if (mounted && _fitKey == key) _presentFit(matrix);
     });
   }
 
@@ -657,7 +810,21 @@ class _OfflineMapState extends State<OfflineMap> {
         30.0,
         math.max(_minScale, _minScale * widget.fitZoomMultiplier),
       );
-      return _centeredScaleMatrix(size, initialScale);
+      // World-view compositions still have a deliberate content anchor. The
+      // passport card reserves its lower area for distance, metrics, and
+      // flags, so a complete world must follow fitDataCenterY as well; keeping
+      // this branch centered made intercontinental routes fall behind those
+      // overlays even though the data-fit branch already respected the same
+      // setting.
+      final fitCenterY = widget.fitDataCenterY.clamp(0.0, 1.0).toDouble();
+      final verticalOffset =
+          size.height * (fitCenterY - .5) +
+          size.height * widget.fitVerticalBias;
+      return _centeredScaleMatrix(
+        size,
+        initialScale,
+        verticalOffset: verticalOffset,
+      );
     }
     final projectionScale = MillerCylindricalProjection.scaleForSize(
       size,
@@ -787,8 +954,12 @@ class _OfflineMapState extends State<OfflineMap> {
       ..translateByDouble(-size.width / 2, -size.height / 2, 0, 1);
   }
 
-  Matrix4 _centeredScaleMatrix(Size size, double scale) => Matrix4.identity()
-    ..translateByDouble(size.width / 2, size.height / 2, 0, 1)
+  Matrix4 _centeredScaleMatrix(
+    Size size,
+    double scale, {
+    double verticalOffset = 0,
+  }) => Matrix4.identity()
+    ..translateByDouble(size.width / 2, size.height / 2 + verticalOffset, 0, 1)
     ..scaleByDouble(scale, scale, 1, 1)
     ..translateByDouble(-size.width / 2, -size.height / 2, 0, 1);
 

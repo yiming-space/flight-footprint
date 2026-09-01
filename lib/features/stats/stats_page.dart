@@ -65,11 +65,10 @@ class _StatsPageState extends State<StatsPage> {
       top: false,
       child: CustomScrollView(
         slivers: [
-          SliverToBoxAdapter(child: PageHeader(title: s.t('statistics'))),
           SliverPadding(
             padding: EdgeInsets.fromLTRB(
               AppSpacing.page,
-              0,
+              AppSpacing.page,
               AppSpacing.page,
               AppSpacing.bottomBarClearance(context),
             ),

@@ -2,11 +2,7 @@
 
 一个独立、离线、本地优先的 Flutter 飞行记录应用。1.1 支持 Android，数据无需登录即可记录在设备内；云同步和版本检查都是可选的自建能力。
 
-<img width="1500" height="2000" alt="app社交1" src="https://github.com/user-attachments/assets/f7e3d794-f4b1-4245-b922-e424e90142b4" />
-<img width="1500" height="2000" alt="app社交2" src="https://github.com/user-attachments/assets/965cd807-949a-4449-b867-1b5b23d34ad7" />
-<img width="1500" height="2000" alt="app社交6" src="https://github.com/user-attachments/assets/dd9ae596-6954-4e92-806a-47c33b085df7" />
-
-
+<img width="4500" height="2000" alt="app00" src="https://github.com/user-attachments/assets/6dfe0337-5632-4911-b3c7-10347d550a13" />
 
 ## 1.1 功能
 

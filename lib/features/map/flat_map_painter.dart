@@ -997,6 +997,7 @@ class FlatMapPainter extends CustomPainter {
       old.mode != mode ||
       old.showLabels != showLabels ||
       old.minimalWorldStyle != minimalWorldStyle ||
+      old.showPassportTexture != showPassportTexture ||
       old.compactWorldViewport != compactWorldViewport ||
       old.visualScale != visualScale ||
       old.horizontalPadding != horizontalPadding ||

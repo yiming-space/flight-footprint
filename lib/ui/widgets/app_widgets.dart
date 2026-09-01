@@ -6,12 +6,10 @@ class PageHeader extends StatelessWidget {
   const PageHeader({
     super.key,
     required this.title,
-    this.subtitle,
     this.onBack,
     this.trailing,
   });
   final String title;
-  final String? subtitle;
   final VoidCallback? onBack;
   final Widget? trailing;
 
@@ -20,13 +18,13 @@ class PageHeader extends StatelessWidget {
     header: true,
     child: Padding(
       padding: const EdgeInsets.fromLTRB(
-        AppSpacing.lg,
-        AppSpacing.lg,
-        AppSpacing.lg,
-        AppSpacing.md,
+        AppSpacing.page,
+        20,
+        AppSpacing.page,
+        18,
       ),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           if (onBack != null) ...[
             Semantics(
@@ -43,20 +41,10 @@ class PageHeader extends StatelessWidget {
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title, style: AppTextStyles.pageTitle),
-                if (subtitle != null) ...[
-                  const SizedBox(height: AppSpacing.sm),
-                  Text(subtitle!, style: AppTextStyles.bodySecondary),
-                ],
-              ],
+              children: [Text(title, style: AppTextStyles.pageTitle)],
             ),
           ),
-          if (trailing != null)
-            Padding(
-              padding: const EdgeInsets.only(top: AppSpacing.sm),
-              child: trailing!,
-            ),
+          if (trailing != null) trailing!,
         ],
       ),
     ),
@@ -95,10 +83,12 @@ class AppBottomNav extends StatelessWidget {
           AppSpacing.sm,
           AppSpacing.xs,
         ),
-        decoration: BoxDecoration(
+        decoration: ShapeDecoration(
           color: AppColors.surface.withValues(alpha: .96),
-          border: const Border(top: BorderSide(color: AppColors.border)),
-          borderRadius: AppRadii.large,
+          shape: RoundedSuperellipseBorder(
+            borderRadius: AppRadii.large,
+            side: BorderSide(color: AppColors.border),
+          ),
         ),
         child: Row(
           children: [
@@ -139,7 +129,7 @@ class AppBottomNav extends StatelessWidget {
       label: item.$4,
       child: InkWell(
         onTap: () => onDestinationSelected(item.$1),
-        borderRadius: AppRadii.small,
+        customBorder: AppShapes.small,
         child: ConstrainedBox(
           constraints: const BoxConstraints(minHeight: 56, minWidth: 44),
           child: Column(
@@ -172,94 +162,108 @@ class AppSegmentedControl extends StatelessWidget {
     required this.labels,
     required this.selectedIndex,
     required this.onChanged,
+    this.pill = false,
+    this.height = 56,
   });
   final List<String> labels;
   final int selectedIndex;
   final ValueChanged<int> onChanged;
+  final bool pill;
+  final double height;
   @override
   Widget build(BuildContext context) {
     if (labels.isEmpty) return const SizedBox.shrink();
     final safeIndex = selectedIndex.clamp(0, labels.length - 1);
+    final controlRadius = pill ? AppRadii.pill : AppRadii.medium;
+    final itemRadius = pill ? AppRadii.pill : AppRadii.small;
+    final controlShape = RoundedSuperellipseBorder(
+      borderRadius: controlRadius,
+      side: pill ? BorderSide.none : const BorderSide(color: AppColors.border),
+    );
+    final itemShape = RoundedSuperellipseBorder(borderRadius: itemRadius);
     return Semantics(
       container: true,
       label: '筛选选项',
       child: Container(
-        height: 56,
+        height: height,
         padding: const EdgeInsets.all(AppSpacing.xs),
-        decoration: BoxDecoration(
-          color: AppColors.surface,
-          border: Border.all(color: AppColors.border),
-          borderRadius: AppRadii.medium,
+        decoration: ShapeDecoration(
+          color: pill ? AppColors.surfaceElevated : AppColors.surface,
+          shape: controlShape,
         ),
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final itemWidth = constraints.maxWidth / labels.length;
-            return Stack(
-              fit: StackFit.expand,
-              clipBehavior: Clip.hardEdge,
-              children: [
-                // Translate the highlight on the compositor instead of
-                // relaying out the whole control every frame. This keeps the
-                // green pill fluid while the map below remains untouched.
-                Align(
-                  alignment: Alignment.topLeft,
-                  child: SizedBox(
-                    width: itemWidth,
-                    height: constraints.maxHeight,
-                    child: TweenAnimationBuilder<double>(
-                      tween: Tween<double>(end: itemWidth * safeIndex),
-                      duration: const Duration(milliseconds: 300),
-                      curve: Curves.easeInOutCubic,
-                      builder: (context, offset, child) => Transform.translate(
-                        offset: Offset(offset, 0),
-                        child: child,
-                      ),
-                      child: const SizedBox.expand(
-                        child: DecoratedBox(
-                          decoration: BoxDecoration(
-                            color: AppColors.lime,
-                            borderRadius: AppRadii.small,
+        child: ClipPath(
+          clipper: ShapeBorderClipper(shape: itemShape),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final itemWidth = constraints.maxWidth / labels.length;
+              return Stack(
+                fit: StackFit.expand,
+                clipBehavior: Clip.hardEdge,
+                children: [
+                  // Translate the highlight on the compositor instead of
+                  // relaying out the whole control every frame. This keeps the
+                  // green pill fluid while the map below remains untouched.
+                  Align(
+                    alignment: Alignment.topLeft,
+                    child: SizedBox(
+                      width: itemWidth,
+                      height: constraints.maxHeight,
+                      child: TweenAnimationBuilder<double>(
+                        tween: Tween<double>(end: itemWidth * safeIndex),
+                        duration: const Duration(milliseconds: 300),
+                        curve: Curves.easeInOutCubic,
+                        builder: (context, offset, child) =>
+                            Transform.translate(
+                              offset: Offset(offset, 0),
+                              child: child,
+                            ),
+                        child: SizedBox.expand(
+                          child: DecoratedBox(
+                            decoration: ShapeDecoration(
+                              color: AppColors.lime,
+                              shape: itemShape,
+                            ),
                           ),
                         ),
                       ),
                     ),
                   ),
-                ),
-                Row(
-                  children: [
-                    for (var i = 0; i < labels.length; i++)
-                      Expanded(
-                        child: Semantics(
-                          button: true,
-                          selected: i == safeIndex,
-                          label: labels[i],
-                          child: InkWell(
-                            onTap: () => onChanged(i),
-                            borderRadius: AppRadii.small,
-                            child: Center(
-                              child: AnimatedDefaultTextStyle(
-                                duration: const Duration(milliseconds: 180),
-                                curve: Curves.easeOut,
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: i == safeIndex
-                                      ? FontWeight.w700
-                                      : FontWeight.w500,
-                                  color: i == safeIndex
-                                      ? Colors.black
-                                      : AppColors.textSecondary,
+                  Row(
+                    children: [
+                      for (var i = 0; i < labels.length; i++)
+                        Expanded(
+                          child: Semantics(
+                            button: true,
+                            selected: i == safeIndex,
+                            label: labels[i],
+                            child: InkWell(
+                              onTap: () => onChanged(i),
+                              customBorder: itemShape,
+                              child: Center(
+                                child: AnimatedDefaultTextStyle(
+                                  duration: const Duration(milliseconds: 180),
+                                  curve: Curves.easeOut,
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: i == safeIndex
+                                        ? FontWeight.w700
+                                        : FontWeight.w500,
+                                    color: i == safeIndex
+                                        ? Colors.black
+                                        : AppColors.textSecondary,
+                                  ),
+                                  child: Text(labels[i]),
                                 ),
-                                child: Text(labels[i]),
                               ),
                             ),
                           ),
                         ),
-                      ),
-                  ],
-                ),
-              ],
-            );
-          },
+                    ],
+                  ),
+                ],
+              );
+            },
+          ),
         ),
       ),
     );
@@ -273,20 +277,34 @@ class SurfaceCard extends StatelessWidget {
     this.padding = const EdgeInsets.all(AppSpacing.lg),
     this.onTap,
     this.margin,
+    this.color = AppColors.surface,
+    this.borderRadius = AppRadii.medium,
+    this.showBorder = false,
+    this.boxShadow,
   });
   final Widget child;
   final EdgeInsetsGeometry padding;
   final VoidCallback? onTap;
   final EdgeInsetsGeometry? margin;
+  final Color color;
+  final BorderRadius borderRadius;
+  final bool showBorder;
+  final List<BoxShadow>? boxShadow;
   @override
   Widget build(BuildContext context) {
     final content = Padding(padding: padding, child: child);
+    final cardShape = RoundedSuperellipseBorder(
+      borderRadius: borderRadius,
+      side: showBorder
+          ? const BorderSide(color: AppColors.border)
+          : BorderSide.none,
+    );
     return Container(
       margin: margin,
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        border: Border.all(color: AppColors.border),
-        borderRadius: AppRadii.medium,
+      decoration: ShapeDecoration(
+        color: color,
+        shape: cardShape,
+        shadows: boxShadow,
       ),
       child: onTap == null
           ? content
@@ -294,7 +312,7 @@ class SurfaceCard extends StatelessWidget {
               button: true,
               child: InkWell(
                 onTap: onTap,
-                borderRadius: AppRadii.medium,
+                customBorder: cardShape,
                 child: content,
               ),
             ),
@@ -413,12 +431,9 @@ class DisclosureRow extends StatelessWidget {
     child: InkWell(
       onTap: onTap,
       child: ConstrainedBox(
-        constraints: const BoxConstraints(minHeight: 64),
+        constraints: const BoxConstraints(minHeight: 68),
         child: Padding(
-          padding: const EdgeInsets.symmetric(
-            horizontal: AppSpacing.md,
-            vertical: AppSpacing.sm,
-          ),
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
           child: Row(
             children: [
               if (leading != null) ...[
@@ -473,10 +488,10 @@ class PrimaryButton extends StatelessWidget {
       icon: icon == null ? const SizedBox.shrink() : Icon(icon),
       label: Text(label),
       style: FilledButton.styleFrom(
-        minimumSize: const Size(44, 52),
+        minimumSize: const Size(44, 56),
         backgroundColor: AppColors.lime,
         foregroundColor: Colors.black,
-        shape: const RoundedRectangleBorder(borderRadius: AppRadii.large),
+        shape: AppShapes.large,
         textStyle: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
       ),
     );

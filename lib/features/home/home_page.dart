@@ -130,34 +130,40 @@ class _HomePageState extends State<HomePage> {
             for (final place in mapPlaces)
               MapCoordinate(place.latitude, place.longitude),
           ];
+    final travellerName = widget.controller.travellerName.trim().isEmpty
+        ? 'TRAVELER'
+        : widget.controller.travellerName.trim();
+    final mapHeight = (MediaQuery.sizeOf(context).width * .70)
+        .clamp(250.0, 320.0)
+        .toDouble();
     return SafeArea(
       top: false,
       child: CustomScrollView(
         slivers: [
-          SliverToBoxAdapter(
-            child: PageHeader(title: s.t('map'), subtitle: s.t('mapSubtitle')),
-          ),
+          SliverToBoxAdapter(child: _HomeGreeting(name: travellerName)),
           SliverPadding(
-            padding: const EdgeInsets.symmetric(horizontal: 20),
+            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.page),
             sliver: SliverList.list(
               children: [
                 AppSegmentedControl(
                   labels: [s.t('flightMap'), s.t('travelMap')],
                   selectedIndex: _mode == MapMode.flight ? 0 : 1,
+                  pill: true,
+                  height: 52,
                   onChanged: (value) => setState(
                     () => _mode = value == 0
                         ? MapMode.flight
                         : MapMode.travelFootprint,
                   ),
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 18),
                 Container(
-                  height: 390,
+                  height: mapHeight,
                   clipBehavior: Clip.antiAlias,
-                  decoration: BoxDecoration(
+                  decoration: ShapeDecoration(
                     color: AppColors.surface,
-                    border: Border.all(color: AppColors.border),
-                    borderRadius: BorderRadius.circular(30),
+                    shape: AppShapes.large,
+                    shadows: _cardShadow(),
                   ),
                   child: Stack(
                     fit: StackFit.expand,
@@ -199,11 +205,10 @@ class _HomePageState extends State<HomePage> {
                             icon: const Icon(Icons.fullscreen_rounded),
                             style: IconButton.styleFrom(
                               fixedSize: const Size(46, 46),
-                              backgroundColor: AppColors.surface.withValues(
+                              backgroundColor: AppColors.background.withValues(
                                 alpha: .94,
                               ),
                               foregroundColor: AppColors.textPrimary,
-                              side: const BorderSide(color: AppColors.border),
                             ),
                           ),
                         ),
@@ -211,7 +216,7 @@ class _HomePageState extends State<HomePage> {
                     ],
                   ),
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 20),
                 if (_mode == MapMode.travelFootprint)
                   _explorationProgressCard(
                     context,
@@ -220,7 +225,7 @@ class _HomePageState extends State<HomePage> {
                   )
                 else
                   _totalDistanceCard(context, totalDistance: totalDistance),
-                const SizedBox(height: 34),
+                const SizedBox(height: AppSpacing.section),
                 Row(
                   children: [
                     Expanded(
@@ -231,6 +236,11 @@ class _HomePageState extends State<HomePage> {
                     ),
                     TextButton(
                       onPressed: widget.onShowFlights,
+                      style: TextButton.styleFrom(
+                        minimumSize: const Size(44, 44),
+                        padding: EdgeInsets.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
                       child: Text('${s.t('viewAll')}  →'),
                     ),
                   ],
@@ -238,6 +248,10 @@ class _HomePageState extends State<HomePage> {
                 const SizedBox(height: 12),
                 if (nextFlight == null)
                   SurfaceCard(
+                    color: AppColors.surfaceElevated,
+                    borderRadius: AppRadii.large,
+                    showBorder: false,
+                    boxShadow: _cardShadow(),
                     child: EmptyState(
                       title: s.t(
                         hasAnyFlights ? 'noUpcomingFlights' : 'noFlights',
@@ -278,51 +292,97 @@ class _HomePageState extends State<HomePage> {
     required double totalDistance,
   }) {
     final s = context.strings;
-    return SurfaceCard(
-      padding: const EdgeInsets.all(24),
-      child: Row(
-        children: [
-          Container(
-            width: 52,
-            height: 52,
-            decoration: BoxDecoration(
-              color: AppColors.lime.withValues(alpha: .12),
-              shape: BoxShape.circle,
+    final value = _formatNumber(totalDistance.round());
+    return Semantics(
+      label: '${s.t('totalDistance')} $value ${s.t('km')}',
+      container: true,
+      child: SurfaceCard(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+        color: AppColors.surfaceElevated,
+        borderRadius: AppRadii.large,
+        showBorder: false,
+        boxShadow: _cardShadow(),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Container(
+              width: 52,
+              height: 52,
+              decoration: BoxDecoration(
+                color: AppColors.lime.withValues(alpha: .12),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.radar_rounded, color: AppColors.lime),
             ),
-            child: const Icon(Icons.radar_rounded, color: AppColors.lime),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Text(
-              s.t('totalDistance'),
-              style: const TextStyle(
-                color: AppColors.textSecondary,
-                fontSize: 18,
-                fontWeight: FontWeight.w600,
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    s.t('totalDistance'),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: AppColors.textSecondary,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  SizedBox(
+                    height: 46,
+                    width: double.infinity,
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerLeft,
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.baseline,
+                        textBaseline: TextBaseline.alphabetic,
+                        children: [
+                          Text(
+                            value,
+                            maxLines: 1,
+                            style: TextStyle(
+                              color: AppColors.lime,
+                              fontSize: _distanceFontSize(value),
+                              height: 1,
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: -1.4,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          const Text(
+                            'KM',
+                            style: TextStyle(
+                              color: AppColors.lime,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
-          ),
-          Text(
-            _formatNumber(totalDistance.round()),
-            style: const TextStyle(
-              color: AppColors.lime,
-              fontSize: 36,
-              fontWeight: FontWeight.w700,
-              letterSpacing: -1.4,
-            ),
-          ),
-          const SizedBox(width: 6),
-          const Text(
-            'KM',
-            style: TextStyle(
-              color: AppColors.lime,
-              fontSize: 14,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
+  }
+
+  double _distanceFontSize(String value) {
+    final digits = value.replaceAll(',', '').length;
+    return switch (digits) {
+      <= 3 => 42,
+      <= 5 => 39,
+      <= 7 => 36,
+      _ => 32,
+    };
   }
 
   Widget _explorationProgressCard(
@@ -369,11 +429,11 @@ class _HomePageState extends State<HomePage> {
         final worldProgress = (countryCount / 195).clamp(0.0, 1.0).toDouble();
         final chinaProgress = (chinaCount / 34).clamp(0.0, 1.0).toDouble();
         return Container(
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            color: AppColors.surface,
-            borderRadius: BorderRadius.circular(24),
-            border: Border.all(color: AppColors.border),
+          padding: const EdgeInsets.fromLTRB(22, 22, 22, 20),
+          decoration: ShapeDecoration(
+            color: AppColors.surfaceElevated,
+            shape: AppShapes.large,
+            shadows: _cardShadow(),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -388,9 +448,7 @@ class _HomePageState extends State<HomePage> {
                 color: AppColors.lime,
                 detail: s.t('visitedCountries'),
               ),
-              const SizedBox(height: 16),
-              Divider(height: 1, color: AppColors.border.withValues(alpha: .7)),
-              const SizedBox(height: 16),
+              const SizedBox(height: 20),
               _progressSection(
                 title: s.t('chinaExplorer'),
                 count: chinaCount,
@@ -452,7 +510,7 @@ class _HomePageState extends State<HomePage> {
             height: 10,
             child: LinearProgressIndicator(
               value: progress,
-              backgroundColor: AppColors.surfaceElevated,
+              backgroundColor: AppColors.background.withValues(alpha: .72),
               valueColor: AlwaysStoppedAnimation<Color>(color),
             ),
           ),
@@ -671,6 +729,14 @@ class _HomePageState extends State<HomePage> {
     return '$country|$name';
   }
 
+  List<BoxShadow> _cardShadow() => [
+    BoxShadow(
+      color: Colors.black.withValues(alpha: .22),
+      blurRadius: 24,
+      offset: const Offset(0, 12),
+    ),
+  ];
+
   Future<void> _openAddPlace([BuildContext? hostContext]) async {
     await showModalBottomSheet<bool>(
       // When launched from the fullscreen map, use that route's navigator so
@@ -682,9 +748,57 @@ class _HomePageState extends State<HomePage> {
       barrierColor: Colors.black.withValues(alpha: .68),
       builder: (_) => FractionallySizedBox(
         heightFactor: .9,
-        child: ClipRRect(
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
+        child: ClipPath(
+          clipper: ShapeBorderClipper(shape: AppShapes.sheet),
           child: AddVisitedPlaceSheet(controller: widget.controller),
+        ),
+      ),
+    );
+  }
+}
+
+class _HomeGreeting extends StatelessWidget {
+  const _HomeGreeting({required this.name});
+
+  final String name;
+
+  @override
+  Widget build(BuildContext context) {
+    final displayName = name.trim().isEmpty ? 'TRAVELER' : name.trim();
+    return Semantics(
+      header: true,
+      label: 'HELLO, $displayName',
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(
+          AppSpacing.page,
+          AppSpacing.lg,
+          AppSpacing.page,
+          AppSpacing.md,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'HELLO,',
+              style: TextStyle(
+                color: AppColors.lime,
+                fontSize: 22,
+                height: 1.1,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 1.8,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              displayName,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: AppTextStyles.pageTitle.copyWith(
+                fontSize: 36,
+                letterSpacing: -1.1,
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -702,7 +816,8 @@ class _FootprintCandidateSheet extends StatelessWidget {
     final dateFormat = DateFormat('yyyy-MM-dd');
     return Material(
       color: AppColors.surface,
-      borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
+      shape: AppShapes.sheet,
+      clipBehavior: Clip.antiAlias,
       child: SafeArea(
         top: false,
         child: Padding(
@@ -755,12 +870,11 @@ class _FootprintCandidateSheet extends StatelessWidget {
                         : dateFormat.format(visitedAt.toLocal());
                     return Material(
                       color: AppColors.surfaceElevated,
-                      borderRadius: AppRadii.medium,
+                      shape: AppShapes.medium,
+                      clipBehavior: Clip.antiAlias,
                       child: ListTile(
                         minVerticalPadding: 10,
-                        shape: const RoundedRectangleBorder(
-                          borderRadius: AppRadii.medium,
-                        ),
+                        shape: AppShapes.medium,
                         leading: Container(
                           width: 44,
                           height: 44,
@@ -806,7 +920,8 @@ class _DeleteFootprintSheet extends StatelessWidget {
     final strings = context.strings;
     return Material(
       color: AppColors.surface,
-      borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
+      shape: AppShapes.sheet,
+      clipBehavior: Clip.antiAlias,
       child: SafeArea(
         top: false,
         child: Padding(
@@ -836,9 +951,7 @@ class _DeleteFootprintSheet extends StatelessWidget {
                         minimumSize: const Size.fromHeight(52),
                         foregroundColor: AppColors.textPrimary,
                         side: const BorderSide(color: AppColors.border),
-                        shape: const RoundedRectangleBorder(
-                          borderRadius: AppRadii.large,
-                        ),
+                        shape: AppShapes.large,
                       ),
                       child: Text(strings.t('cancel')),
                     ),
@@ -853,9 +966,7 @@ class _DeleteFootprintSheet extends StatelessWidget {
                         minimumSize: const Size.fromHeight(52),
                         backgroundColor: AppColors.danger,
                         foregroundColor: Colors.black,
-                        shape: const RoundedRectangleBorder(
-                          borderRadius: AppRadii.large,
-                        ),
+                        shape: AppShapes.large,
                       ),
                     ),
                   ),

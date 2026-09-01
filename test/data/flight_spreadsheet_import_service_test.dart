@@ -39,6 +39,24 @@ void main() {
     expect(result.rows.single.arrivalAirportName, '厦门高崎');
   });
 
+  test('parses in the background without changing the import result', () async {
+    final source = [
+      '日期,航空公司,航班号,出发城市,出发时间,到达城市,到达时间',
+      '2026-08-28,深圳航空,ZH1234,深圳,23:40,厦门,01:20',
+    ].join('\n');
+    final result = await FlightSpreadsheetImportService(airports: airports)
+        .parseInBackground(
+          bytes: utf8.encode(source),
+          fileName: '行程记录.csv',
+          now: DateTime(2026, 8, 28, 12),
+        );
+
+    expect(result.rows, hasLength(1));
+    expect(result.issues, isEmpty);
+    expect(result.rows.single.flight.departureIata, 'SZX');
+    expect(result.rows.single.flight.arrivalIata, 'XMN');
+  });
+
   test('reads an xlsx workbook with inline strings', () {
     final workbook = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">

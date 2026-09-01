@@ -101,10 +101,13 @@ class AppController extends ChangeNotifier {
     flightDate: flightDate,
   );
 
-  SpreadsheetImportResult parseFlightSpreadsheet({
+  Future<SpreadsheetImportResult> parseFlightSpreadsheet({
     required List<int> bytes,
     required String fileName,
-  }) => flightSpreadsheetImport.parse(bytes: bytes, fileName: fileName);
+  }) => flightSpreadsheetImport.parseInBackground(
+    bytes: bytes,
+    fileName: fileName,
+  );
 
   Future<FlightImportSummary> previewSpreadsheetFlights(
     Iterable<Flight> flights,

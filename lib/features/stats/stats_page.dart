@@ -65,17 +65,12 @@ class _StatsPageState extends State<StatsPage> {
       top: false,
       child: CustomScrollView(
         slivers: [
-          SliverToBoxAdapter(
-            child: PageHeader(
-              title: s.t('statistics'),
-              subtitle: s.t('statsSubtitle'),
-            ),
-          ),
+          SliverToBoxAdapter(child: PageHeader(title: s.t('statistics'))),
           SliverPadding(
             padding: EdgeInsets.fromLTRB(
-              20,
+              AppSpacing.page,
               0,
-              20,
+              AppSpacing.page,
               AppSpacing.bottomBarClearance(context),
             ),
             sliver: SliverList.list(
@@ -101,9 +96,13 @@ class _StatsPageState extends State<StatsPage> {
                     airports: passportAirports,
                     routes: passportRoutes,
                   ),
-                  const SizedBox(height: 14),
+                  const SizedBox(height: AppSpacing.cardGap),
                 ],
-                SizedBox(height: flights.isNotEmpty ? 14 : 28),
+                SizedBox(
+                  height: flights.isNotEmpty
+                      ? AppSpacing.cardGap
+                      : AppSpacing.section,
+                ),
                 if (flights.isEmpty)
                   SurfaceCard(
                     child: EmptyState(
@@ -115,13 +114,13 @@ class _StatsPageState extends State<StatsPage> {
                   )
                 else ...[
                   _aircraftCollectionCard(aircraftSummaries),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: AppSpacing.cardGap),
                   _rankingCard(
                     'airline',
                     s.t('airlineRanking'),
                     _counts(flights.map((e) => e.airline)),
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: AppSpacing.cardGap),
                   _rankingCard(
                     'cities',
                     s.t('cities'),
@@ -134,7 +133,7 @@ class _StatsPageState extends State<StatsPage> {
                       ),
                     ),
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: AppSpacing.cardGap),
                   _rankingCard(
                     'countries',
                     s.t('countries'),
@@ -167,7 +166,10 @@ class _StatsPageState extends State<StatsPage> {
       button: true,
       label: s.t('aircraftCollection'),
       child: SurfaceCard(
-        padding: const EdgeInsets.fromLTRB(16, 18, 16, 16),
+        padding: const EdgeInsets.fromLTRB(20, 20, 20, 18),
+        color: _statsCardSurface(AppColors.lime),
+        showBorder: false,
+        boxShadow: _statsCardShadow,
         onTap: () => _openRankingDetail(
           title: s.t('aircraftCollection'),
           icon: Icons.flight_rounded,
@@ -196,6 +198,7 @@ class _StatsPageState extends State<StatsPage> {
     required IconData icon,
     required Color accentColor,
   }) => Row(
+    crossAxisAlignment: CrossAxisAlignment.center,
     children: [
       Expanded(
         child: Column(
@@ -203,32 +206,30 @@ class _StatsPageState extends State<StatsPage> {
           children: [
             Text(
               title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
               style: const TextStyle(
                 color: AppColors.textPrimary,
-                fontSize: 20,
+                fontSize: 21,
+                height: 1.15,
                 fontWeight: FontWeight.w700,
+                letterSpacing: -.25,
               ),
             ),
-            const SizedBox(height: 4),
-            Text(
-              subtitle,
-              style: const TextStyle(
-                color: AppColors.textTertiary,
-                fontSize: 13,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
+            const SizedBox(height: 10),
+            _StatsCountLabel(value: subtitle, color: accentColor),
           ],
         ),
       ),
+      const SizedBox(width: 18),
       Container(
-        width: 38,
-        height: 38,
+        width: 52,
+        height: 52,
         decoration: BoxDecoration(
-          color: accentColor.withValues(alpha: .12),
+          color: accentColor.withValues(alpha: .14),
           shape: BoxShape.circle,
         ),
-        child: Icon(icon, color: accentColor, size: 20),
+        child: Icon(icon, color: accentColor, size: 25),
       ),
     ],
   );
@@ -249,7 +250,10 @@ class _StatsPageState extends State<StatsPage> {
       button: true,
       label: title,
       child: SurfaceCard(
-        padding: const EdgeInsets.fromLTRB(16, 18, 16, 16),
+        padding: const EdgeInsets.fromLTRB(20, 20, 20, 18),
+        color: _statsCardSurface(accentColor),
+        showBorder: false,
+        boxShadow: _statsCardShadow,
         onTap: () => _openRankingDetail(
           title: title,
           icon: icon,
@@ -266,6 +270,15 @@ class _StatsPageState extends State<StatsPage> {
       ),
     );
   }
+
+  static const _statsCardShadow = [
+    BoxShadow(color: Color(0x26000000), blurRadius: 18, offset: Offset(0, 8)),
+  ];
+
+  static Color _statsCardSurface(Color accentColor) => Color.alphaBlend(
+    accentColor.withValues(alpha: .055),
+    AppColors.surfaceElevated,
+  );
 
   Color _rankingAccentColor(String key) => switch (key) {
     'airline' || 'countries' => AppColors.purple,
@@ -295,10 +308,12 @@ class _StatsPageState extends State<StatsPage> {
     barrierColor: Colors.black.withValues(alpha: .72),
     builder: (sheetContext) => FractionallySizedBox(
       heightFactor: .82,
-      child: ClipRRect(
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
+      child: ClipPath(
+        clipper: ShapeBorderClipper(shape: AppShapes.sheet),
         child: Material(
           color: AppColors.background,
+          shape: AppShapes.sheet,
+          clipBehavior: Clip.antiAlias,
           child: SafeArea(
             top: false,
             child: _RankingDetailSheet(
@@ -497,19 +512,16 @@ class _PassportYearFilterBar extends StatelessWidget {
             selected: selected,
             label: label,
             child: InkWell(
-              borderRadius: AppRadii.pill,
+              customBorder: AppShapes.pill,
               onTap: () => onChanged(value),
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 180),
                 curve: Curves.easeOutCubic,
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 alignment: Alignment.center,
-                decoration: BoxDecoration(
+                decoration: ShapeDecoration(
                   color: selected ? AppColors.lime : AppColors.surface,
-                  borderRadius: AppRadii.pill,
-                  border: Border.all(
-                    color: selected ? AppColors.lime : AppColors.border,
-                  ),
+                  shape: AppShapes.pill,
                 ),
                 child: Text(
                   label,
@@ -523,6 +535,52 @@ class _PassportYearFilterBar extends StatelessWidget {
             ),
           );
         },
+      ),
+    );
+  }
+}
+
+class _StatsCountLabel extends StatelessWidget {
+  const _StatsCountLabel({required this.value, required this.color});
+
+  final String value;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    final match = RegExp(r'^(\d[\d,]*)(.*)$').firstMatch(value.trim());
+    if (match == null) {
+      return Text(
+        value,
+        style: const TextStyle(
+          color: AppColors.textTertiary,
+          fontSize: 14,
+          fontWeight: FontWeight.w600,
+        ),
+      );
+    }
+    return Text.rich(
+      TextSpan(
+        children: [
+          TextSpan(
+            text: match.group(1),
+            style: TextStyle(
+              color: color,
+              fontSize: 28,
+              height: 1,
+              fontWeight: FontWeight.w700,
+              letterSpacing: -.6,
+            ),
+          ),
+          TextSpan(
+            text: match.group(2),
+            style: const TextStyle(
+              color: AppColors.textTertiary,
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
       ),
     );
   }

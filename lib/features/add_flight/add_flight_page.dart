@@ -116,28 +116,28 @@ class _AddFlightPageState extends State<AddFlightPage> {
       body: SafeArea(
         top: true,
         child: ListView(
-          padding: const EdgeInsets.only(bottom: 30),
+          padding: const EdgeInsets.only(bottom: AppSpacing.xl),
           children: [
             PageHeader(
               title: s.t(
                 widget.initialFlight == null ? 'addFlight' : 'editFlight',
               ),
-              subtitle: s.t('requiredHint'),
               onBack: () => Navigator.maybePop(context),
             ),
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
+              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.page),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Container(
-                    padding: const EdgeInsets.all(22),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFB6A5EE),
-                      borderRadius: BorderRadius.circular(30),
+                    padding: const EdgeInsets.fromLTRB(24, 22, 24, 20),
+                    decoration: ShapeDecoration(
+                      color: AppColors.surface,
+                      shape: AppShapes.large,
+                      shadows: _surfaceShadow(),
                     ),
                     child: DefaultTextStyle(
-                      style: const TextStyle(color: Colors.black),
+                      style: const TextStyle(color: AppColors.textPrimary),
                       child: Column(
                         children: [
                           Row(
@@ -149,11 +149,34 @@ class _AddFlightPageState extends State<AddFlightPage> {
                                   onTap: () => _pickAirport(true),
                                 ),
                               ),
-                              const Padding(
-                                padding: EdgeInsets.symmetric(horizontal: 12),
-                                child: Icon(
-                                  Icons.flight_takeoff_rounded,
-                                  color: Colors.black,
+                              Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                ),
+                                child: SizedBox(
+                                  width: 48,
+                                  height: 72,
+                                  child: Stack(
+                                    alignment: Alignment.center,
+                                    children: [
+                                      Container(
+                                        width: 48,
+                                        height: 48,
+                                        alignment: Alignment.center,
+                                        decoration: BoxDecoration(
+                                          color: AppColors.purple.withValues(
+                                            alpha: .22,
+                                          ),
+                                          shape: BoxShape.circle,
+                                        ),
+                                        child: const Icon(
+                                          Icons.flight_takeoff_rounded,
+                                          color: AppColors.lime,
+                                          size: 22,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
                                 ),
                               ),
                               Expanded(
@@ -178,7 +201,7 @@ class _AddFlightPageState extends State<AddFlightPage> {
                                   onTimeTap: _pickDepartureTime,
                                 ),
                               ),
-                              const SizedBox(width: 10),
+                              const SizedBox(width: 12),
                               Expanded(
                                 child: _DateTimeSelector(
                                   label: s.t('landing'),
@@ -197,9 +220,13 @@ class _AddFlightPageState extends State<AddFlightPage> {
                       ),
                     ),
                   ),
-                  const SizedBox(height: 18),
+                  const SizedBox(height: 20),
                   SurfaceCard(
-                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
+                    padding: const EdgeInsets.fromLTRB(20, 20, 20, 18),
+                    color: AppColors.surfaceElevated,
+                    borderRadius: AppRadii.large,
+                    showBorder: false,
+                    boxShadow: _surfaceShadow(),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -207,43 +234,25 @@ class _AddFlightPageState extends State<AddFlightPage> {
                           s.t('airlineFlight'),
                           _flightIdentity,
                           required: true,
+                          prefixIcon: Icons.confirmation_number_outlined,
                           hintText: s.t('airlineFlightHint'),
                           onChanged: _onFlightIdentityChanged,
                           onSubmitted: (_) => _lookupFlight(),
                         ),
-                        const SizedBox(height: 12),
-                        Semantics(
-                          button: true,
-                          label: s.t('flightDate'),
-                          child: InkWell(
-                            onTap: _pickDate,
-                            borderRadius: BorderRadius.circular(18),
-                            child: InputDecorator(
-                              decoration: _decoration(s.t('flightDate'))
-                                  .copyWith(
-                                    prefixIcon: const Icon(
-                                      Icons.calendar_today_rounded,
-                                      size: 20,
-                                    ),
-                                    suffixIcon: const Icon(
-                                      Icons.chevron_right_rounded,
-                                    ),
-                                    contentPadding: const EdgeInsets.symmetric(
-                                      horizontal: 16,
-                                      vertical: 16,
-                                    ),
-                                  ),
-                              child: Text(
-                                DateFormat('yyyy-MM-dd').format(_date),
-                                style: AppTextStyles.body,
-                              ),
+                        if (_lookupMessage == null) ...[
+                          const SizedBox(height: 8),
+                          Text(
+                            s.t('requiredHint'),
+                            style: AppTextStyles.label.copyWith(
+                              color: AppColors.textTertiary,
+                              fontWeight: FontWeight.w500,
                             ),
                           ),
-                        ),
-                        const SizedBox(height: 12),
+                        ],
+                        const SizedBox(height: 14),
                         SizedBox(
                           width: double.infinity,
-                          child: OutlinedButton.icon(
+                          child: FilledButton.icon(
                             onPressed: _lookingUp ? null : _lookupFlight,
                             icon: _lookingUp
                                 ? const SizedBox(
@@ -259,6 +268,20 @@ class _AddFlightPageState extends State<AddFlightPage> {
                                   ? s.t('lookingUpFlight')
                                   : s.t('autoFillFlight'),
                             ),
+                            style: FilledButton.styleFrom(
+                              minimumSize: const Size(44, 56),
+                              backgroundColor: AppColors.lime.withValues(
+                                alpha: .14,
+                              ),
+                              foregroundColor: AppColors.lime,
+                              disabledBackgroundColor: AppColors.surface,
+                              disabledForegroundColor: AppColors.textTertiary,
+                              shape: AppShapes.large,
+                              textStyle: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
                           ),
                         ),
                         if (_lookupMessage != null) ...[
@@ -268,9 +291,13 @@ class _AddFlightPageState extends State<AddFlightPage> {
                       ],
                     ),
                   ),
-                  const SizedBox(height: 18),
+                  const SizedBox(height: 20),
                   SurfaceCard(
                     padding: EdgeInsets.zero,
+                    color: AppColors.surfaceElevated,
+                    borderRadius: AppRadii.large,
+                    showBorder: false,
+                    boxShadow: _surfaceShadow(),
                     child: Column(
                       children: [
                         DisclosureRow(
@@ -282,7 +309,7 @@ class _AddFlightPageState extends State<AddFlightPage> {
                         ),
                         if (_more)
                           Padding(
-                            padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
+                            padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
                             child: Column(
                               children: [
                                 _field(s.t('aircraft'), _aircraft),
@@ -365,6 +392,7 @@ class _AddFlightPageState extends State<AddFlightPage> {
     bool decimal = false,
     int lines = 1,
     bool required = false,
+    IconData? prefixIcon,
     ValueChanged<String>? onSubmitted,
     ValueChanged<String>? onChanged,
     String? hintText,
@@ -377,23 +405,45 @@ class _AddFlightPageState extends State<AddFlightPage> {
     maxLines: lines,
     onSubmitted: onSubmitted,
     onChanged: onChanged,
-    decoration: _decoration(required ? '$label *' : label)
-        .copyWith(hintText: hintText),
+    decoration: _decoration(required ? '$label *' : label).copyWith(
+      hintText: hintText,
+      prefixIcon: prefixIcon == null
+          ? null
+          : Icon(prefixIcon, color: AppColors.textTertiary),
+    ),
   );
 
   InputDecoration _decoration(String label) => InputDecoration(
     labelText: label,
     filled: true,
-    fillColor: AppColors.surfaceElevated,
-    border: OutlineInputBorder(
-      borderRadius: BorderRadius.circular(18),
+    fillColor: AppColors.surface,
+    labelStyle: AppTextStyles.label,
+    floatingLabelStyle: const TextStyle(
+      color: AppColors.lime,
+      fontWeight: FontWeight.w600,
+    ),
+    contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 18),
+    border: ShapedInputBorder(
+      shape: AppShapes.medium,
       borderSide: const BorderSide(color: AppColors.border),
     ),
-    enabledBorder: OutlineInputBorder(
-      borderRadius: BorderRadius.circular(18),
+    enabledBorder: ShapedInputBorder(
+      shape: AppShapes.medium,
       borderSide: const BorderSide(color: AppColors.border),
+    ),
+    focusedBorder: ShapedInputBorder(
+      shape: AppShapes.medium,
+      borderSide: const BorderSide(color: AppColors.lime, width: 1.5),
     ),
   );
+
+  List<BoxShadow> _surfaceShadow() => [
+    BoxShadow(
+      color: Colors.black.withValues(alpha: .16),
+      blurRadius: 18,
+      offset: const Offset(0, 8),
+    ),
+  ];
 
   String? _normalizeCabinValue(String? value) {
     final normalized = value?.trim();
@@ -849,9 +899,9 @@ class _AirportSelector extends StatelessWidget {
     final selectedAirport = airport;
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(16),
+      customBorder: AppShapes.small,
       child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 8),
+        padding: const EdgeInsets.symmetric(vertical: 10),
         child: Column(
           crossAxisAlignment: alignEnd
               ? CrossAxisAlignment.end
@@ -859,15 +909,21 @@ class _AirportSelector extends StatelessWidget {
           children: [
             Text(
               label,
-              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+              style: const TextStyle(
+                color: AppColors.textSecondary,
+                fontSize: 14,
+                fontWeight: FontWeight.w800,
+                letterSpacing: -.1,
+              ),
             ),
             const SizedBox(height: 8),
             Text(
               airport?.iataCode ?? '—',
               style: const TextStyle(
-                fontSize: 42,
+                color: AppColors.textPrimary,
+                fontSize: 40,
                 height: 1,
-                fontWeight: FontWeight.w500,
+                fontWeight: FontWeight.w700,
                 letterSpacing: -1.5,
               ),
             ),
@@ -878,10 +934,13 @@ class _AirportSelector extends StatelessWidget {
                   : localizedAirportCardName(selectedAirport),
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 12,
                 height: 1.15,
                 fontWeight: FontWeight.w600,
+                color: airport == null
+                    ? AppColors.lime
+                    : AppColors.textSecondary,
               ),
             ),
           ],
@@ -911,27 +970,36 @@ class _DateTimeSelector extends StatelessWidget {
         : DateFormat('yyyy-MM-dd').format(value!);
     final time = value == null ? '--:--' : DateFormat('HH:mm').format(value!);
     return Container(
-      padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: .08),
-        borderRadius: BorderRadius.circular(18),
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 10),
+      decoration: ShapeDecoration(
+        color: Colors.black.withValues(alpha: .24),
+        shape: AppShapes.medium,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             label,
-            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+            style: const TextStyle(
+              color: AppColors.textSecondary,
+              fontSize: 12,
+              fontWeight: FontWeight.w800,
+              letterSpacing: .1,
+            ),
           ),
           const SizedBox(height: 4),
           InkWell(
             onTap: onDateTap,
-            borderRadius: BorderRadius.circular(10),
+            customBorder: AppShapes.small,
             child: Padding(
               padding: const EdgeInsets.symmetric(vertical: 6),
               child: Row(
                 children: [
-                  const Icon(Icons.calendar_today_rounded, size: 14),
+                  const Icon(
+                    Icons.calendar_today_rounded,
+                    color: AppColors.textSecondary,
+                    size: 15,
+                  ),
                   const SizedBox(width: 6),
                   Expanded(
                     child: Text(
@@ -939,8 +1007,9 @@ class _DateTimeSelector extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
+                        color: AppColors.textPrimary,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
                       ),
                     ),
                   ),
@@ -950,17 +1019,22 @@ class _DateTimeSelector extends StatelessWidget {
           ),
           InkWell(
             onTap: onTimeTap,
-            borderRadius: BorderRadius.circular(10),
+            customBorder: AppShapes.small,
             child: Padding(
               padding: const EdgeInsets.symmetric(vertical: 4),
               child: Row(
                 children: [
-                  const Icon(Icons.schedule_rounded, size: 16),
+                  const Icon(
+                    Icons.schedule_rounded,
+                    color: AppColors.textSecondary,
+                    size: 18,
+                  ),
                   const SizedBox(width: 6),
                   Text(
                     time,
                     style: const TextStyle(
-                      fontSize: 20,
+                      color: AppColors.textPrimary,
+                      fontSize: 22,
                       height: 1,
                       fontWeight: FontWeight.w700,
                       letterSpacing: -.4,
@@ -1064,10 +1138,12 @@ class _AirportPickerState extends State<_AirportPicker> {
       Container(
         margin: const EdgeInsets.only(bottom: 4),
         padding: const EdgeInsets.fromLTRB(12, 10, 6, 10),
-        decoration: BoxDecoration(
+        decoration: ShapeDecoration(
           color: AppColors.lime.withValues(alpha: .12),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: AppColors.lime.withValues(alpha: .42)),
+          shape: RoundedSuperellipseBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: BorderSide(color: AppColors.lime.withValues(alpha: .42)),
+          ),
         ),
         child: Row(
           children: [
@@ -1106,9 +1182,11 @@ class _AirportPickerState extends State<_AirportPicker> {
         width: 54,
         height: 42,
         alignment: Alignment.center,
-        decoration: BoxDecoration(
+        decoration: ShapeDecoration(
           color: AppColors.lime,
-          borderRadius: BorderRadius.circular(14),
+          shape: RoundedSuperellipseBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
         ),
         child: Text(
           airport.iataCode,
@@ -1162,8 +1240,8 @@ class _AirportPickerState extends State<_AirportPicker> {
                   hintText: context.strings.t('searchAirport'),
                   filled: true,
                   fillColor: AppColors.surface,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(20),
+                  border: ShapedInputBorder(
+                    shape: AppShapes.medium,
                     borderSide: const BorderSide(color: AppColors.border),
                   ),
                 ),

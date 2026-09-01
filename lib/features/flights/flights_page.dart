@@ -18,7 +18,7 @@ class FlightsPage extends StatefulWidget {
 
 class _FlightsPageState extends State<FlightsPage> {
   int _filter = 0;
-  int? _completedYear;
+  int? _selectedYear;
 
   @override
   Widget build(BuildContext context) {
@@ -30,26 +30,28 @@ class _FlightsPageState extends State<FlightsPage> {
     final completedFlights = allFlights
         .where((flight) => flight.isCompleted)
         .toList();
-    final completedYears =
-        completedFlights
+    final status = _filter == 0
+        ? FlightStatus.upcoming
+        : FlightStatus.completed;
+    final sourceFlights = status == FlightStatus.upcoming
+        ? allFlights.where((flight) => flight.isUpcoming).toList()
+        : completedFlights;
+    final availableYears =
+        sourceFlights
             .map((flight) => flight.departedAt.toLocal().year)
             .toSet()
             .toList()
           ..sort((a, b) => b.compareTo(a));
-    final selectedYear = completedYears.contains(_completedYear)
-        ? _completedYear
+    final selectedYear = availableYears.contains(_selectedYear)
+        ? _selectedYear
         : null;
-    final status = _filter == 0
-        ? FlightStatus.upcoming
-        : FlightStatus.completed;
     final flights =
-        (status == FlightStatus.upcoming
-                ? allFlights.where((flight) => flight.isUpcoming)
-                : completedFlights.where(
-                    (flight) =>
-                        selectedYear == null ||
-                        flight.departedAt.toLocal().year == selectedYear,
-                  ))
+        sourceFlights
+            .where(
+              (flight) =>
+                  selectedYear == null ||
+                  flight.departedAt.toLocal().year == selectedYear,
+            )
             .toList()
           ..sort(
             (a, b) => status == FlightStatus.upcoming
@@ -65,33 +67,31 @@ class _FlightsPageState extends State<FlightsPage> {
       child: CustomScrollView(
         slivers: [
           SliverToBoxAdapter(
-            child: PageHeader(
-              title: s.t('flightRecords'),
-              subtitle: s.t('flightRecordsSubtitle'),
-            ),
-          ),
-          SliverToBoxAdapter(
-            child: SizedBox(
-              height: 56,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20),
-                child: AppSegmentedControl(
-                  labels: filters,
-                  selectedIndex: _filter,
-                  onChanged: (index) => setState(() {
-                    _filter = index;
-                    if (index == 0) _completedYear = null;
-                  }),
-                ),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.page,
+                AppSpacing.lg,
+                AppSpacing.page,
+                AppSpacing.md,
+              ),
+              child: AppSegmentedControl(
+                labels: filters,
+                selectedIndex: _filter,
+                pill: true,
+                height: 52,
+                onChanged: (index) => setState(() {
+                  _filter = index;
+                  _selectedYear = null;
+                }),
               ),
             ),
           ),
-          if (_filter == 1 && completedYears.isNotEmpty)
+          if (availableYears.isNotEmpty)
             SliverToBoxAdapter(
               child: _YearFilterBar(
-                years: completedYears,
+                years: availableYears,
                 selectedYear: selectedYear,
-                onChanged: (year) => setState(() => _completedYear = year),
+                onChanged: (year) => setState(() => _selectedYear = year),
                 allLabel: s.t('all'),
               ),
             ),
@@ -119,14 +119,15 @@ class _FlightsPageState extends State<FlightsPage> {
           else
             SliverPadding(
               padding: EdgeInsets.fromLTRB(
+                AppSpacing.page,
                 20,
-                18,
-                20,
+                AppSpacing.page,
                 AppSpacing.bottomBarClearance(context),
               ),
               sliver: SliverList.separated(
                 itemCount: flights.length,
-                separatorBuilder: (_, _) => const SizedBox(height: 14),
+                separatorBuilder: (_, _) =>
+                    const SizedBox(height: AppSpacing.cardGap),
                 itemBuilder: (context, index) => FlightCard(
                   flight: flights[index],
                   controller: widget.controller,
@@ -173,8 +174,8 @@ class _FlightsPageState extends State<FlightsPage> {
       barrierColor: Colors.black.withValues(alpha: .68),
       builder: (_) => FractionallySizedBox(
         heightFactor: .94,
-        child: ClipRRect(
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
+        child: ClipPath(
+          clipper: ShapeBorderClipper(shape: AppShapes.sheet),
           child: AddFlightPage(
             controller: widget.controller,
             initialFlight: flight,
@@ -204,7 +205,12 @@ class _YearFilterBar extends StatelessWidget {
     return SizedBox(
       height: 56,
       child: ListView.separated(
-        padding: const EdgeInsets.fromLTRB(20, 8, 20, 8),
+        padding: const EdgeInsets.fromLTRB(
+          AppSpacing.page,
+          8,
+          AppSpacing.page,
+          8,
+        ),
         scrollDirection: Axis.horizontal,
         itemCount: values.length,
         separatorBuilder: (_, _) => const SizedBox(width: 8),
@@ -216,19 +222,16 @@ class _YearFilterBar extends StatelessWidget {
             selected: selected,
             label: value == null ? allLabel : '$value',
             child: InkWell(
-              borderRadius: AppRadii.pill,
+              customBorder: AppShapes.pill,
               onTap: () => onChanged(value),
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 220),
                 curve: Curves.easeOutCubic,
                 padding: const EdgeInsets.symmetric(horizontal: 17),
                 alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: selected ? AppColors.lime : AppColors.surface,
-                  borderRadius: AppRadii.pill,
-                  border: Border.all(
-                    color: selected ? AppColors.lime : AppColors.border,
-                  ),
+                decoration: ShapeDecoration(
+                  color: selected ? AppColors.lime : AppColors.surfaceElevated,
+                  shape: AppShapes.pill,
                 ),
                 child: Text(
                   value == null ? allLabel : '$value',

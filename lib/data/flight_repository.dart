@@ -85,6 +85,8 @@ class _FlightImportOperation {
 }
 
 class FlightRepository {
+  static const _importBatchSize = 100;
+
   FlightRepository({Future<Database> Function()? databaseProvider, Uuid? uuid})
     : _databaseProvider = databaseProvider ?? LocalDatabase.open,
       _uuid = uuid ?? const Uuid();
@@ -266,10 +268,21 @@ class FlightRepository {
       var unchanged = 0;
       var skipped = 0;
       var completed = 0;
+      var lastProgress = 0;
+      var pendingWrites = 0;
+      var batch = transaction.batch();
+
+      Future<void> flushBatch() async {
+        if (pendingWrites == 0) return;
+        await batch.commit(noResult: true);
+        batch = transaction.batch();
+        pendingWrites = 0;
+      }
+
       for (final operation in plan.operations) {
         final existing = operation.existing;
         if (existing == null) {
-          await transaction.insert(
+          batch.insert(
             'flights',
             _flightToRow(operation.incoming),
             conflictAlgorithm: ConflictAlgorithm.replace,
@@ -278,7 +291,7 @@ class FlightRepository {
         } else if (!operation.changed) {
           unchanged++;
         } else if (overwriteExisting) {
-          await transaction.insert(
+          batch.insert(
             'flights',
             _flightToRow(operation.merged),
             conflictAlgorithm: ConflictAlgorithm.replace,
@@ -288,8 +301,17 @@ class FlightRepository {
           skipped++;
         }
         completed++;
-        onProgress?.call(completed, plan.operations.length);
+        if (existing == null || overwriteExisting && operation.changed) {
+          pendingWrites++;
+        }
+        if (completed - lastProgress >= _importBatchSize) {
+          if (pendingWrites > 0) await flushBatch();
+          onProgress?.call(completed, plan.operations.length);
+          lastProgress = completed;
+        }
       }
+      await flushBatch();
+      onProgress?.call(completed, plan.operations.length);
       return FlightImportSummary(
         added: added,
         updated: updated,

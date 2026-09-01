@@ -1,8 +1,10 @@
 import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
-import 'package:excel2003/excel2003.dart';
+// The package does not expose its OLE stream reader publicly. We need the raw
+// Workbook stream so BIFF CONTINUE boundaries can be decoded correctly.
+import 'package:excel2003/src/ole2/ole2_reader.dart'; // ignore: implementation_imports
+import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 import 'package:xml/xml.dart';
 
@@ -69,50 +71,99 @@ class FlightSpreadsheetImportService {
   FlightSpreadsheetImportService({required this.airports});
 
   final AirportCatalog airports;
+  final Map<String, _AirportMatch?> _airportResolutionCache = {};
 
   SpreadsheetImportResult parse({
     required List<int> bytes,
     required String fileName,
     DateTime? now,
   }) {
-    final extension = _extension(fileName);
-    final sheets = switch (extension) {
-      'csv' => [_SpreadsheetSheet('CSV', _parseDelimited(_decodeText(bytes)))],
-      'xlsx' => _XlsxReader().read(bytes),
-      'xls' => _XlsReader().read(bytes),
-      _ => throw const FormatException('目前支持 .xlsx、.xls 或 .csv 文件。'),
-    };
+    final sheets = _readSpreadsheetSheets(bytes: bytes, fileName: fileName);
+    return _parseSheets(sheets, now: now ?? DateTime.now());
+  }
+
+  /// Parses a workbook away from Flutter's UI isolate.
+  ///
+  /// Reading legacy `.xls` files can involve walking a very large BIFF
+  /// dimension even when only a few rows contain data. Keep that work out of
+  /// the frame that owns the file picker and progress notice. The airport
+  /// lookup and row normalization still use this service's in-memory catalog
+  /// after the raw sheet grid has been safely read.
+  Future<SpreadsheetImportResult> parseInBackground({
+    required List<int> bytes,
+    required String fileName,
+    DateTime? now,
+  }) async {
+    final sheets =
+        await compute<_SpreadsheetReadRequest, List<_SpreadsheetSheet>>(
+          _readSpreadsheetSheetsInBackground,
+          _SpreadsheetReadRequest(
+            bytes: Uint8List.fromList(bytes),
+            fileName: fileName,
+          ),
+        );
+    return _parseSheetsInChunks(sheets, now: now ?? DateTime.now());
+  }
+
+  SpreadsheetImportResult _parseSheets(
+    List<_SpreadsheetSheet> sheets, {
+    required DateTime now,
+  }) {
+    final selected = _selectSheetHeaders(sheets);
+    final parsed = [
+      for (final candidate in selected)
+        _parseSheet(candidate.sheet, candidate.header, now),
+    ];
+    return _combineParsedSheets(selected, parsed);
+  }
+
+  Future<SpreadsheetImportResult> _parseSheetsInChunks(
+    List<_SpreadsheetSheet> sheets, {
+    required DateTime now,
+  }) async {
+    final selected = _selectSheetHeaders(sheets);
+    final parsed = <SpreadsheetImportResult>[];
+    for (final candidate in selected) {
+      parsed.add(
+        await _parseSheetInChunks(candidate.sheet, candidate.header, now),
+      );
+    }
+    return _combineParsedSheets(selected, parsed);
+  }
+
+  List<_SheetHeader> _selectSheetHeaders(List<_SpreadsheetSheet> sheets) {
     if (sheets.isEmpty) {
       throw const FormatException('表格中没有可读取的工作表。');
     }
-
     final candidates = <_SheetHeader>[
       for (final sheet in sheets)
         if (_HeaderMap.find(sheet.rows) case final header?)
           _SheetHeader(sheet, header),
     ];
-    if (candidates.isNotEmpty) {
-      final named = candidates
-          .where((candidate) => _isImportableSheet(candidate.sheet.name))
-          .toList(growable: false);
-      final selected = named.isEmpty ? candidates : named;
-      final parsed = [
-        for (final candidate in selected)
-          _parseSheet(candidate.sheet, candidate.header, now ?? DateTime.now()),
-      ];
-      final rows = <SpreadsheetFlightRow>[
-        for (final result in parsed) ...result.rows,
-      ];
-      final issues = <SpreadsheetImportIssue>[
-        for (final result in parsed) ...result.issues,
-      ];
-      return SpreadsheetImportResult(
-        sheetName: selected.map((candidate) => candidate.sheet.name).join('、'),
-        rows: List.unmodifiable(rows),
-        issues: List.unmodifiable(issues),
-      );
+    if (candidates.isEmpty) {
+      throw const FormatException('未找到航旅纵横表头。需要包含：日期、航空公司、航班号、出发城市和到达城市。');
     }
-    throw const FormatException('未找到航旅纵横表头。需要包含：日期、航空公司、航班号、出发城市和到达城市。');
+    final named = candidates
+        .where((candidate) => _isImportableSheet(candidate.sheet.name))
+        .toList(growable: false);
+    return named.isEmpty ? candidates : named;
+  }
+
+  SpreadsheetImportResult _combineParsedSheets(
+    List<_SheetHeader> selected,
+    List<SpreadsheetImportResult> parsed,
+  ) {
+    final rows = <SpreadsheetFlightRow>[
+      for (final result in parsed) ...result.rows,
+    ];
+    final issues = <SpreadsheetImportIssue>[
+      for (final result in parsed) ...result.issues,
+    ];
+    return SpreadsheetImportResult(
+      sheetName: selected.map((candidate) => candidate.sheet.name).join('、'),
+      rows: List.unmodifiable(rows),
+      issues: List.unmodifiable(issues),
+    );
   }
 
   static bool _isImportableSheet(String name) {
@@ -144,6 +195,42 @@ class FlightSpreadsheetImportService {
       }
       if (parsed.issue != null) {
         issues.add(parsed.issue!);
+      }
+    }
+    if (rows.isEmpty && issues.isEmpty) {
+      issues.add(
+        SpreadsheetImportIssue(
+          rowNumber: header.rowIndex + 1,
+          message: '表头下没有可导入的行。',
+        ),
+      );
+    }
+    return SpreadsheetImportResult(
+      sheetName: sheet.name,
+      rows: List.unmodifiable(rows),
+      issues: List.unmodifiable(issues),
+    );
+  }
+
+  Future<SpreadsheetImportResult> _parseSheetInChunks(
+    _SpreadsheetSheet sheet,
+    _HeaderMap header,
+    DateTime now,
+  ) async {
+    final rows = <SpreadsheetFlightRow>[];
+    final issues = <SpreadsheetImportIssue>[];
+    var processed = 0;
+    for (var index = header.rowIndex + 1; index < sheet.rows.length; index++) {
+      final values = sheet.rows[index];
+      if (!_isBlankRow(values) && !_HeaderMap.looksLikeHeader(values)) {
+        final rowNumber = index + 1;
+        final parsed = _parseRow(values, rowNumber, header, now);
+        if (parsed.row != null) rows.add(parsed.row!);
+        if (parsed.issue != null) issues.add(parsed.issue!);
+      }
+      processed++;
+      if (processed % 200 == 0) {
+        await Future<void>.delayed(Duration.zero);
       }
     }
     if (rows.isEmpty && issues.isEmpty) {
@@ -296,12 +383,20 @@ class FlightSpreadsheetImportService {
   _AirportMatch? _resolveAirport(String raw) {
     final value = raw.trim();
     if (value.isEmpty) return null;
+    final cacheKey = value.toLowerCase();
+    if (_airportResolutionCache.containsKey(cacheKey)) {
+      return _airportResolutionCache[cacheKey];
+    }
     final codes = RegExp(r'(?<![A-Za-z])([A-Za-z]{3})(?![A-Za-z])')
         .allMatches(value)
         .map((match) => match.group(1)!.toUpperCase());
     for (final code in codes) {
       final airport = airports.findByIata(code);
-      if (airport != null) return _AirportMatch(airport, false);
+      if (airport != null) {
+        final match = _AirportMatch(airport, false);
+        _cacheAirportMatch(cacheKey, match);
+        return match;
+      }
     }
 
     final queries = (<String>{
@@ -317,8 +412,21 @@ class FlightSpreadsheetImportService {
       }
       if (candidates.isNotEmpty) break;
     }
-    if (candidates.isEmpty) return null;
-    return _AirportMatch(candidates.first, candidates.length > 1);
+    if (candidates.isEmpty) {
+      _cacheAirportMatch(cacheKey, null);
+      return null;
+    }
+    final match = _AirportMatch(candidates.first, candidates.length > 1);
+    _cacheAirportMatch(cacheKey, match);
+    return match;
+  }
+
+  void _cacheAirportMatch(String key, _AirportMatch? match) {
+    if (_airportResolutionCache.length >= 2048 &&
+        !_airportResolutionCache.containsKey(key)) {
+      _airportResolutionCache.clear();
+    }
+    _airportResolutionCache[key] = match;
   }
 
   static FlightStatus _statusForDate(DateTime date, DateTime now) {
@@ -328,6 +436,30 @@ class FlightSpreadsheetImportService {
         ? FlightStatus.upcoming
         : FlightStatus.completed;
   }
+}
+
+class _SpreadsheetReadRequest {
+  const _SpreadsheetReadRequest({required this.bytes, required this.fileName});
+
+  final Uint8List bytes;
+  final String fileName;
+}
+
+List<_SpreadsheetSheet> _readSpreadsheetSheetsInBackground(
+  _SpreadsheetReadRequest request,
+) => _readSpreadsheetSheets(bytes: request.bytes, fileName: request.fileName);
+
+List<_SpreadsheetSheet> _readSpreadsheetSheets({
+  required List<int> bytes,
+  required String fileName,
+}) {
+  final extension = _extension(fileName);
+  return switch (extension) {
+    'csv' => [_SpreadsheetSheet('CSV', _parseDelimited(_decodeText(bytes)))],
+    'xlsx' => _XlsxReader().read(bytes),
+    'xls' => _XlsReader().read(bytes),
+    _ => throw const FormatException('目前支持 .xlsx、.xls 或 .csv 文件。'),
+  };
 }
 
 class _ParsedSpreadsheetRow {
@@ -710,35 +842,679 @@ class _XlsxReader {
 /// importer intentionally converts every worksheet to the same string grid
 /// used by the CSV/XLSX readers, so header matching and date inference stay
 /// identical across all three formats.
+///
+/// This is deliberately kept in the app instead of relying on the small
+/// `excel2003` reader's high-level API. BIFF8 may split the Shared String
+/// Table over several `CONTINUE` records. Concatenating those records (which
+/// the package does) loses the one-byte encoding marker at each boundary and
+/// turns every later cell into garbled text. `_BiffSharedStringTable` keeps
+/// record boundaries and consumes those markers while reading characters.
 class _XlsReader {
+  // BIFF8 stores a worksheet dimension separately from its sparse cell data.
+  // A stale formatting range can therefore claim millions of cells even when
+  // the visible export only contains a few hundred flights. Keep a hard upper
+  // bound as a last-resort guard before creating any dense Dart lists.
+  static const _maxDeclaredRows = 100000;
+  static const _maxDeclaredColumns = 256;
+  static const _maxDeclaredCells = 2000000;
+  static const _maxLeadingEmptyRows = 512;
+  static const _maxTrailingEmptyRows = 128;
+
   List<_SpreadsheetSheet> read(List<int> bytes) {
-    final reader = XlsReader.fromBytes(Uint8List.fromList(bytes));
-    final result = <_SpreadsheetSheet>[];
-    for (var index = 0; index < reader.sheetCount; index++) {
-      final sheet = reader.sheet(index);
-      final rows = <List<String>>[];
-      for (var row = sheet.firstRow; row < sheet.lastRow; row++) {
-        final values = <String>[];
-        for (var column = sheet.firstCol; column < sheet.lastCol; column++) {
-          values.add(_stringify(sheet.cell(row, column)));
-        }
-        rows.add(values);
+    final ole = Ole2Reader()..openBytes(Uint8List.fromList(bytes));
+    final workbookEntry = ole.findEntry('Workbook') ?? ole.findEntry('Book');
+    if (workbookEntry == null) {
+      throw const FormatException('XLS 文件中没有 Workbook 工作簿流。');
+    }
+
+    final workbook = ole.readEntry(workbookEntry);
+    final parser = _BiffRecordCursor(workbook);
+    final rawSheets = <_BiffSheetInfo>[];
+    var codePage = 1200;
+    var sharedStrings = const <String>[];
+
+    globals:
+    while (parser.hasMore) {
+      final record = parser.next();
+      if (record == null) break;
+      switch (record.type) {
+        case _BiffRecordType.codePage:
+          if (record.data.length >= 2) {
+            codePage = record.uint16(0);
+          }
+          break;
+        case _BiffRecordType.boundSheet:
+          final sheet = _BiffSheetInfo.fromRecord(record);
+          if (sheet != null && sheet.type == 0) rawSheets.add(sheet);
+          break;
+        case _BiffRecordType.sst:
+          final segments = <Uint8List>[record.data];
+          while (parser.peekType == _BiffRecordType.continueRec) {
+            final continuation = parser.next();
+            if (continuation == null) break;
+            segments.add(continuation.data);
+          }
+          sharedStrings = _BiffSharedStringTable(
+            segments: segments,
+            codePage: codePage,
+          ).read();
+          break;
+        case _BiffRecordType.eof:
+          break globals;
       }
-      result.add(_SpreadsheetSheet(sheet.name, rows));
+    }
+
+    final sheets = [
+      for (final sheet in rawSheets) sheet.withDecodedName(codePage),
+    ];
+    return [
+      for (final sheet in sheets)
+        _readSheet(
+          workbook: workbook,
+          sheet: sheet,
+          sharedStrings: sharedStrings,
+          codePage: codePage,
+        ),
+    ];
+  }
+
+  _SpreadsheetSheet _readSheet({
+    required Uint8List workbook,
+    required _BiffSheetInfo sheet,
+    required List<String> sharedStrings,
+    required int codePage,
+  }) {
+    final parser = _BiffRecordCursor(workbook, position: sheet.bofPosition);
+    final cells = <int, Map<int, String>>{};
+    var firstRow = 0;
+    var lastRow = 0;
+    var firstColumn = 0;
+    var lastColumn = 0;
+    var hasDimension = false;
+    _BiffFormulaCell? pendingFormula;
+
+    while (parser.hasMore) {
+      final record = parser.next();
+      if (record == null) break;
+      switch (record.type) {
+        case _BiffRecordType.dimension:
+          if (record.data.length >= 12) {
+            firstRow = record.uint32(0);
+            lastRow = record.uint32(4);
+            firstColumn = record.uint16(8);
+            lastColumn = record.uint16(10);
+            hasDimension = true;
+          }
+          break;
+        case _BiffRecordType.labelSst:
+          if (record.data.length >= 10) {
+            final row = record.uint16(0);
+            final column = record.uint16(2);
+            final index = record.uint32(6);
+            _setCell(
+              cells,
+              row,
+              column,
+              index < sharedStrings.length ? sharedStrings[index] : '',
+            );
+          }
+          break;
+        case _BiffRecordType.label:
+          if (record.data.length >= 8) {
+            _setCell(
+              cells,
+              record.uint16(0),
+              record.uint16(2),
+              _BiffInlineString.read(record.data, 6, codePage),
+            );
+          }
+          break;
+        case _BiffRecordType.number:
+          if (record.data.length >= 14) {
+            _setCell(
+              cells,
+              record.uint16(0),
+              record.uint16(2),
+              _formatNumber(record.float64(6)),
+            );
+          }
+          break;
+        case _BiffRecordType.rk:
+          if (record.data.length >= 10) {
+            _setCell(
+              cells,
+              record.uint16(0),
+              record.uint16(2),
+              _formatNumber(_decodeRk(record.uint32(6))),
+            );
+          }
+          break;
+        case _BiffRecordType.mulRk:
+          _readMultipleRk(record, cells);
+          break;
+        case _BiffRecordType.boolErr:
+          if (record.data.length >= 8) {
+            final value = record.data[6];
+            final isError = record.data[7] == 1;
+            _setCell(
+              cells,
+              record.uint16(0),
+              record.uint16(2),
+              isError
+                  ? _errorText(value)
+                  : value == 0
+                  ? 'FALSE'
+                  : 'TRUE',
+            );
+          }
+          break;
+        case _BiffRecordType.formula:
+          if (record.data.length >= 20) {
+            final row = record.uint16(0);
+            final column = record.uint16(2);
+            final resultType = record.uint16(6);
+            if (resultType == 0xffff) {
+              final specialType = record.data[8];
+              if (specialType == 0) {
+                pendingFormula = _BiffFormulaCell(row, column);
+              } else if (specialType == 1) {
+                _setCell(
+                  cells,
+                  row,
+                  column,
+                  record.data[10] == 0 ? 'FALSE' : 'TRUE',
+                );
+                pendingFormula = null;
+              } else if (specialType == 2) {
+                _setCell(cells, row, column, _errorText(record.data[10]));
+                pendingFormula = null;
+              } else {
+                pendingFormula = null;
+              }
+            } else {
+              _setCell(cells, row, column, _formatNumber(record.float64(6)));
+              pendingFormula = null;
+            }
+          }
+          break;
+        case _BiffRecordType.string:
+          if (pendingFormula != null) {
+            _setCell(
+              cells,
+              pendingFormula.row,
+              pendingFormula.column,
+              _BiffInlineString.read(record.data, 0, codePage),
+            );
+            pendingFormula = null;
+          }
+          break;
+        case _BiffRecordType.eof:
+          return _buildSheet(
+            sheet.name,
+            cells,
+            firstRow: firstRow,
+            lastRow: lastRow,
+            firstColumn: firstColumn,
+            lastColumn: lastColumn,
+            hasDimension: hasDimension,
+          );
+      }
+    }
+
+    return _buildSheet(
+      sheet.name,
+      cells,
+      firstRow: firstRow,
+      lastRow: lastRow,
+      firstColumn: firstColumn,
+      lastColumn: lastColumn,
+      hasDimension: hasDimension,
+    );
+  }
+
+  _SpreadsheetSheet _buildSheet(
+    String name,
+    Map<int, Map<int, String>> cells, {
+    required int firstRow,
+    required int lastRow,
+    required int firstColumn,
+    required int lastColumn,
+    required bool hasDimension,
+  }) {
+    if (cells.isNotEmpty) {
+      final rows = cells.keys;
+      final columns = cells.values.expand((row) => row.keys);
+      final actualFirstRow = rows.reduce((a, b) => a < b ? a : b);
+      final actualLastRow = rows.reduce((a, b) => a > b ? a : b) + 1;
+      final actualFirstColumn = columns.reduce((a, b) => a < b ? a : b);
+      final actualLastColumn = columns.reduce((a, b) => a > b ? a : b) + 1;
+      if (!hasDimension || actualFirstRow < firstRow) firstRow = actualFirstRow;
+      if (!hasDimension || actualLastRow > lastRow) lastRow = actualLastRow;
+      if (!hasDimension || actualFirstColumn < firstColumn) {
+        firstColumn = actualFirstColumn;
+      }
+      if (!hasDimension || actualLastColumn > lastColumn) {
+        lastColumn = actualLastColumn;
+      }
+    }
+
+    final rowCount = lastRow - firstRow;
+    final columnCount = lastColumn - firstColumn;
+    if (rowCount < 0 ||
+        columnCount < 0 ||
+        rowCount > _maxDeclaredRows ||
+        columnCount > _maxDeclaredColumns ||
+        rowCount > 0 && columnCount > _maxDeclaredCells ~/ rowCount) {
+      throw FormatException(
+        '工作表“$name”声明的范围过大（$rowCount 行 × '
+        '$columnCount 列），文件可能包含异常格式。请另存为 .xlsx 或 .csv 后重试。',
+      );
+    }
+
+    final result = <List<String>>[];
+    var foundValue = false;
+    var leadingEmptyRows = 0;
+    var trailingEmptyRows = 0;
+    for (var row = firstRow; row < lastRow; row++) {
+      final values = List<String>.filled(columnCount, '');
+      var rowHasValue = false;
+      final source = cells[row];
+      if (source != null) {
+        for (final entry in source.entries) {
+          if (entry.key < firstColumn || entry.key >= lastColumn) continue;
+          values[entry.key - firstColumn] = entry.value;
+          if (entry.value.trim().isNotEmpty) rowHasValue = true;
+        }
+      }
+
+      if (rowHasValue) {
+        foundValue = true;
+        leadingEmptyRows = 0;
+        trailingEmptyRows = 0;
+      } else if (!foundValue) {
+        leadingEmptyRows++;
+        if (leadingEmptyRows > _maxLeadingEmptyRows) break;
+      } else {
+        trailingEmptyRows++;
+        // The exporter writes a contiguous table. Stop after a reasonable
+        // blank tail instead of walking a stale BIFF lastRow to the limit.
+        if (trailingEmptyRows >= _maxTrailingEmptyRows) break;
+      }
+      result.add(values);
+    }
+    return _SpreadsheetSheet(name, result);
+  }
+
+  static void _setCell(
+    Map<int, Map<int, String>> cells,
+    int row,
+    int column,
+    String value,
+  ) {
+    cells.putIfAbsent(row, () => {})[column] = value;
+  }
+
+  static void _readMultipleRk(
+    _BiffRecord record,
+    Map<int, Map<int, String>> cells,
+  ) {
+    if (record.data.length < 10) return;
+    final row = record.uint16(0);
+    final firstColumn = record.uint16(2);
+    final lastColumn = record.uint16(record.data.length - 2);
+    var offset = 4;
+    for (
+      var column = firstColumn;
+      column <= lastColumn && offset + 6 <= record.data.length - 2;
+      column++
+    ) {
+      _setCell(
+        cells,
+        row,
+        column,
+        _formatNumber(_decodeRk(record.uint32(offset + 2))),
+      );
+      offset += 6;
+    }
+  }
+
+  static double _decodeRk(int value) {
+    final isInteger = (value & 0x02) != 0;
+    final divideBy100 = (value & 0x01) != 0;
+    double result;
+    if (isInteger) {
+      var integer = (value >> 2) & 0x3fffffff;
+      if ((integer & 0x20000000) != 0) integer -= 0x40000000;
+      result = integer.toDouble();
+    } else {
+      final bytes = ByteData(8);
+      bytes.setUint32(4, value & 0xfffffffc, Endian.little);
+      result = bytes.getFloat64(0, Endian.little);
+    }
+    return divideBy100 ? result / 100 : result;
+  }
+
+  static String _formatNumber(double value) {
+    if (!value.isFinite) return '';
+    if (value == value.truncateToDouble()) return value.toInt().toString();
+    return value.toString();
+  }
+
+  static String _errorText(int code) => switch (code) {
+    0x00 => '#NULL!',
+    0x07 => '#DIV/0!',
+    0x0f => '#VALUE!',
+    0x17 => '#REF!',
+    0x1d => '#NAME?',
+    0x24 => '#NUM!',
+    0x2a => '#N/A',
+    _ => '#ERROR',
+  };
+}
+
+class _BiffRecordType {
+  static const eof = 0x000a;
+  static const boundSheet = 0x0085;
+  static const sst = 0x00fc;
+  static const continueRec = 0x003c;
+  static const codePage = 0x0042;
+  static const dimension = 0x0200;
+  static const number = 0x0203;
+  static const label = 0x0204;
+  static const boolErr = 0x0205;
+  static const formula = 0x0006;
+  static const string = 0x0207;
+  static const rk = 0x027e;
+  static const mulRk = 0x00bd;
+  static const labelSst = 0x00fd;
+}
+
+class _BiffRecord {
+  _BiffRecord({required this.type, required this.data, required this.offset});
+
+  final int type;
+  final Uint8List data;
+  final int offset;
+
+  int uint16(int offset) {
+    if (offset < 0 || offset + 2 > data.length) return 0;
+    return data[offset] | data[offset + 1] << 8;
+  }
+
+  int uint32(int offset) {
+    if (offset < 0 || offset + 4 > data.length) return 0;
+    return data[offset] |
+        data[offset + 1] << 8 |
+        data[offset + 2] << 16 |
+        data[offset + 3] << 24;
+  }
+
+  double float64(int offset) {
+    if (offset < 0 || offset + 8 > data.length) return 0;
+    return ByteData.sublistView(
+      data,
+      offset,
+      offset + 8,
+    ).getFloat64(0, Endian.little);
+  }
+}
+
+class _BiffRecordCursor {
+  _BiffRecordCursor(this.data, {this.position = 0});
+
+  final Uint8List data;
+  int position;
+
+  bool get hasMore => position + 4 <= data.length;
+  int? get peekType =>
+      hasMore ? data[position] | data[position + 1] << 8 : null;
+
+  _BiffRecord? next() {
+    if (!hasMore) return null;
+    final offset = position;
+    final type = data[position] | data[position + 1] << 8;
+    final length = data[position + 2] | data[position + 3] << 8;
+    position += 4;
+    if (position + length > data.length) {
+      throw const FormatException('XLS 工作簿记录不完整。');
+    }
+    final record = _BiffRecord(
+      type: type,
+      data: Uint8List.sublistView(data, position, position + length),
+      offset: offset,
+    );
+    position += length;
+    return record;
+  }
+}
+
+class _BiffSheetInfo {
+  _BiffSheetInfo({
+    required this.bofPosition,
+    required this.visibility,
+    required this.type,
+    required this.nameLength,
+    required this.nameFlags,
+    required this.nameBytes,
+  });
+
+  final int bofPosition;
+  final int visibility;
+  final int type;
+  final int nameLength;
+  final int nameFlags;
+  final Uint8List nameBytes;
+  late final String name;
+
+  static _BiffSheetInfo? fromRecord(_BiffRecord record) {
+    if (record.data.length < 8) return null;
+    final nameLength = record.data[6];
+    final unicode = (record.data[7] & 0x01) != 0;
+    final byteLength = unicode ? nameLength * 2 : nameLength;
+    final available = record.data.length - 8;
+    final bytes = Uint8List.fromList(
+      record.data.sublist(
+        8,
+        8 + (byteLength < available ? byteLength : available),
+      ),
+    );
+    return _BiffSheetInfo(
+      bofPosition: record.uint32(0),
+      visibility: record.data[4],
+      type: record.data[5],
+      nameLength: nameLength,
+      nameFlags: record.data[7],
+      nameBytes: bytes,
+    );
+  }
+
+  _BiffSheetInfo withDecodedName(int codePage) {
+    final unicode = (nameFlags & 0x01) != 0;
+    name = unicode
+        ? _decodeUtf16Le(nameBytes)
+        : _decodeCompressed(nameBytes, codePage);
+    if (name.isEmpty) name = 'Sheet';
+    return this;
+  }
+}
+
+class _BiffFormulaCell {
+  const _BiffFormulaCell(this.row, this.column);
+
+  final int row;
+  final int column;
+}
+
+class _BiffInlineString {
+  static String read(Uint8List data, int offset, int codePage) {
+    if (offset < 0 || offset + 3 > data.length) return '';
+    final charCount = data[offset] | data[offset + 1] << 8;
+    final flags = data[offset + 2];
+    var position = offset + 3;
+    final unicode = (flags & 0x01) != 0;
+    if (unicode) {
+      final units = <int>[];
+      for (
+        var index = 0;
+        index < charCount && position + 2 <= data.length;
+        index++
+      ) {
+        units.add(data[position] | data[position + 1] << 8);
+        position += 2;
+      }
+      position += (flags & 0x08) != 0 && position + 2 <= data.length
+          ? (data[position] | data[position + 1] << 8) * 4 + 2
+          : 0;
+      return String.fromCharCodes(units);
+    }
+    final end = (position + charCount).clamp(position, data.length);
+    final value = _decodeCompressed(data.sublist(position, end), codePage);
+    return value;
+  }
+}
+
+class _BiffSharedStringTable {
+  _BiffSharedStringTable({required this.segments, required this.codePage});
+
+  final List<Uint8List> segments;
+  final int codePage;
+  var _segmentIndex = 0;
+  var _offset = 0;
+  var _unicode = false;
+
+  List<String> read() {
+    if (segments.isEmpty) return const [];
+    final total = _readUint32Raw();
+    final unique = _readUint32Raw();
+    if (total == null || unique == null) return const [];
+    if (unique > 1000000) {
+      throw const FormatException('XLS 共享字符串数量异常，文件可能已损坏。');
+    }
+
+    final result = <String>[];
+    for (var index = 0; index < unique; index++) {
+      final value = _readString();
+      if (value == null) break;
+      result.add(value);
     }
     return result;
   }
 
-  static String _stringify(Object? value) {
-    if (value == null) return '';
-    if (value is DateTime) {
-      final local = value.toLocal();
-      String two(int part) => part.toString().padLeft(2, '0');
-      return '${local.year}-${two(local.month)}-${two(local.day)} '
-          '${two(local.hour)}:${two(local.minute)}:${two(local.second)}';
+  String? _readString() {
+    final charCount = _readUint16Raw();
+    final flags = _readByteRaw();
+    if (charCount == null || flags == null) return null;
+    final hasRichText = (flags & 0x08) != 0;
+    final hasExtendedText = (flags & 0x04) != 0;
+    final richTextRuns = hasRichText ? _readUint16Raw() : 0;
+    final extendedBytes = hasExtendedText ? _readUint32Raw() : 0;
+    if (hasRichText && richTextRuns == null ||
+        hasExtendedText && extendedBytes == null) {
+      return null;
     }
-    return value.toString();
+
+    _unicode = (flags & 0x01) != 0;
+    final text = StringBuffer();
+    final compressedBytes = <int>[];
+    void flushCompressed() {
+      if (compressedBytes.isEmpty) return;
+      text.write(_decodeCompressed(compressedBytes, codePage));
+      compressedBytes.clear();
+    }
+
+    for (var index = 0; index < charCount; index++) {
+      if (_unicode) {
+        flushCompressed();
+        final low = _readStringByte();
+        final high = _readStringByte();
+        if (low == null || high == null) return text.toString();
+        text.writeCharCode(low | high << 8);
+      } else {
+        final byte = _readStringByte();
+        if (byte == null) return text.toString();
+        compressedBytes.add(byte);
+      }
+    }
+    flushCompressed();
+
+    final richBytes = (richTextRuns ?? 0) * 4;
+    final extensionBytes = extendedBytes ?? 0;
+    if (richBytes > 0) _skipRaw(richBytes);
+    if (extensionBytes > 0) _skipRaw(extensionBytes);
+    return text.toString();
   }
+
+  int? _readUint16Raw() {
+    final low = _readRawByte();
+    final high = _readRawByte();
+    if (low == null || high == null) return null;
+    return low | high << 8;
+  }
+
+  int? _readByteRaw() => _readRawByte();
+
+  int? _readUint32Raw() {
+    final b0 = _readRawByte();
+    final b1 = _readRawByte();
+    final b2 = _readRawByte();
+    final b3 = _readRawByte();
+    if (b0 == null || b1 == null || b2 == null || b3 == null) return null;
+    return b0 | b1 << 8 | b2 << 16 | b3 << 24;
+  }
+
+  int? _readRawByte() {
+    while (_segmentIndex < segments.length) {
+      final segment = segments[_segmentIndex];
+      if (_offset < segment.length) return segment[_offset++];
+      _segmentIndex++;
+      _offset = 0;
+    }
+    return null;
+  }
+
+  int? _readStringByte() {
+    while (_segmentIndex < segments.length) {
+      final segment = segments[_segmentIndex];
+      if (_offset >= segment.length) {
+        _segmentIndex++;
+        _offset = 0;
+        continue;
+      }
+      // A CONTINUE record starts with the compression flag for the part of
+      // the string that follows it. The SST record itself is segment 0.
+      if (_segmentIndex > 0 && _offset == 0) {
+        _unicode = (segment[_offset++] & 0x01) != 0;
+        if (_offset >= segment.length) continue;
+      }
+      return segment[_offset++];
+    }
+    return null;
+  }
+
+  void _skipRaw(int count) {
+    for (var index = 0; index < count; index++) {
+      if (_readRawByte() == null) break;
+    }
+  }
+}
+
+String _decodeUtf16Le(List<int> bytes) {
+  final units = <int>[];
+  for (var index = 0; index + 1 < bytes.length; index += 2) {
+    units.add(bytes[index] | bytes[index + 1] << 8);
+  }
+  return String.fromCharCodes(units);
+}
+
+String _decodeCompressed(List<int> bytes, int codePage) {
+  if (bytes.isEmpty) return '';
+  if (codePage == 65001) {
+    return utf8.decode(bytes, allowMalformed: true);
+  }
+  // BIFF8 normally writes East-Asian text as UTF-16LE even when CODEPAGE is
+  // 1200. For byte strings, preserve ASCII/Latin text and avoid replacing
+  // unknown bytes with U+FFFD; this is also what older Excel readers expect.
+  return String.fromCharCodes(bytes);
 }
 
 String? _attribute(XmlElement element, String localName) {

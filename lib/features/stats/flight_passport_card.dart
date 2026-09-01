@@ -74,42 +74,24 @@ class _FlightPassportCardState extends State<FlightPassportCard> {
           child: GestureDetector(
             behavior: HitTestBehavior.opaque,
             onLongPress: _showActions,
-            child: Stack(
-              children: [
-                // Keep the capture boundary inside the outline. The visible
-                // card gets a subtle edge, while saved/shared PNGs remain
-                // transparent at the corners with no outline baked in.
-                RepaintBoundary(
-                  key: _captureKey,
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(28),
-                    clipBehavior: Clip.antiAlias,
-                    child: _PassportArtwork(
-                      year: widget.year,
-                      yearLabel: widget.yearLabel,
-                      travellerName: widget.travellerName,
-                      distanceKm: widget.distanceKm,
-                      flightTimeMinutes: widget.flightTimeMinutes,
-                      flightCount: widget.flightCount,
-                      airportCount: widget.airportCount,
-                      routeCount: widget.routeCount,
-                      countryCodes: widget.countryCodes,
-                      airports: widget.airports,
-                      routes: widget.routes,
-                    ),
-                  ),
+            child: RepaintBoundary(
+              key: _captureKey,
+              child: ClipPath(
+                clipper: ShapeBorderClipper(shape: AppShapes.large),
+                child: _PassportArtwork(
+                  year: widget.year,
+                  yearLabel: widget.yearLabel,
+                  travellerName: widget.travellerName,
+                  distanceKm: widget.distanceKm,
+                  flightTimeMinutes: widget.flightTimeMinutes,
+                  flightCount: widget.flightCount,
+                  airportCount: widget.airportCount,
+                  routeCount: widget.routeCount,
+                  countryCodes: widget.countryCodes,
+                  airports: widget.airports,
+                  routes: widget.routes,
                 ),
-                Positioned.fill(
-                  child: IgnorePointer(
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        border: Border.all(color: AppColors.border, width: .8),
-                        borderRadius: BorderRadius.circular(28),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
+              ),
             ),
           ),
         ),
@@ -133,9 +115,7 @@ class _FlightPassportCardState extends State<FlightPassportCard> {
       context: context,
       backgroundColor: AppColors.surface,
       showDragHandle: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
+      shape: AppShapes.sheet,
       builder: (context) {
         final isZh = context.strings.isZh;
         return SafeArea(
@@ -269,97 +249,174 @@ class _PassportArtwork extends StatelessWidget {
       final width = constraints.maxWidth.isFinite
           ? constraints.maxWidth
           : 320.0;
-      final horizontal = (width * .065).clamp(18.0, 28.0).toDouble();
-      final cardWidth = width;
-      // Use a compact latitude window that removes the empty Antarctic gutter
-      // while keeping the entire longitude span. The map therefore reads
-      // larger and flatter like the reference artwork without clipping a
-      // continent at either side.
-      // The map is intentionally full-bleed: the text and metrics keep the
-      // card's content inset, while the world silhouette reaches the card's
-      // left and right edges like the reference composition. Using the full
-      // card width also makes the compact projection width-limited, so no
-      // extra side gutter appears around the continents.
-      // Give the route artwork a little more vertical room.  The loose
-      // Flexible keeps the fixed 3:4 composition safe on compact phones: if
-      // the metric block needs the last few pixels, the map yields gracefully
-      // instead of overflowing the card.
-      final mapHeight = (cardWidth * .60).clamp(176.0, 238.0).toDouble();
+      final horizontal = (width * .06).clamp(18.0, 26.0).toDouble();
+      final routeOrientation = _RouteOrientation.fromRoutes(routes);
       return AspectRatio(
         aspectRatio: 3 / 4,
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            color: const Color(0xff060b11),
-            borderRadius: BorderRadius.circular(28),
-          ),
-          child: Padding(
-            padding: EdgeInsets.fromLTRB(horizontal, 14, horizontal, 8),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                _PassportHeader(
-                  yearLabel: yearLabel ?? '$year',
-                  travellerName: travellerName,
-                ),
-                SizedBox(height: width * .005),
-                Flexible(
-                  fit: FlexFit.loose,
-                  child: SizedBox(
-                    height: mapHeight,
-                    child: OverflowBox(
-                      alignment: Alignment.center,
-                      minWidth: cardWidth,
-                      maxWidth: cardWidth,
-                      child: ClipRect(
-                        child: IgnorePointer(
-                          child: OfflineMap(
-                            mode: MapMode.flight,
-                            airports: airports,
-                            routes: routes,
-                            enableInteraction: false,
-                            fitToData: false,
-                            showGrid: false,
-                            minimalWorldStyle: true,
-                            showPassportTexture: true,
-                            compactWorldViewport: true,
-                            horizontalPadding: 0,
-                            verticalPadding: 0,
-                            fitZoomMultiplier: 1,
-                          ),
-                        ),
-                      ),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            const ColoredBox(color: Color(0xff060b11)),
+            Positioned.fill(
+              child: IgnorePointer(
+                child: ClipRect(
+                  child: Transform.rotate(
+                    angle: routeOrientation.angle,
+                    alignment: Alignment.center,
+                    child: OfflineMap(
+                      mode: MapMode.flight,
+                      airports: airports,
+                      routes: routes,
+                      enableInteraction: false,
+                      fitToData: true,
+                      showGrid: false,
+                      minimalWorldStyle: false,
+                      showPassportTexture: false,
+                      compactWorldViewport: true,
+                      horizontalPadding: 0,
+                      verticalPadding: 0,
+                      // Keep route endpoints in the upper artwork area; the
+                      // lower area is reserved for the distance and metrics.
+                      fitDataHeightFactor: .5,
+                      fitDataCenterY: .34,
+                      fitZoomMultiplier: routeOrientation.fitZoomMultiplier,
                     ),
                   ),
                 ),
-                // A small but intentional breathing room separates the map
-                // from the first metric row, matching the calm passport
-                // rhythm instead of pinning the text to the map edge.
-                SizedBox(height: (width * .02).clamp(7.0, 12.0)),
-                _PassportMetricRows(
-                  distanceKm: distanceKm,
-                  flightTimeMinutes: flightTimeMinutes,
-                  flightCount: flightCount,
-                  airportCount: airportCount,
-                  routeCount: routeCount,
-                ),
-                SizedBox(height: (width * .035).clamp(10.0, 16.0)),
-                _OverlappingFlags(countryCodes: countryCodes),
-                SizedBox(height: (width * .035).clamp(10.0, 16.0)),
-                const SizedBox(
-                  // A quieter passport stamp keeps the metrics and flags as
-                  // the visual focus while preserving the dot-matrix motif.
-                  height: 18,
-                  child: CustomPaint(
-                    painter: _DotMatrixTextPainter('FLIGHT FOOTPRINT'),
-                  ),
-                ),
-              ],
+              ),
             ),
-          ),
+            const DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Color(0xcc060b11),
+                    Color(0x28060b11),
+                    Color(0x00060b11),
+                    Color(0x40060b11),
+                    Color(0xe8060b11),
+                    Color(0xff060b11),
+                  ],
+                  stops: [0, .12, .38, .54, .72, 1],
+                ),
+              ),
+            ),
+            Padding(
+              padding: EdgeInsets.fromLTRB(horizontal, 16, horizontal, 24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Align(
+                    alignment: Alignment.topLeft,
+                    child: _PassportHeader(
+                      yearLabel: yearLabel ?? '$year',
+                      travellerName: travellerName,
+                    ),
+                  ),
+                  const Spacer(),
+                  _PassportMetricRows(
+                    cardWidth: width,
+                    distanceKm: distanceKm,
+                    flightTimeMinutes: flightTimeMinutes,
+                    flightCount: flightCount,
+                    airportCount: airportCount,
+                    routeCount: routeCount,
+                  ),
+                  SizedBox(height: (width * .045).clamp(12.0, 18.0)),
+                  _OverlappingFlags(countryCodes: countryCodes),
+                ],
+              ),
+            ),
+          ],
         ),
       );
     },
   );
+}
+
+/// Chooses a restrained map rotation only when the recorded route network has
+/// a strong directional bias. Dense clusters and global footprints remain
+/// north-up so geography stays instantly recognizable.
+class _RouteOrientation {
+  const _RouteOrientation({
+    required this.angle,
+    required this.fitZoomMultiplier,
+  });
+
+  final double angle;
+  final double fitZoomMultiplier;
+
+  static const _maxAngle = math.pi / 10; // 18 degrees
+
+  factory _RouteOrientation.fromRoutes(List<MapRoute> routes) {
+    final points = <Offset>[];
+    for (final route in routes) {
+      final fromLatitude = route.from.latitude * math.pi / 180;
+      final toLatitude = route.to.latitude * math.pi / 180;
+      points.add(
+        Offset(
+          route.from.longitude * math.cos(fromLatitude),
+          -route.from.latitude,
+        ),
+      );
+      points.add(
+        Offset(route.to.longitude * math.cos(toLatitude), -route.to.latitude),
+      );
+    }
+    if (points.length < 4)
+      return const _RouteOrientation(angle: 0, fitZoomMultiplier: .94);
+
+    final center =
+        points.fold<Offset>(Offset.zero, (sum, point) => sum + point) /
+        points.length.toDouble();
+    var xx = 0.0;
+    var yy = 0.0;
+    var xy = 0.0;
+    for (final point in points) {
+      final dx = point.dx - center.dx;
+      final dy = point.dy - center.dy;
+      xx += dx * dx;
+      yy += dy * dy;
+      xy += dx * dy;
+    }
+    final covarianceScale = 1 / points.length;
+    xx *= covarianceScale;
+    yy *= covarianceScale;
+    xy *= covarianceScale;
+    final spread = xx + yy;
+    if (spread < .0001) {
+      return const _RouteOrientation(angle: 0, fitZoomMultiplier: .94);
+    }
+
+    final discriminant = math.sqrt(math.pow(xx - yy, 2) + 4 * xy * xy);
+    final major = (spread + discriminant) / 2;
+    final minor = math.max(.0001, (spread - discriminant) / 2);
+    final anisotropy = major / minor;
+    if (anisotropy < 1.45) {
+      return const _RouteOrientation(angle: 0, fitZoomMultiplier: .94);
+    }
+
+    var angle = -0.5 * math.atan2(2 * xy, xx - yy);
+    while (angle > math.pi / 2) {
+      angle -= math.pi;
+    }
+    while (angle < -math.pi / 2) {
+      angle += math.pi;
+    }
+    if (angle.abs() > _maxAngle) {
+      return const _RouteOrientation(angle: 0, fitZoomMultiplier: .94);
+    }
+
+    final confidence = ((anisotropy - 1.45) / 2.2).clamp(0.0, 1.0);
+    angle *= confidence;
+    return _RouteOrientation(
+      angle: angle,
+      // Rotating a fitted viewport exposes the corners sooner. The extra
+      // margin keeps the route endpoints and decorative arcs inside the map.
+      fitZoomMultiplier: .94 - confidence * .04,
+    );
+  }
 }
 
 class _PassportHeader extends StatelessWidget {
@@ -369,37 +426,49 @@ class _PassportHeader extends StatelessWidget {
   final String travellerName;
 
   @override
-  Widget build(BuildContext context) => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      Text(
-        '$yearLabel FLIGHT PASSPORT CARD',
-        style: const TextStyle(
-          color: AppColors.textPrimary,
-          fontSize: 10,
-          fontWeight: FontWeight.w400,
-          letterSpacing: 1.15,
-        ),
+  Widget build(BuildContext context) {
+    final name = travellerName.trim().isEmpty
+        ? 'TRAVELER'
+        : travellerName.trim();
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 210),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '$yearLabel FLIGHT RECORD CARD',
+            maxLines: 1,
+            textAlign: TextAlign.left,
+            style: const TextStyle(
+              color: AppColors.textSecondary,
+              fontSize: 8.5,
+              fontWeight: FontWeight.w500,
+              letterSpacing: 1.05,
+            ),
+          ),
+          const SizedBox(height: 5),
+          Text(
+            name,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.left,
+            style: const TextStyle(
+              color: AppColors.lime,
+              fontSize: 18,
+              height: 1,
+              fontWeight: FontWeight.w600,
+              letterSpacing: -.3,
+            ),
+          ),
+        ],
       ),
-      const SizedBox(height: 4),
-      Text(
-        travellerName.trim().isEmpty ? 'TRAVELER' : travellerName.trim(),
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: const TextStyle(
-          color: AppColors.lime,
-          fontSize: 20,
-          height: 1,
-          fontWeight: FontWeight.w600,
-          letterSpacing: -.4,
-        ),
-      ),
-    ],
-  );
+    );
+  }
 }
 
 class _PassportMetricRows extends StatelessWidget {
   const _PassportMetricRows({
+    required this.cardWidth,
     required this.distanceKm,
     required this.flightTimeMinutes,
     required this.flightCount,
@@ -407,6 +476,7 @@ class _PassportMetricRows extends StatelessWidget {
     required this.routeCount,
   });
 
+  final double cardWidth;
   final double distanceKm;
   final int flightTimeMinutes;
   final int flightCount;
@@ -415,48 +485,81 @@ class _PassportMetricRows extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
     children: [
-      Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            child: _PassportMetric(
-              label: 'FLIGHT DISTANCE',
-              value: _number(distanceKm.round()),
-              unit: 'KM',
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: _PassportMetric(
-              label: 'FLIGHT TIME',
-              value: _hours(flightTimeMinutes),
-              unit: 'h',
-              alignment: CrossAxisAlignment.end,
-              textAlign: TextAlign.right,
-            ),
-          ),
-        ],
+      const Text(
+        'FLIGHT DISTANCE',
+        style: TextStyle(
+          color: AppColors.textSecondary,
+          fontSize: 9,
+          fontWeight: FontWeight.w500,
+          letterSpacing: 1.15,
+        ),
       ),
-      const SizedBox(height: 18),
+      const SizedBox(height: 3),
+      SizedBox(
+        height: (cardWidth * .14).clamp(42.0, 58.0),
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: Alignment.centerLeft,
+          child: Text.rich(
+            TextSpan(
+              children: [
+                TextSpan(text: _number(distanceKm.round())),
+                const TextSpan(
+                  text: '  KM',
+                  style: TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 17,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 0,
+                  ),
+                ),
+              ],
+            ),
+            maxLines: 1,
+            style: TextStyle(
+              color: AppColors.lime,
+              fontSize: (cardWidth * .145).clamp(44.0, 60.0),
+              height: .95,
+              fontWeight: FontWeight.w700,
+              letterSpacing: -1.8,
+              fontFeatures: const [ui.FontFeature.tabularFigures()],
+            ),
+          ),
+        ),
+      ),
+      SizedBox(height: (cardWidth * .045).clamp(12.0, 18.0)),
       Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Expanded(
-            child: _PassportMetric(label: 'FLIGHTS', value: '$flightCount'),
+            child: _CompactPassportMetric(
+              label: 'FLIGHT TIME',
+              value: _number(_hours(flightTimeMinutes)),
+              unit: 'h',
+            ),
           ),
           Expanded(
-            child: _PassportMetric(
-              label: 'AIRPORTS',
-              value: '$airportCount',
+            child: _CompactPassportMetric(
+              label: 'FLIGHTS',
+              value: _number(flightCount),
               alignment: CrossAxisAlignment.center,
               textAlign: TextAlign.center,
             ),
           ),
           Expanded(
-            child: _PassportMetric(
+            child: _CompactPassportMetric(
+              label: 'AIRPORTS',
+              value: _number(airportCount),
+              alignment: CrossAxisAlignment.center,
+              textAlign: TextAlign.center,
+            ),
+          ),
+          Expanded(
+            child: _CompactPassportMetric(
               label: 'ROUTES',
-              value: '$routeCount',
+              value: _number(routeCount),
               alignment: CrossAxisAlignment.end,
               textAlign: TextAlign.right,
             ),
@@ -466,10 +569,7 @@ class _PassportMetricRows extends StatelessWidget {
     ],
   );
 
-  static String _hours(int minutes) {
-    if (minutes <= 0) return '—';
-    return (minutes / 60).round().toString();
-  }
+  static int _hours(int minutes) => minutes <= 0 ? 0 : (minutes / 60).round();
 
   static String _number(int value) => value.toString().replaceAllMapped(
     RegExp(r'\B(?=(\d{3})+(?!\d))'),
@@ -477,8 +577,8 @@ class _PassportMetricRows extends StatelessWidget {
   );
 }
 
-class _PassportMetric extends StatelessWidget {
-  const _PassportMetric({
+class _CompactPassportMetric extends StatelessWidget {
+  const _CompactPassportMetric({
     required this.label,
     required this.value,
     this.unit,
@@ -499,14 +599,17 @@ class _PassportMetric extends StatelessWidget {
       Text(
         label,
         textAlign: textAlign,
+        maxLines: 1,
+        overflow: TextOverflow.fade,
+        softWrap: false,
         style: const TextStyle(
           color: AppColors.textSecondary,
-          fontSize: 10,
-          fontWeight: FontWeight.w400,
-          letterSpacing: 1.1,
+          fontSize: 7.2,
+          fontWeight: FontWeight.w500,
+          letterSpacing: .65,
         ),
       ),
-      const SizedBox(height: 3),
+      const SizedBox(height: 4),
       Row(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.baseline,
@@ -517,10 +620,11 @@ class _PassportMetric extends StatelessWidget {
             textAlign: textAlign,
             style: const TextStyle(
               color: AppColors.lime,
-              fontSize: 28,
+              fontSize: 20,
               height: .98,
-              fontWeight: FontWeight.w700,
-              letterSpacing: -.8,
+              fontWeight: FontWeight.w600,
+              letterSpacing: -.55,
+              fontFeatures: [ui.FontFeature.tabularFigures()],
             ),
           ),
           if (unit != null) ...[
@@ -529,7 +633,7 @@ class _PassportMetric extends StatelessWidget {
               unit!,
               style: const TextStyle(
                 color: AppColors.textPrimary,
-                fontSize: 15,
+                fontSize: 10,
                 fontWeight: FontWeight.w600,
               ),
             ),
@@ -565,7 +669,8 @@ class _OverlappingFlags extends StatelessWidget {
       final rowWidth = size + (itemCount - 1) * step;
       return SizedBox(
         height: size,
-        child: Center(
+        child: Align(
+          alignment: Alignment.center,
           child: SizedBox(
             width: rowWidth,
             height: size,

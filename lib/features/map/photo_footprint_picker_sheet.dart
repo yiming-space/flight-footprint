@@ -110,7 +110,8 @@ class _PhotoFootprintPickerSheetState extends State<PhotoFootprintPickerSheet> {
     final s = context.strings;
     return Material(
       color: AppColors.background,
-      borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
+      shape: AppShapes.sheet,
+      clipBehavior: Clip.antiAlias,
       child: SafeArea(
         top: false,
         child: Padding(
@@ -263,10 +264,12 @@ class _PhotoFootprintPickerSheetState extends State<PhotoFootprintPickerSheet> {
         Container(
           width: double.infinity,
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-          decoration: BoxDecoration(
+          decoration: ShapeDecoration(
             color: AppColors.lime.withValues(alpha: .10),
-            borderRadius: AppRadii.medium,
-            border: Border.all(color: AppColors.lime.withValues(alpha: .34)),
+            shape: RoundedSuperellipseBorder(
+              borderRadius: AppRadii.medium,
+              side: BorderSide(color: AppColors.lime.withValues(alpha: .34)),
+            ),
           ),
           child: Row(
             children: [
@@ -309,6 +312,13 @@ class _PhotoFootprintPickerSheetState extends State<PhotoFootprintPickerSheet> {
   ) {
     final asset = candidate.asset;
     final selected = _isSelected(candidate);
+    final tileShape = RoundedSuperellipseBorder(
+      borderRadius: AppRadii.medium,
+      side: BorderSide(
+        color: selected ? AppColors.lime : AppColors.border,
+        width: selected ? 1.5 : 1,
+      ),
+    );
     return Semantics(
       button: true,
       checked: selected,
@@ -316,16 +326,12 @@ class _PhotoFootprintPickerSheetState extends State<PhotoFootprintPickerSheet> {
           '${candidate.draft.name}, ${formatPhotoFootprintDate(context, asset.createdAt)}',
       child: InkWell(
         onTap: _importing ? null : () => _toggleCandidate(candidate),
-        borderRadius: AppRadii.medium,
+        customBorder: tileShape,
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 180),
-          decoration: BoxDecoration(
+          decoration: ShapeDecoration(
             color: AppColors.surface,
-            borderRadius: AppRadii.medium,
-            border: Border.all(
-              color: selected ? AppColors.lime : AppColors.border,
-              width: selected ? 1.5 : 1,
-            ),
+            shape: tileShape,
           ),
           clipBehavior: Clip.antiAlias,
           child: AnimatedOpacity(
@@ -811,9 +817,7 @@ class _PhotoScanLoadingState extends State<_PhotoScanLoading>
                     foregroundColor: Colors.black,
                     minimumSize: const Size(112, 44),
                     padding: const EdgeInsets.symmetric(horizontal: 30),
-                    shape: const RoundedRectangleBorder(
-                      borderRadius: AppRadii.pill,
-                    ),
+                    shape: AppShapes.pill,
                   ),
                   child: Text(s.t('cancel')),
                 ),

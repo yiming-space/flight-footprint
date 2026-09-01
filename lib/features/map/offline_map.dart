@@ -21,6 +21,9 @@ class OfflineMap extends StatefulWidget {
     this.places = const [],
     this.fitPoints,
     this.fitZoomMultiplier = 1,
+    this.fitVerticalBias = 0,
+    this.fitDataHeightFactor = .68,
+    this.fitDataCenterY = .5,
     this.fitToData = true,
     this.fillViewportHeight = false,
     this.compactWorldViewport = false,
@@ -51,6 +54,21 @@ class OfflineMap extends StatefulWidget {
   /// Extra initial zoom used by focused/full-screen maps. Manual pinch zoom
   /// still uses the same InteractiveViewer limits afterwards.
   final double fitZoomMultiplier;
+
+  /// Moves a data-fitted scene vertically within the viewport. A negative
+  /// value places the recorded routes higher, leaving room for an overlay
+  /// such as the statistics area on a share card.
+  final double fitVerticalBias;
+
+  /// Fraction of the viewport height reserved for a data-fitted scene. The
+  /// default preserves the original map behavior; share-card artwork can use
+  /// a shorter upper region so route endpoints do not fall behind metrics.
+  final double fitDataHeightFactor;
+
+  /// Vertical center of the data-fitted scene as a normalized viewport value.
+  /// `0.5` is the viewport center. This is useful when the lower part of the
+  /// map is intentionally occupied by an overlay such as card statistics.
+  final double fitDataCenterY;
 
   /// When false, keeps the complete world map in view. When true, the initial
   /// frame can centre on the recorded airports or cities before the user
@@ -363,6 +381,9 @@ class _OfflineMapState extends State<OfflineMap> {
     if (oldWidget.assetPath != widget.assetPath ||
         oldWidget.loader != widget.loader ||
         oldWidget.fitZoomMultiplier != widget.fitZoomMultiplier ||
+        oldWidget.fitVerticalBias != widget.fitVerticalBias ||
+        oldWidget.fitDataHeightFactor != widget.fitDataHeightFactor ||
+        oldWidget.fitDataCenterY != widget.fitDataCenterY ||
         oldWidget.fitToData != widget.fitToData ||
         oldWidget.fillViewportHeight != widget.fillViewportHeight ||
         oldWidget.compactWorldViewport != widget.compactWorldViewport ||
@@ -609,6 +630,9 @@ class _OfflineMapState extends State<OfflineMap> {
       for (final point in points)
         '${point.latitude.toStringAsFixed(3)},${point.longitude.toStringAsFixed(3)}',
       widget.fitZoomMultiplier.toStringAsFixed(2),
+      widget.fitVerticalBias.toStringAsFixed(2),
+      widget.fitDataHeightFactor.toStringAsFixed(2),
+      widget.fitDataCenterY.toStringAsFixed(2),
       widget.fitToData,
       widget.horizontalPadding.toStringAsFixed(1),
       widget.verticalPadding.toStringAsFixed(1),
@@ -646,6 +670,11 @@ class _OfflineMapState extends State<OfflineMap> {
       30.0,
       math.max(1.0, widget.fitZoomMultiplier),
     );
+    final fitHeightFactor = widget.fitDataHeightFactor
+        .clamp(.1, 1.0)
+        .toDouble();
+    final fitCenterY = widget.fitDataCenterY.clamp(0.0, 1.0).toDouble();
+    final fitCenterOffsetY = size.height * (fitCenterY - .5);
     if (points.length == 1) {
       final point = points.single;
       final projected = MillerCylindricalProjection.project(
@@ -662,8 +691,10 @@ class _OfflineMapState extends State<OfflineMap> {
               .clamp(-maxPanX, maxPanX);
       final panY =
           ((projected.y - _viewportBounds.centerY) *
-                  projectionScale *
-                  initialZoom)
+                      projectionScale *
+                      initialZoom +
+                  fitCenterOffsetY +
+                  size.height * widget.fitVerticalBias)
               .clamp(-maxPanY, maxPanY);
       return Matrix4.identity()
         ..translateByDouble(size.width / 2 + panX, size.height / 2 + panY, 0, 1)
@@ -689,15 +720,31 @@ class _OfflineMapState extends State<OfflineMap> {
     // longitude gap. Miller remains continuous in longitude for a given
     // so this keeps routes crossing the date line clustered without changing
     // the geographic position of any airport.
-    final unwrapped = [
-      for (final point in points)
-        MapCoordinate(
-          point.latitude,
-          ((((point.longitude % 360) + 360) % 360) < boundsStart
-              ? (((point.longitude % 360) + 360) % 360) + 360
-              : (((point.longitude % 360) + 360) % 360)),
-        ),
-    ];
+    // Embedded maps render routes into the canonical [-180°, 180°] world
+    // copy after splitting them at the seam. Fit against that same copy so a
+    // trans-Pacific or trans-Atlantic route cannot be centred on an
+    // unwrapped longitude that the painter later moves elsewhere. Only the
+    // horizontally wrapped full-screen map benefits from the compact seam-
+    // crossing representation.
+    final unwrapped = widget.horizontalWrap
+        ? [
+            for (final point in points)
+              MapCoordinate(
+                point.latitude,
+                ((((point.longitude % 360) + 360) % 360) < boundsStart
+                    ? (((point.longitude % 360) + 360) % 360) + 360
+                    : (((point.longitude % 360) + 360) % 360)),
+              ),
+          ]
+        : [
+            for (final point in points)
+              MapCoordinate(
+                point.latitude,
+                ((((point.longitude % 360) + 360) % 360) > 180
+                    ? (((point.longitude % 360) + 360) % 360) - 360
+                    : (((point.longitude % 360) + 360) % 360)),
+              ),
+          ];
     final projectedPoints = [
       for (final point in unwrapped)
         MillerCylindricalProjection.project(point.latitude, point.longitude),
@@ -716,7 +763,7 @@ class _OfflineMapState extends State<OfflineMap> {
         _minScale,
         math.min(
           (size.width * .76) / routeWidth,
-          (size.height * .68) / routeHeight,
+          (size.height * fitHeightFactor) / routeHeight,
         ),
       ),
     );
@@ -731,7 +778,9 @@ class _OfflineMapState extends State<OfflineMap> {
             .clamp(-maxPanX, maxPanX);
     final panY =
         ((projectedCenterY - _viewportBounds.centerY) * projectionScale * zoom)
-            .clamp(-maxPanY, maxPanY);
+            .clamp(-maxPanY, maxPanY) +
+        fitCenterOffsetY +
+        size.height * widget.fitVerticalBias;
     return Matrix4.identity()
       ..translateByDouble(size.width / 2 + panX, size.height / 2 + panY, 0, 1)
       ..scaleByDouble(zoom, zoom, 1, 1)

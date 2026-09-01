@@ -1,11 +1,11 @@
 # 航迹 · Flight Footprint
 
-一个独立、离线、本地优先的 Flutter 飞行记录应用。1.0 支持 Android，数据无需登录即可记录在设备内；云同步和版本检查都是可选的自建能力。
+一个独立、离线、本地优先的 Flutter 飞行记录应用。1.1 支持 Android，数据无需登录即可记录在设备内；云同步和版本检查都是可选的自建能力。
 
 <img width="4646" height="2000" alt="app001" src="https://github.com/user-attachments/assets/5e748ff7-1738-4226-b1e4-d3fc370261d6" />
 <img width="4646" height="2000" alt="app002" src="https://github.com/user-attachments/assets/ead33335-ac84-4cc8-8848-cbd23788f243" />
 
-## 1.0 功能
+## 1.1 功能
 
 - 飞行地图 / 旅行足迹离线切换
 - 航班快速记录、年份筛选与长按删除
@@ -13,7 +13,7 @@
 - SQLite 本地数据存储
 - JSON 备份导出与恢复导入（兼容网页版导出记录）
 - 中文 / English 全局切换
-- 关于页手动检查 GitHub 最新发布，并提供项目源码入口
+- 关于页自动检查 GitHub 最新发布，发现新版本时提示，并提供项目源码入口
 - 航空公司与航班号必填，可选通过 ADSBdb / FlightBoard 兼容路线源自动补全
 - 可选连接自建 Cloudflare Worker + D1，支持本地覆盖云端与云端恢复到本地
 - Android 返回逻辑与沉浸式深色界面
@@ -32,7 +32,7 @@ flutter run
 - 地图、机场坐标和行政区数据均随安装包离线提供。
 - 机场索引由 [OurAirports 公共机场数据](https://ourairports.com/data/) 生成，保留 IATA、ICAO、正式名、行政城市、机场类型、定期航班标记和别名；生成脚本为 `tool/generate_airport_index.py`。
 - 索引保留上一个版本中已移除的 IATA 别名，避免历史记录因数据源更新而失去坐标。
-- 1.0 的核心记录功能不要求账号、配对码或网络；更新检查仅在用户主动点击时联网。
+- 1.1 的核心记录功能不要求账号、配对码或网络；更新检查仅在进入关于页或用户主动点击时联网。
 - 未连接云端时完全离线可用；连接云端也不会改变 SQLite 本地数据源。
 
 ## 可选云端同步

@@ -21,21 +21,43 @@ abstract final class AppSpacing {
   static const lg = 24.0;
   static const xl = 32.0;
   static const xxl = 40.0;
+  static const page = 20.0;
+  static const cardGap = 14.0;
+  static const section = 28.0;
+  static const bottomBarHeight = 84.0;
+  static const bottomBarBottomMinimum = 10.0;
 
-  /// Small breathing room after scrollable content. The shell reserves the
-  /// bottom navigation bar's height, so content no longer needs a full bar's
-  /// worth of extra padding at the end.
+  /// Space that lets the last item scroll clear of the floating navigation
+  /// bar. The shell extends the body behind the bar so the bar can float over
+  /// content; the scroll view therefore needs to reserve that overlap itself.
   static double bottomBarClearance(BuildContext context) {
     final systemBottom = MediaQuery.paddingOf(context).bottom;
-    return 16 + (systemBottom > 0 ? 4 : 0);
+    final safeBottom = systemBottom > bottomBarBottomMinimum
+        ? systemBottom
+        : bottomBarBottomMinimum;
+    return bottomBarHeight + sm + safeBottom + md;
   }
 }
 
 abstract final class AppRadii {
-  static const small = BorderRadius.all(Radius.circular(12));
-  static const medium = BorderRadius.all(Radius.circular(20));
-  static const large = BorderRadius.all(Radius.circular(28));
+  static const small = BorderRadius.all(Radius.circular(18));
+  static const medium = BorderRadius.all(Radius.circular(28));
+  static const large = BorderRadius.all(Radius.circular(44));
   static const pill = BorderRadius.all(Radius.circular(999));
+}
+
+/// The app's shared shape language. Superellipse corners keep large surfaces
+/// soft and intentional in the same visual family as iOS cards and controls.
+abstract final class AppShapes {
+  static const small = RoundedSuperellipseBorder(borderRadius: AppRadii.small);
+  static const medium = RoundedSuperellipseBorder(
+    borderRadius: AppRadii.medium,
+  );
+  static const large = RoundedSuperellipseBorder(borderRadius: AppRadii.large);
+  static const pill = RoundedSuperellipseBorder(borderRadius: AppRadii.pill);
+  static const sheet = RoundedSuperellipseBorder(
+    borderRadius: BorderRadius.vertical(top: Radius.circular(44)),
+  );
 }
 
 abstract final class AppTextStyles {

@@ -39,104 +39,88 @@ class FlightCard extends StatelessWidget {
     final to = controller.airportFor(flight.arrivalIata);
     final color = colors[index % colors.length];
     final arrivalAt = flight.arrivedAt ?? _estimatedArrival(flight);
+    final flightLabel = [flight.airline, flight.flightNumber]
+        .whereType<String>()
+        .map((value) => value.trim())
+        .where((value) => value.isNotEmpty)
+        .join('  ');
+    final aircraft = flight.aircraftType?.trim() ?? '';
     final content = Semantics(
       button: onLongPress != null,
       label: '${flight.departureIata} to ${flight.arrivalIata}',
       child: GestureDetector(
         onLongPress: onLongPress,
         child: Container(
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            color: color,
-            borderRadius: BorderRadius.circular(28),
+          padding: const EdgeInsets.fromLTRB(22, 19, 22, 18),
+          decoration: ShapeDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [color, Color.lerp(color, Colors.white, .06)!],
+            ),
+            shape: AppShapes.large,
           ),
           child: DefaultTextStyle(
             style: const TextStyle(color: Color(0xFF0B0E12)),
-            child: SizedBox(
-              width: double.infinity,
-              child: Stack(
-                children: [
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              [flight.airline, flight.flightNumber]
-                                  .where(
-                                    (value) =>
-                                        value != null && value.isNotEmpty,
-                                  )
-                                  .join('  '),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                fontSize: 15,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ),
-                          Text(
-                            flight.aircraftType ?? '',
-                            style: const TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 18),
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.center,
-                        children: [
-                          Expanded(
-                            child: _Airport(
-                              code: flight.departureIata,
-                              city: from == null
-                                  ? '机场'
-                                  : localizedAirportCardDisplayName(from),
-                            ),
-                          ),
-                          const SizedBox(width: 88),
-                          Expanded(
-                            child: _Airport(
-                              code: flight.arrivalIata,
-                              city: to == null
-                                  ? '机场'
-                                  : localizedAirportCardDisplayName(to),
-                              alignEnd: true,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 18),
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Expanded(
-                            child: _DateTimeInfo(value: flight.departedAt),
-                          ),
-                          const SizedBox(width: 76),
-                          Expanded(
-                            child: _DateTimeInfo(
-                              value: arrivalAt,
-                              alignEnd: true,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                  Positioned.fill(
-                    child: IgnorePointer(
-                      child: Center(
-                        child: _FlightDuration(minutes: flight.durationMinutes),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Expanded(
+                      child: Text(
+                        flightLabel.isEmpty ? '航班记录' : flightLabel,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: .05,
+                        ),
                       ),
                     ),
-                  ),
-                ],
-              ),
+                    if (aircraft.isNotEmpty) ...[
+                      const SizedBox(width: 10),
+                      _MetaPill(label: aircraft),
+                    ],
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Expanded(
+                      child: _Airport(
+                        code: flight.departureIata,
+                        city: from == null
+                            ? '机场'
+                            : localizedAirportCardDisplayName(from),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    SizedBox(
+                      width: 76,
+                      child: _FlightDuration(minutes: flight.durationMinutes),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: _Airport(
+                        code: flight.arrivalIata,
+                        city: to == null
+                            ? '机场'
+                            : localizedAirportCardDisplayName(to),
+                        alignEnd: true,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                _DateTimeStrip(
+                  departure: flight.departedAt,
+                  arrival: arrivalAt,
+                ),
+              ],
             ),
           ),
         ),
@@ -169,20 +153,91 @@ class _FlightDuration extends StatelessWidget {
   Widget build(BuildContext context) => Column(
     mainAxisSize: MainAxisSize.min,
     children: [
-      const Icon(
-        Icons.flight_takeoff_rounded,
-        color: Color(0xFF0B0E12),
-        size: 24,
+      Container(
+        width: 42,
+        height: 42,
+        decoration: ShapeDecoration(
+          color: Colors.black.withValues(alpha: .08),
+          shape: AppShapes.small,
+        ),
+        child: const Icon(
+          Icons.flight_takeoff_rounded,
+          color: Color(0xFF0B0E12),
+          size: 23,
+        ),
       ),
       if (minutes != null) ...[
-        const SizedBox(height: 4),
+        const SizedBox(height: 5),
         Text(
           FlightCard._formatDuration(minutes!),
           textAlign: TextAlign.center,
-          style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700),
+          style: const TextStyle(
+            fontSize: 11,
+            height: 1,
+            fontWeight: FontWeight.w700,
+            letterSpacing: -.1,
+          ),
         ),
       ],
     ],
+  );
+}
+
+class _MetaPill extends StatelessWidget {
+  const _MetaPill({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) => DecoratedBox(
+    decoration: ShapeDecoration(
+      color: Colors.black.withValues(alpha: .08),
+      shape: AppShapes.pill,
+    ),
+    child: Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      child: Text(
+        label,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: const TextStyle(
+          fontSize: 10,
+          height: 1,
+          fontWeight: FontWeight.w700,
+          letterSpacing: .15,
+        ),
+      ),
+    ),
+  );
+}
+
+class _DateTimeStrip extends StatelessWidget {
+  const _DateTimeStrip({required this.departure, required this.arrival});
+
+  final DateTime? departure;
+  final DateTime? arrival;
+
+  @override
+  Widget build(BuildContext context) => DecoratedBox(
+    decoration: ShapeDecoration(
+      color: Colors.black.withValues(alpha: .075),
+      shape: AppShapes.small,
+    ),
+    child: Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 9),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Expanded(child: _DateTimeInfo(value: departure)),
+          Container(
+            width: 1,
+            height: 31,
+            color: Colors.black.withValues(alpha: .12),
+          ),
+          Expanded(child: _DateTimeInfo(value: arrival, alignEnd: true)),
+        ],
+      ),
+    ),
   );
 }
 
@@ -330,10 +385,10 @@ class _Airport extends StatelessWidget {
       Text(
         code,
         style: const TextStyle(
-          fontSize: 38,
+          fontSize: 37,
           height: 1,
-          fontWeight: FontWeight.w500,
-          letterSpacing: -1.5,
+          fontWeight: FontWeight.w600,
+          letterSpacing: -1.7,
         ),
       ),
       const SizedBox(height: 5),
@@ -382,13 +437,20 @@ class _DateTimeInfo extends StatelessWidget {
           textAlign: alignment,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
-          style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
+          style: TextStyle(
+            color: Colors.black.withValues(alpha: .62),
+            fontSize: 10.5,
+            height: 1,
+            fontWeight: FontWeight.w700,
+            letterSpacing: .1,
+          ),
         ),
         const SizedBox(height: 4),
         Text(
           time,
           textAlign: alignment,
           style: const TextStyle(
+            color: Color(0xFF0B0E12),
             fontSize: 19,
             height: 1,
             fontWeight: FontWeight.w700,

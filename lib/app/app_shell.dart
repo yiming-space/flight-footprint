@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 
@@ -45,8 +46,8 @@ class _AppShellState extends State<AppShell>
       barrierColor: Colors.black.withValues(alpha: .68),
       builder: (_) => FractionallySizedBox(
         heightFactor: .94,
-        child: ClipRRect(
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
+        child: ClipPath(
+          clipper: ShapeBorderClipper(shape: AppShapes.sheet),
           child: AddFlightPage(controller: widget.controller),
         ),
       ),
@@ -87,7 +88,10 @@ class _AppShellState extends State<AppShell>
       ),
       FlightsPage(controller: widget.controller, onAdd: _openAdd),
       StatsPage(controller: widget.controller),
-      ProfilePage(controller: widget.controller),
+      ProfilePage(
+        controller: widget.controller,
+        isActive: _index == 3,
+      ),
     ];
     return PopScope(
       canPop: _index == 0,
@@ -95,28 +99,36 @@ class _AppShellState extends State<AppShell>
         if (!didPop && _index != 0) setState(() => _index = 0);
       },
       child: Scaffold(
-        // Keep the scrollable viewport above the floating navigation bar. This
-        // prevents a large artificial blank area at the end of every page.
-        // Extending the body lets the page show through the navigation bar's
-        // outer margins, so the bar reads as a floating control rather than a
-        // full-width black footer.
-        extendBody: true,
-        body: SafeArea(
-          top: true,
-          bottom: false,
-          child: IndexedStack(index: _index, children: pages),
-        ),
-        bottomNavigationBar: _BottomBar(
-          index: _index,
-          labels: [
-            strings.t('home'),
-            strings.t('flights'),
-            strings.t('stats'),
-            strings.t('profile'),
+        // The navigation material floats in the same stack as the pages.
+        // Using Scaffold.bottomNavigationBar would still create a rectangular
+        // footer region around the rounded glass, preventing page content from
+        // showing through its outer margins.
+        body: Stack(
+          fit: StackFit.expand,
+          children: [
+            SafeArea(
+              top: true,
+              bottom: false,
+              child: IndexedStack(index: _index, children: pages),
+            ),
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: _BottomBar(
+                index: _index,
+                labels: [
+                  strings.t('home'),
+                  strings.t('flights'),
+                  strings.t('stats'),
+                  strings.t('profile'),
+                ],
+                addAnimation: _addAnimation,
+                onChanged: (value) => setState(() => _index = value),
+                onAdd: _openAdd,
+              ),
+            ),
           ],
-          addAnimation: _addAnimation,
-          onChanged: (value) => setState(() => _index = value),
-          onAdd: _openAdd,
         ),
       ),
     );
@@ -145,54 +157,94 @@ class _BottomBar extends StatelessWidget {
       Icons.bar_chart_rounded,
       Icons.person_rounded,
     ];
+    final glassShape = RoundedSuperellipseBorder(
+      borderRadius: BorderRadius.circular(44),
+      side: BorderSide(color: Colors.white.withValues(alpha: .16), width: .8),
+    );
     return SafeArea(
       top: false,
-      minimum: const EdgeInsets.fromLTRB(16, 8, 16, 10),
-      child: Container(
-        height: 84,
-        padding: const EdgeInsets.symmetric(horizontal: 8),
-        decoration: BoxDecoration(
-          // A lower alpha is intentional: .94 reads as a solid panel on the
-          // dark canvas, while .72 lets the page remain visible beneath the
-          // floating menu without sacrificing label contrast.
-          color: AppColors.surface.withValues(alpha: .72),
-          border: Border.all(color: AppColors.border.withValues(alpha: .86)),
-          borderRadius: BorderRadius.circular(30),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: .24),
-              blurRadius: 18,
-              offset: const Offset(0, 8),
-            ),
-          ],
-        ),
-        child: Row(
-          children: [
-            _item(0, icons[0]),
-            _item(1, icons[1]),
-            Expanded(
-              child: Center(
-                child: ScaleTransition(
-                  scale: addAnimation,
-                  child: Semantics(
-                    button: true,
-                    label: context.strings.t('addFlight'),
-                    child: IconButton.filled(
-                      onPressed: onAdd,
-                      icon: const Icon(Icons.add_rounded, size: 34),
-                      style: IconButton.styleFrom(
-                        fixedSize: const Size(64, 64),
-                        backgroundColor: AppColors.purple,
-                        foregroundColor: Colors.black,
+      minimum: const EdgeInsets.fromLTRB(
+        AppSpacing.page,
+        AppSpacing.sm,
+        AppSpacing.page,
+        AppSpacing.bottomBarBottomMinimum,
+      ),
+      child: SizedBox(
+        height: AppSpacing.bottomBarHeight,
+        child: ClipPath(
+          clipper: ShapeBorderClipper(shape: glassShape),
+          child: BackdropFilter(
+            filter: ui.ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+            child: DecoratedBox(
+              decoration: ShapeDecoration(
+                // A translucent material lets the page remain present beneath
+                // the bar while the blur keeps labels readable over maps/cards.
+                color: AppColors.surface.withValues(alpha: .46),
+                shape: glassShape,
+                shadows: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: .28),
+                    blurRadius: 24,
+                    offset: const Offset(0, 10),
+                  ),
+                ],
+              ),
+              child: Stack(
+                children: [
+                  Positioned.fill(
+                    child: IgnorePointer(
+                      child: DecoratedBox(
+                        decoration: ShapeDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [
+                              Colors.white.withValues(alpha: .10),
+                              Colors.white.withValues(alpha: .025),
+                              Colors.transparent,
+                            ],
+                            stops: const [0, .24, 1],
+                          ),
+                          shape: glassShape,
+                        ),
                       ),
                     ),
                   ),
-                ),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    child: Row(
+                      children: [
+                        _item(0, icons[0]),
+                        _item(1, icons[1]),
+                        Expanded(
+                          child: Center(
+                            child: ScaleTransition(
+                              scale: addAnimation,
+                              child: Semantics(
+                                button: true,
+                                label: context.strings.t('addFlight'),
+                                child: IconButton.filled(
+                                  onPressed: onAdd,
+                                  icon: const Icon(Icons.add_rounded, size: 34),
+                                  style: IconButton.styleFrom(
+                                    fixedSize: const Size(64, 64),
+                                    backgroundColor: AppColors.purple,
+                                    foregroundColor: Colors.black,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                        _item(2, icons[2]),
+                        _item(3, icons[3]),
+                      ],
+                    ),
+                  ),
+                ],
               ),
             ),
-            _item(2, icons[2]),
-            _item(3, icons[3]),
-          ],
+          ),
         ),
       ),
     );
@@ -203,25 +255,37 @@ class _BottomBar extends StatelessWidget {
     return Expanded(
       child: InkWell(
         onTap: () => onChanged(value),
-        borderRadius: BorderRadius.circular(20),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              icon,
-              color: selected ? AppColors.lime : AppColors.textTertiary,
-              size: 25,
-            ),
-            const SizedBox(height: 4),
-            Text(
-              labels[value],
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+        customBorder: AppShapes.medium,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOutCubic,
+          margin: const EdgeInsets.symmetric(horizontal: 3, vertical: 8),
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          decoration: ShapeDecoration(
+            color: selected
+                ? AppColors.lime.withValues(alpha: .14)
+                : Colors.transparent,
+            shape: AppShapes.medium,
+          ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                icon,
                 color: selected ? AppColors.lime : AppColors.textTertiary,
+                size: 25,
               ),
-            ),
-          ],
+              const SizedBox(height: 4),
+              Text(
+                labels[value],
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                  color: selected ? AppColors.lime : AppColors.textTertiary,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

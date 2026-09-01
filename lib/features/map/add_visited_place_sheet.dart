@@ -100,9 +100,7 @@ class _AddVisitedPlaceSheetState extends State<AddVisitedPlaceSheet> {
                   minimumSize: const Size.fromHeight(52),
                   foregroundColor: AppColors.textPrimary,
                   side: const BorderSide(color: AppColors.border),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(18),
-                  ),
+                  shape: AppShapes.medium,
                 ),
               ),
               const SizedBox(height: 12),
@@ -116,12 +114,12 @@ class _AddVisitedPlaceSheetState extends State<AddVisitedPlaceSheet> {
                   hintText: s.t('searchCity'),
                   filled: true,
                   fillColor: AppColors.surface,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(18),
+                  border: ShapedInputBorder(
+                    shape: AppShapes.medium,
                     borderSide: const BorderSide(color: AppColors.border),
                   ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(18),
+                  enabledBorder: ShapedInputBorder(
+                    shape: AppShapes.medium,
                     borderSide: const BorderSide(color: AppColors.border),
                   ),
                 ),
@@ -219,17 +217,19 @@ class _AddVisitedPlaceSheetState extends State<AddVisitedPlaceSheet> {
               const SizedBox(height: 10),
               if (_selected != null)
                 InkWell(
-                  borderRadius: BorderRadius.circular(18),
+                  customBorder: AppShapes.medium,
                   onTap: _pickDate,
                   child: Container(
                     padding: const EdgeInsets.symmetric(
                       horizontal: 16,
                       vertical: 14,
                     ),
-                    decoration: BoxDecoration(
+                    decoration: ShapeDecoration(
                       color: AppColors.surface,
-                      borderRadius: BorderRadius.circular(18),
-                      border: Border.all(color: AppColors.border),
+                      shape: const RoundedSuperellipseBorder(
+                        borderRadius: BorderRadius.all(Radius.circular(18)),
+                        side: BorderSide(color: AppColors.border),
+                      ),
                     ),
                     child: Row(
                       children: [
@@ -263,10 +263,12 @@ class _AddVisitedPlaceSheetState extends State<AddVisitedPlaceSheet> {
     child: Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      decoration: BoxDecoration(
+      decoration: ShapeDecoration(
         color: AppColors.lime.withValues(alpha: .14),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: AppColors.lime.withValues(alpha: .55)),
+        shape: RoundedSuperellipseBorder(
+          borderRadius: const BorderRadius.all(Radius.circular(18)),
+          side: BorderSide(color: AppColors.lime.withValues(alpha: .55)),
+        ),
       ),
       child: Row(
         children: [

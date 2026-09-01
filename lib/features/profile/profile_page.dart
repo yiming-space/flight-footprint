@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
@@ -22,8 +23,13 @@ import '../../ui/theme/app_theme.dart';
 import '../../ui/widgets/widgets.dart';
 
 class ProfilePage extends StatefulWidget {
-  const ProfilePage({super.key, required this.controller});
+  const ProfilePage({
+    super.key,
+    required this.controller,
+    this.isActive = false,
+  });
   final AppController controller;
+  final bool isActive;
 
   @override
   State<ProfilePage> createState() => _ProfilePageState();
@@ -35,8 +41,41 @@ class _ProfilePageState extends State<ProfilePage> {
   bool _isRecognizingSpreadsheet = false;
   bool _isReadingCalendar = false;
   bool _isCheckingForUpdates = false;
+  bool _hasCheckedForUpdatesAutomatically = false;
+  bool _hasScheduledAutomaticUpdateCheck = false;
+  String? _promptedUpdateVersion;
   AppUpdateResult? _updateResult;
   final AppUpdateService _updateService = AppUpdateService();
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.isActive) _scheduleAutomaticUpdateCheck();
+  }
+
+  @override
+  void didUpdateWidget(covariant ProfilePage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.isActive && !oldWidget.isActive) {
+      _scheduleAutomaticUpdateCheck();
+    }
+  }
+
+  void _scheduleAutomaticUpdateCheck() {
+    if (_hasCheckedForUpdatesAutomatically ||
+        _hasScheduledAutomaticUpdateCheck) {
+      return;
+    }
+    _hasScheduledAutomaticUpdateCheck = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !widget.isActive) {
+        _hasScheduledAutomaticUpdateCheck = false;
+        return;
+      }
+      _hasCheckedForUpdatesAutomatically = true;
+      unawaited(_checkForUpdates(context, automatic: true));
+    });
+  }
 
   @override
   void dispose() {
@@ -51,30 +90,25 @@ class _ProfilePageState extends State<ProfilePage> {
       top: false,
       child: CustomScrollView(
         slivers: [
-          SliverToBoxAdapter(
-            child: PageHeader(
-              title: s.t('profile'),
-              subtitle: s.t('localFirst'),
-            ),
-          ),
           if (_isRecognizingSpreadsheet)
             const SliverToBoxAdapter(child: _SpreadsheetRecognizingNotice()),
           if (_isReadingCalendar)
             const SliverToBoxAdapter(child: _CalendarReadingNotice()),
           SliverPadding(
             padding: EdgeInsets.fromLTRB(
-              20,
-              0,
-              20,
+              AppSpacing.page,
+              AppSpacing.lg,
+              AppSpacing.page,
               AppSpacing.bottomBarClearance(context),
             ),
             sliver: SliverList.list(
               children: [
                 Container(
-                  padding: const EdgeInsets.all(24),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFB4A5EE),
-                    borderRadius: BorderRadius.circular(30),
+                  padding: const EdgeInsets.fromLTRB(24, 20, 24, 20),
+                  decoration: ShapeDecoration(
+                    color: const Color(0xFFB9A9F2),
+                    shape: AppShapes.large,
+                    shadows: _cardShadow(),
                   ),
                   child: DefaultTextStyle(
                     style: const TextStyle(color: Colors.black),
@@ -118,197 +152,238 @@ class _ProfilePageState extends State<ProfilePage> {
                         Text(
                           '${controller.flights.length}',
                           style: const TextStyle(
-                            fontSize: 34,
-                            fontWeight: FontWeight.w500,
+                            fontSize: 40,
+                            fontWeight: FontWeight.w700,
                           ),
                         ),
                       ],
                     ),
                   ),
                 ),
-                const SizedBox(height: 26),
-                Text(s.t('localData'), style: AppTextStyles.sectionTitle),
-                const SizedBox(height: 12),
-                SurfaceCard(
-                  padding: EdgeInsets.zero,
-                  child: Column(
-                    children: [
-                      DisclosureRow(
-                        title: s.t('exportBackup'),
-                        subtitle: 'JSON',
-                        leading: const _IconTile(
-                          icon: Icons.ios_share_rounded,
-                          color: AppColors.lime,
+                const SizedBox(height: AppSpacing.section),
+                Column(
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _ProfileActionTile(
+                            title: s.t('exportBackup'),
+                            subtitle: 'JSON',
+                            icon: Icons.ios_share_rounded,
+                            color: Colors.black,
+                            backgroundColor: const Color(0xFFB9A9F2),
+                            textColor: Colors.black,
+                            secondaryTextColor: const Color(0xA6252A2E),
+                            onTap: () => _export(context),
+                          ),
                         ),
-                        onTap: () => _export(context),
-                      ),
-                      const Divider(height: 1),
-                      DisclosureRow(
-                        title: s.t('importWebData'),
-                        subtitle: s.t('importWebHint'),
-                        leading: const _IconTile(
-                          icon: Icons.file_download_outlined,
-                          color: AppColors.purple,
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: _ProfileActionTile(
+                            title: s.t('importWebData'),
+                            subtitle: 'JSON',
+                            icon: Icons.file_download_outlined,
+                            color: Colors.black,
+                            backgroundColor: const Color(0xFF9CCFE6),
+                            textColor: Colors.black,
+                            secondaryTextColor: const Color(0xA6252A2E),
+                            onTap: () => _import(context),
+                          ),
                         ),
-                        onTap: () => _import(context),
-                      ),
-                      const Divider(height: 1),
-                      DisclosureRow(
-                        title: s.t('importExcel'),
-                        subtitle: s.t('importExcelHint'),
-                        leading: const _IconTile(
-                          icon: Icons.table_view_rounded,
-                          color: AppColors.lime,
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _ProfileActionTile(
+                            title: s.t('importExcel'),
+                            subtitle: '.xlsx / .xls / .csv',
+                            icon: Icons.table_view_rounded,
+                            color: Colors.black,
+                            backgroundColor: const Color(0xFFA8D7AF),
+                            textColor: Colors.black,
+                            secondaryTextColor: const Color(0xA6252A2E),
+                            onTap: () => _importSpreadsheet(context),
+                          ),
                         ),
-                        onTap: () => _importSpreadsheet(context),
-                      ),
-                      const Divider(height: 1),
-                      DisclosureRow(
-                        title: s.t('importCalendar'),
-                        subtitle: s.t('importCalendarHint'),
-                        leading: const _IconTile(
-                          icon: Icons.calendar_month_rounded,
-                          color: AppColors.purple,
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: _ProfileActionTile(
+                            title: s.t('importCalendar'),
+                            subtitle: '系统日历',
+                            icon: Icons.calendar_month_rounded,
+                            color: Colors.black,
+                            backgroundColor: const Color(0xFFE2B4D1),
+                            textColor: Colors.black,
+                            secondaryTextColor: const Color(0xA6252A2E),
+                            onTap: () => _importCalendar(context),
+                          ),
                         ),
-                        onTap: () => _importCalendar(context),
-                      ),
-                      const Divider(height: 1),
-                      ListenableBuilder(
-                        listenable: controller.cloudSync,
-                        builder: (context, _) {
-                          final cloud = controller.cloudSync.state;
-                          final value = switch (cloud.status) {
-                            CloudSyncStatus.syncing => s.t('cloudSyncing'),
-                            CloudSyncStatus.synced => s.t('cloudSynced'),
-                            CloudSyncStatus.error => s.t('cloudSyncFailed'),
-                            CloudSyncStatus.ready => s.t('cloudReady'),
-                            CloudSyncStatus.disconnected => s.t(
-                              'notConfigured',
-                            ),
-                          };
-                          final color = cloud.isConfigured
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    ListenableBuilder(
+                      listenable: controller.cloudSync,
+                      builder: (context, _) {
+                        final cloud = controller.cloudSync.state;
+                        final value = switch (cloud.status) {
+                          CloudSyncStatus.syncing => s.t('cloudSyncing'),
+                          CloudSyncStatus.synced => s.t('cloudSynced'),
+                          CloudSyncStatus.error => s.t('cloudSyncFailed'),
+                          CloudSyncStatus.ready => s.t('cloudReady'),
+                          CloudSyncStatus.disconnected => s.t('notConfigured'),
+                        };
+                        final isConfigured = cloud.isConfigured;
+                        return _ProfileActionTile(
+                          title: s.t('cloudSync'),
+                          value: value,
+                          icon: isConfigured
+                              ? Icons.cloud_done_outlined
+                              : Icons.cloud_outlined,
+                          color: isConfigured
+                              ? Colors.black
+                              : AppColors.textTertiary,
+                          backgroundColor: isConfigured
                               ? AppColors.lime
-                              : AppColors.textTertiary;
-                          return DisclosureRow(
-                            title: s.t('cloudSync'),
-                            value: value,
-                            leading: _IconTile(
-                              icon: cloud.isConfigured
-                                  ? Icons.cloud_done_outlined
-                                  : Icons.cloud_outlined,
-                              color: color,
-                            ),
-                            onTap: () => _openCloudSync(context),
-                          );
-                        },
-                      ),
-                    ],
-                  ),
+                              : AppColors.surfaceElevated,
+                          textColor: isConfigured
+                              ? Colors.black
+                              : AppColors.textPrimary,
+                          secondaryTextColor: isConfigured
+                              ? const Color(0xA6000000)
+                              : AppColors.textSecondary,
+                          wide: true,
+                          onTap: () => _openCloudSync(context),
+                        );
+                      },
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 26),
+                const SizedBox(height: AppSpacing.section),
                 Text(s.t('settings'), style: AppTextStyles.sectionTitle),
                 const SizedBox(height: 12),
-                SurfaceCard(
-                  padding: EdgeInsets.zero,
-                  child: Column(
-                    children: [
-                      DisclosureRow(
-                        title: s.t('travellerName'),
-                        value: controller.travellerName == 'TRAVELER'
-                            ? s.t('travellerNameEmpty')
-                            : controller.travellerName,
-                        leading: const _IconTile(
-                          icon: Icons.badge_outlined,
-                          color: AppColors.lime,
-                        ),
-                        onTap: () => _editTravellerName(context),
-                      ),
-                      const Divider(height: 1),
-                      DisclosureRow(
-                        title: s.t('language'),
-                        value: controller.locale.languageCode == 'zh'
-                            ? s.t('chinese')
-                            : s.t('english'),
-                        leading: const _IconTile(
-                          icon: Icons.translate_rounded,
-                          color: AppColors.lime,
-                        ),
-                        onTap: () => _language(context),
-                      ),
-                      const Divider(height: 1),
-                      DisclosureRow(
-                        title: s.t('units'),
-                        value: 'km',
-                        leading: const _IconTile(
-                          icon: Icons.straighten_rounded,
-                          color: AppColors.purple,
-                        ),
-                        onTap: () {},
-                      ),
-                    ],
-                  ),
+                Column(
+                  children: [
+                    _ProfileActionTile(
+                      title: s.t('travellerName'),
+                      value: controller.travellerName == 'TRAVELER'
+                          ? s.t('travellerNameEmpty')
+                          : controller.travellerName,
+                      icon: Icons.badge_outlined,
+                      color: Colors.black,
+                      backgroundColor: const Color(0xFFA8D7AF),
+                      textColor: Colors.black,
+                      secondaryTextColor: Colors.black,
+                      wide: true,
+                      onTap: () => _editTravellerName(context),
+                    ),
+                    const SizedBox(height: 10),
+                    _ProfileActionTile(
+                      title: s.t('language'),
+                      value: controller.locale.languageCode == 'zh'
+                          ? s.t('chinese')
+                          : s.t('english'),
+                      icon: Icons.translate_rounded,
+                      color: Colors.black,
+                      backgroundColor: const Color(0xFF9CCFE6),
+                      textColor: Colors.black,
+                      secondaryTextColor: Colors.black,
+                      wide: true,
+                      onTap: () => _language(context),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 26),
+                const SizedBox(height: AppSpacing.section),
                 Text(s.t('about'), style: AppTextStyles.sectionTitle),
                 const SizedBox(height: 12),
                 SurfaceCard(
                   padding: EdgeInsets.zero,
+                  color: AppColors.surfaceElevated,
+                  borderRadius: AppRadii.large,
+                  showBorder: false,
+                  boxShadow: _cardShadow(),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      const Padding(
-                        padding: EdgeInsets.fromLTRB(
-                          AppSpacing.md,
-                          AppSpacing.lg,
-                          AppSpacing.md,
-                          AppSpacing.sm,
-                        ),
-                        child: Text(
-                          'Flight Footprint',
-                          style: TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.w800,
-                          ),
+                      Padding(
+                        padding: const EdgeInsets.all(AppSpacing.lg),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 48,
+                              height: 48,
+                              decoration: BoxDecoration(
+                                color: AppColors.lime.withValues(alpha: .14),
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(
+                                Icons.flight_takeoff_rounded,
+                                color: AppColors.lime,
+                              ),
+                            ),
+                            const SizedBox(width: 14),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text(
+                                    'Flight Footprint',
+                                    style: TextStyle(
+                                      color: AppColors.textPrimary,
+                                      fontSize: 22,
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    s.t('version'),
+                                    style: AppTextStyles.label.copyWith(
+                                      color: AppColors.purple,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                       Padding(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: AppSpacing.md,
+                        padding: const EdgeInsets.fromLTRB(
+                          AppSpacing.md,
+                          0,
+                          AppSpacing.md,
+                          AppSpacing.md,
                         ),
-                        child: Text(
-                          s.t('version'),
-                          style: AppTextStyles.bodySecondary,
-                        ),
-                      ),
-                      const SizedBox(height: AppSpacing.sm),
-                      const Divider(height: 1),
-                      DisclosureRow(
-                        title: s.t('checkForUpdates'),
-                        subtitle: _updateSubtitle(context),
-                        value: _updateValue(),
-                        leading: const _IconTile(
-                          icon: Icons.system_update_alt_rounded,
-                          color: AppColors.lime,
-                        ),
-                        onTap: () => _checkForUpdates(context),
-                      ),
-                      const Divider(height: 1),
-                      DisclosureRow(
-                        title: s.t('githubProject'),
-                        subtitle: AppLinks.githubRepository == null
-                            ? s.t('githubProjectNotConfigured')
-                            : s.t('githubProjectHint'),
-                        leading: const _IconTile(
-                          icon: Icons.code_rounded,
-                          color: AppColors.purple,
-                        ),
-                        showChevron: AppLinks.githubRepository != null,
-                        onTap: AppLinks.githubRepository == null
-                            ? null
-                            : () => _openExternalUrl(
-                                context,
-                                AppLinks.githubRepository!,
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: _ProfileAboutButton(
+                                title: s.t('checkForUpdates'),
+                                value: _updateValue(),
+                                icon: Icons.system_update_alt_rounded,
+                                backgroundColor: const Color(0xFFA8D7AF),
+                                foregroundColor: Colors.black,
+                                onPressed: () => _checkForUpdates(context),
                               ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: _ProfileAboutButton(
+                                title: s.t('githubProject'),
+                                icon: Icons.code_rounded,
+                                backgroundColor: const Color(0xFFB9A9F2),
+                                foregroundColor: Colors.black,
+                                onPressed: AppLinks.githubRepository == null
+                                    ? null
+                                    : () => _openExternalUrl(
+                                        context,
+                                        AppLinks.githubRepository!,
+                                      ),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                       Padding(
                         padding: const EdgeInsets.fromLTRB(
@@ -317,9 +392,27 @@ class _ProfilePageState extends State<ProfilePage> {
                           AppSpacing.md,
                           AppSpacing.lg,
                         ),
-                        child: Text(
-                          s.t('privacy'),
-                          style: AppTextStyles.bodySecondary,
+                        child: Center(
+                          child: Wrap(
+                            alignment: WrapAlignment.center,
+                            crossAxisAlignment: WrapCrossAlignment.center,
+                            spacing: 8,
+                            runSpacing: 2,
+                            children: [
+                              const Icon(
+                                Icons.shield_outlined,
+                                color: AppColors.textTertiary,
+                                size: 18,
+                              ),
+                              Text(
+                                s.t('privacy'),
+                                textAlign: TextAlign.center,
+                                style: AppTextStyles.bodySecondary.copyWith(
+                                  color: AppColors.textTertiary,
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                     ],
@@ -332,6 +425,14 @@ class _ProfilePageState extends State<ProfilePage> {
       ),
     );
   }
+
+  List<BoxShadow> _cardShadow() => [
+    BoxShadow(
+      color: Colors.black.withValues(alpha: .22),
+      blurRadius: 24,
+      offset: const Offset(0, 12),
+    ),
+  ];
 
   String _updateSubtitle(BuildContext context) {
     final strings = context.strings;
@@ -358,7 +459,10 @@ class _ProfilePageState extends State<ProfilePage> {
     return null;
   }
 
-  Future<void> _checkForUpdates(BuildContext context) async {
+  Future<void> _checkForUpdates(
+    BuildContext context, {
+    bool automatic = false,
+  }) async {
     if (_isCheckingForUpdates) return;
     final strings = context.strings;
     setState(() {
@@ -370,6 +474,20 @@ class _ProfilePageState extends State<ProfilePage> {
       _isCheckingForUpdates = false;
       _updateResult = result;
     });
+
+    if (automatic) {
+      // The page remains mounted inside the shell's IndexedStack even after
+      // the user switches tabs. Do not place a dialog over another page; let
+      // the next visit retry the quiet check instead.
+      if (!widget.isActive) {
+        _hasCheckedForUpdatesAutomatically = false;
+        return;
+      }
+      if (result.status == UpdateCheckStatus.available) {
+        await _showUpdatePrompt(context, result);
+      }
+      return;
+    }
 
     switch (result.status) {
       case UpdateCheckStatus.available:
@@ -390,6 +508,95 @@ class _ProfilePageState extends State<ProfilePage> {
         _message(context, strings.t('githubProjectNotConfigured'));
       case UpdateCheckStatus.unavailable:
         _message(context, strings.t('updateCheckFailed'));
+    }
+  }
+
+  Future<void> _showUpdatePrompt(
+    BuildContext context,
+    AppUpdateResult result,
+  ) async {
+    final latestVersion = result.latestVersion;
+    if (latestVersion == null || _promptedUpdateVersion == latestVersion) {
+      return;
+    }
+    _promptedUpdateVersion = latestVersion;
+
+    final strings = context.strings;
+    final currentVersion = result.currentVersion ?? '—';
+    final shouldOpen = await showDialog<bool>(
+      context: context,
+      barrierColor: Colors.black.withValues(alpha: .72),
+      builder: (dialogContext) => Dialog(
+        backgroundColor: AppColors.surfaceElevated,
+        surfaceTintColor: Colors.transparent,
+        insetPadding: const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
+        shape: AppShapes.large,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 24, 24, 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 52,
+                height: 52,
+                decoration: BoxDecoration(
+                  color: AppColors.lime.withValues(alpha: .14),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.system_update_alt_rounded,
+                  color: AppColors.lime,
+                  size: 26,
+                ),
+              ),
+              const SizedBox(height: 18),
+              Text(
+                strings.t('updateAvailable'),
+                style: AppTextStyles.sectionTitle,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                '${strings.t('currentVersionLabel')}  v$currentVersion',
+                style: AppTextStyles.bodySecondary,
+              ),
+              const SizedBox(height: 4),
+              Text(
+                '${strings.t('latestVersionLabel')}  v$latestVersion',
+                style: AppTextStyles.body.copyWith(
+                  color: AppColors.lime,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 20),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(dialogContext, false),
+                    child: Text(strings.t('updateLater')),
+                  ),
+                  const SizedBox(width: 8),
+                  FilledButton.icon(
+                    onPressed: () => Navigator.pop(dialogContext, true),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: AppColors.lime,
+                      foregroundColor: Colors.black,
+                      shape: AppShapes.pill,
+                    ),
+                    icon: const Icon(Icons.open_in_new_rounded, size: 18),
+                    label: Text(strings.t('openRelease')),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    if (shouldOpen == true && context.mounted && result.releaseUrl != null) {
+      await _openExternalUrl(context, result.releaseUrl!);
     }
   }
 
@@ -469,9 +676,9 @@ class _ProfilePageState extends State<ProfilePage> {
       late SpreadsheetImportResult parsed;
       late FlightImportPreview preview;
       try {
-        // Let the page-level notice paint before the synchronous parser starts.
+        // Let the page-level notice paint before the background parser starts.
         await WidgetsBinding.instance.endOfFrame;
-        parsed = controller.parseFlightSpreadsheet(
+        parsed = await controller.parseFlightSpreadsheet(
           bytes: bytes,
           fileName: picked.name,
         );
@@ -759,9 +966,7 @@ class _ProfilePageState extends State<ProfilePage> {
       requestFocus: false,
       backgroundColor: AppColors.surface,
       showDragHandle: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
+      shape: AppShapes.sheet,
       builder: (_) => _TravellerNameSheet(
         initialValue: controller.travellerName == 'TRAVELER'
             ? ''
@@ -780,12 +985,9 @@ class _ProfilePageState extends State<ProfilePage> {
     useSafeArea: true,
     backgroundColor: Colors.transparent,
     barrierColor: Colors.black.withValues(alpha: .72),
-    builder: (_) => FractionallySizedBox(
-      heightFactor: .9,
-      child: ClipRRect(
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
-        child: _CloudSyncSheet(controller: controller),
-      ),
+    builder: (_) => ClipPath(
+      clipper: ShapeBorderClipper(shape: AppShapes.sheet),
+      child: _CloudSyncSheet(controller: controller),
     ),
   );
 
@@ -868,12 +1070,12 @@ class _TravellerNameSheetState extends State<_TravellerNameSheet> {
                 prefixIcon: const Icon(Icons.badge_outlined),
                 filled: true,
                 fillColor: AppColors.surfaceElevated,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(16),
+                border: ShapedInputBorder(
+                  shape: AppShapes.small,
                   borderSide: const BorderSide(color: AppColors.border),
                 ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(16),
+                enabledBorder: ShapedInputBorder(
+                  shape: AppShapes.small,
                   borderSide: const BorderSide(color: AppColors.border),
                 ),
               ),
@@ -920,6 +1122,194 @@ class _IconTile extends StatelessWidget {
   );
 }
 
+class _ProfileAboutButton extends StatelessWidget {
+  const _ProfileAboutButton({
+    required this.title,
+    required this.icon,
+    required this.backgroundColor,
+    required this.foregroundColor,
+    required this.onPressed,
+    this.value,
+  });
+
+  final String title;
+  final String? value;
+  final IconData icon;
+  final Color backgroundColor;
+  final Color foregroundColor;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = onPressed != null;
+    final primaryColor = enabled ? foregroundColor : AppColors.textSecondary;
+    return SizedBox(
+      width: double.infinity,
+      child: FilledButton(
+        onPressed: onPressed,
+        style: FilledButton.styleFrom(
+          minimumSize: const Size(0, 60),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          backgroundColor: backgroundColor,
+          foregroundColor: foregroundColor,
+          disabledBackgroundColor: AppColors.surface,
+          disabledForegroundColor: AppColors.textTertiary,
+          shape: AppShapes.medium,
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisSize: MainAxisSize.max,
+          children: [
+            Icon(icon, size: 24, color: primaryColor),
+            const SizedBox(width: 8),
+            Flexible(
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  title,
+                  maxLines: 1,
+                  softWrap: false,
+                  style: AppTextStyles.body.copyWith(
+                    color: primaryColor,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ),
+            if (value != null) ...[
+              const SizedBox(width: 8),
+              Text(
+                value!,
+                style: AppTextStyles.label.copyWith(color: primaryColor),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ProfileActionTile extends StatelessWidget {
+  const _ProfileActionTile({
+    required this.title,
+    required this.icon,
+    required this.color,
+    required this.onTap,
+    required this.backgroundColor,
+    this.subtitle,
+    this.value,
+    this.textColor = AppColors.textPrimary,
+    this.secondaryTextColor = AppColors.textSecondary,
+    this.wide = false,
+    this.showChevron = false,
+  });
+
+  final String title;
+  final String? subtitle;
+  final String? value;
+  final IconData icon;
+  final Color color;
+  final Color backgroundColor;
+  final Color textColor;
+  final Color secondaryTextColor;
+  final VoidCallback? onTap;
+  final bool wide;
+  final bool showChevron;
+
+  @override
+  Widget build(BuildContext context) {
+    final label = [title, ?subtitle, ?value].join(' ');
+    final content = wide
+        ? Row(
+            children: [
+              _IconTile(icon: icon, color: color),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Text(
+                  title,
+                  style: AppTextStyles.body.copyWith(
+                    color: textColor,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              if (value != null)
+                SizedBox(
+                  width: wide ? 116 : null,
+                  child: Text(
+                    value!,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.end,
+                    style: AppTextStyles.bodySecondary.copyWith(
+                      color: secondaryTextColor,
+                    ),
+                  ),
+                ),
+              if (showChevron)
+                Padding(
+                  padding: const EdgeInsets.only(left: 10),
+                  child: Icon(
+                    Icons.chevron_right_rounded,
+                    color: secondaryTextColor,
+                  ),
+                ),
+            ],
+          )
+        : Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [_IconTile(icon: icon, color: color)],
+              ),
+              const SizedBox(height: 14),
+              Text(
+                title,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: AppTextStyles.body.copyWith(
+                  color: textColor,
+                  fontSize: 17,
+                  height: 1.2,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              if (subtitle != null) ...[
+                const SizedBox(height: 3),
+                Text(
+                  subtitle!,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTextStyles.label.copyWith(
+                    color: secondaryTextColor,
+                    fontSize: 13,
+                  ),
+                ),
+              ],
+            ],
+          );
+
+    return Semantics(
+      button: onTap != null,
+      label: label,
+      child: Container(
+        constraints: BoxConstraints(minHeight: wide ? 80 : 132),
+        decoration: ShapeDecoration(
+          color: backgroundColor,
+          shape: AppShapes.medium,
+        ),
+        child: InkWell(
+          onTap: onTap,
+          customBorder: AppShapes.medium,
+          child: Padding(padding: const EdgeInsets.all(18), child: content),
+        ),
+      ),
+    );
+  }
+}
+
 /// A page-level status strip used while the spreadsheet parser is running.
 /// Keeping it in the page (instead of a SnackBar or modal route) guarantees
 /// that the user sees feedback even when the scaffold is inside an IndexedStack.
@@ -932,10 +1322,12 @@ class _SpreadsheetRecognizingNotice extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-        decoration: BoxDecoration(
+        decoration: ShapeDecoration(
           color: AppColors.surfaceElevated,
-          borderRadius: AppRadii.medium,
-          border: Border.all(color: AppColors.lime.withValues(alpha: .5)),
+          shape: RoundedSuperellipseBorder(
+            borderRadius: AppRadii.medium,
+            side: BorderSide(color: AppColors.lime.withValues(alpha: .5)),
+          ),
         ),
         child: Row(
           children: [
@@ -943,9 +1335,9 @@ class _SpreadsheetRecognizingNotice extends StatelessWidget {
               width: 30,
               height: 30,
               alignment: Alignment.center,
-              decoration: BoxDecoration(
+              decoration: ShapeDecoration(
                 color: AppColors.lime.withValues(alpha: .16),
-                borderRadius: AppRadii.small,
+                shape: AppShapes.small,
               ),
               child: const Icon(
                 Icons.table_chart_rounded,
@@ -984,10 +1376,12 @@ class _CalendarReadingNotice extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-        decoration: BoxDecoration(
+        decoration: ShapeDecoration(
           color: AppColors.surfaceElevated,
-          borderRadius: AppRadii.medium,
-          border: Border.all(color: AppColors.purple.withValues(alpha: .5)),
+          shape: RoundedSuperellipseBorder(
+            borderRadius: AppRadii.medium,
+            side: BorderSide(color: AppColors.purple.withValues(alpha: .5)),
+          ),
         ),
         child: Row(
           children: [
@@ -995,9 +1389,9 @@ class _CalendarReadingNotice extends StatelessWidget {
               width: 30,
               height: 30,
               alignment: Alignment.center,
-              decoration: BoxDecoration(
+              decoration: ShapeDecoration(
                 color: AppColors.purple.withValues(alpha: .16),
-                borderRadius: AppRadii.small,
+                shape: AppShapes.small,
               ),
               child: const Icon(
                 Icons.calendar_month_rounded,
@@ -1057,7 +1451,8 @@ class _CalendarPreviewSheetState extends State<_CalendarPreviewSheet> {
       heightFactor: .9,
       child: Material(
         color: AppColors.background,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
+        shape: AppShapes.sheet,
+        clipBehavior: Clip.antiAlias,
         child: SafeArea(
           top: false,
           child: Padding(
@@ -1140,18 +1535,20 @@ class _CalendarPreviewSheetState extends State<_CalendarPreviewSheet> {
                                 _selected.add(key);
                               }
                             }),
-                            borderRadius: AppRadii.medium,
+                            customBorder: AppShapes.medium,
                             child: Container(
                               padding: const EdgeInsets.fromLTRB(14, 12, 8, 12),
-                              decoration: BoxDecoration(
+                              decoration: ShapeDecoration(
                                 color: selected
                                     ? AppColors.surface
                                     : AppColors.surfaceElevated,
-                                borderRadius: AppRadii.medium,
-                                border: Border.all(
-                                  color: selected
-                                      ? AppColors.lime.withValues(alpha: .72)
-                                      : AppColors.border,
+                                shape: RoundedSuperellipseBorder(
+                                  borderRadius: AppRadii.medium,
+                                  side: BorderSide(
+                                    color: selected
+                                        ? AppColors.lime.withValues(alpha: .72)
+                                        : AppColors.border,
+                                  ),
                                 ),
                               ),
                               child: Row(
@@ -1293,6 +1690,9 @@ class _SpreadsheetPreviewSheetState extends State<_SpreadsheetPreviewSheet> {
         .toList(growable: false);
   }
 
+  List<SpreadsheetFlightRow> get _visibleRows =>
+      _selectedTab == 2 ? _conflictRows : _readyRows;
+
   @override
   Widget build(BuildContext context) {
     final s = context.strings;
@@ -1300,20 +1700,51 @@ class _SpreadsheetPreviewSheetState extends State<_SpreadsheetPreviewSheet> {
       heightFactor: .9,
       child: Material(
         color: AppColors.background,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
+        shape: AppShapes.sheet,
+        clipBehavior: Clip.antiAlias,
         child: SafeArea(
           top: false,
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
                   children: [
+                    Container(
+                      width: 42,
+                      height: 42,
+                      decoration: BoxDecoration(
+                        color: AppColors.lime.withValues(alpha: .14),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.table_chart_outlined,
+                        color: AppColors.lime,
+                        size: 22,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
                     Expanded(
-                      child: Text(
-                        s.t('spreadsheetImportTitle'),
-                        style: AppTextStyles.sectionTitle,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            s.t('spreadsheetImportTitle'),
+                            style: AppTextStyles.sectionTitle.copyWith(
+                              fontSize: 24,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            '${s.t('spreadsheetSheet')} · ${result.sheetName}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppTextStyles.label.copyWith(
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                     IconButton(
@@ -1323,18 +1754,14 @@ class _SpreadsheetPreviewSheetState extends State<_SpreadsheetPreviewSheet> {
                     ),
                   ],
                 ),
-                Text(
-                  '${s.t('spreadsheetSheet')}：${result.sheetName}',
-                  style: AppTextStyles.bodySecondary,
-                ),
-                const SizedBox(height: 14),
+                const SizedBox(height: 18),
                 Row(
                   children: [
                     Expanded(
                       child: _SpreadsheetReviewTabButton(
                         label: s.t('spreadsheetValidRows'),
                         count: _readyRows.length,
-                        color: AppColors.lime,
+                        color: const Color(0xFFA8D7AF),
                         selected: _selectedTab == 0,
                         onTap: () => setState(() => _selectedTab = 0),
                       ),
@@ -1344,7 +1771,7 @@ class _SpreadsheetPreviewSheetState extends State<_SpreadsheetPreviewSheet> {
                       child: _SpreadsheetReviewTabButton(
                         label: s.t('spreadsheetIssueRows'),
                         count: result.issues.length,
-                        color: const Color(0xFFFFD8D0),
+                        color: const Color(0xFFE7C6BF),
                         selected: _selectedTab == 1,
                         onTap: () => setState(() => _selectedTab = 1),
                       ),
@@ -1354,142 +1781,74 @@ class _SpreadsheetPreviewSheetState extends State<_SpreadsheetPreviewSheet> {
                       child: _SpreadsheetReviewTabButton(
                         label: s.t('spreadsheetConflicts'),
                         count: _conflictRows.length,
-                        color: const Color(0xFFC9B8FF),
+                        color: const Color(0xFFB9A9F2),
                         selected: _selectedTab == 2,
                         onTap: () => setState(() => _selectedTab = 2),
                       ),
                     ),
                   ],
                 ),
-                if (_selectedTab == 1 && result.issues.isNotEmpty) ...[
-                  const SizedBox(height: 12),
-                  Container(
-                    constraints: const BoxConstraints(maxHeight: 112),
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: AppColors.danger.withValues(alpha: .12),
-                      borderRadius: AppRadii.medium,
-                      border: Border.all(
-                        color: AppColors.danger.withValues(alpha: .35),
-                      ),
-                    ),
-                    child: ListView.builder(
-                      itemCount: result.issues.length,
-                      itemBuilder: (context, index) {
-                        final issue = result.issues[index];
-                        return Padding(
-                          padding: const EdgeInsets.only(bottom: 4),
-                          child: Text(
-                            '${issue.rowNumber}：${issue.message}',
-                            style: AppTextStyles.label,
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    s.t('spreadsheetIssuesHint'),
-                    style: AppTextStyles.label,
-                  ),
-                ],
-                if (_selectedTab == 1 && result.issues.isEmpty)
-                  Expanded(
-                    child: _SpreadsheetReviewEmpty(
-                      icon: Icons.check_circle_outline_rounded,
-                      message: s.t('spreadsheetNoIssues'),
-                    ),
-                  ),
                 const SizedBox(height: 12),
-                if (_selectedTab != 1)
-                  Expanded(
-                    child: ListView.separated(
-                      itemCount:
-                          (_selectedTab == 2 ? _conflictRows : _readyRows)
-                              .length,
-                      separatorBuilder: (_, _) => const SizedBox(height: 8),
-                      itemBuilder: (context, index) {
-                        final item = (_selectedTab == 2
-                            ? _conflictRows
-                            : _readyRows)[index];
-                        final flight = item.flight;
-                        final date = DateFormat('yyyy-MM-dd HH:mm')
-                            .format(flight.departedAt.toLocal());
-                        return Container(
-                          padding: const EdgeInsets.all(14),
-                          decoration: BoxDecoration(
-                            color: AppColors.surface,
-                            borderRadius: AppRadii.medium,
-                            border: Border.all(color: AppColors.border),
+                Expanded(
+                  child: _selectedTab == 1
+                      ? result.issues.isEmpty
+                            ? _SpreadsheetReviewEmpty(
+                                icon: Icons.check_circle_outline_rounded,
+                                message: s.t('spreadsheetNoIssues'),
+                              )
+                            : SingleChildScrollView(
+                                padding: const EdgeInsets.only(bottom: 4),
+                                child: _SpreadsheetIssuesPanel(
+                                  issues: result.issues,
+                                  hint: s.t('spreadsheetIssuesHint'),
+                                ),
+                              )
+                      : _visibleRows.isEmpty
+                      ? _SpreadsheetReviewEmpty(
+                          icon: _selectedTab == 2
+                              ? Icons.layers_clear_outlined
+                              : Icons.table_rows_outlined,
+                          message: s.t(
+                            _selectedTab == 2
+                                ? 'spreadsheetNoConflicts'
+                                : 'spreadsheetNoReadyRows',
                           ),
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Container(
-                                width: 34,
-                                height: 34,
-                                alignment: Alignment.center,
-                                decoration: BoxDecoration(
-                                  color: AppColors.lime.withValues(alpha: .16),
-                                  shape: BoxShape.circle,
-                                ),
-                                child: Text(
-                                  '${item.rowNumber}',
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.w800,
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      '${flight.airline ?? ''}  ${flight.flightNumber ?? ''}',
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.w800,
-                                      ),
+                        )
+                      : ListView.separated(
+                          padding: const EdgeInsets.only(bottom: 4),
+                          itemCount: _visibleRows.length,
+                          separatorBuilder: (_, _) =>
+                              const SizedBox(height: 10),
+                          itemBuilder: (context, index) {
+                            final item = _visibleRows[index];
+                            final flight = item.flight;
+                            final date = DateFormat('yyyy-MM-dd HH:mm')
+                                .format(flight.departedAt.toLocal());
+                            final isConflict = _selectedTab == 2;
+                            return _SpreadsheetFlightCard(
+                              item: item,
+                              date: date,
+                              duration:
+                                  '${s.t('flightDuration')} · ${_formatSpreadsheetDuration(context, flight.durationMinutes)}',
+                              statusLabel: isConflict
+                                  ? s.t('spreadsheetConflicts')
+                                  : s.t(
+                                      flight.isUpcoming
+                                          ? 'upcoming'
+                                          : 'completed',
                                     ),
-                                    const SizedBox(height: 4),
-                                    Text(
-                                      '${flight.departureIata}  ${item.departureAirportName}\n'
-                                      '→  ${flight.arrivalIata}  ${item.arrivalAirportName}',
-                                      maxLines: 2,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: AppTextStyles.bodySecondary,
-                                    ),
-                                    const SizedBox(height: 4),
-                                    Text(date, style: AppTextStyles.label),
-                                    const SizedBox(height: 4),
-                                    Text(
-                                      '${s.t('flightDuration')} · ${_formatSpreadsheetDuration(context, flight.durationMinutes)}',
-                                      style: AppTextStyles.label.copyWith(
-                                        color: AppColors.purple,
-                                        fontWeight: FontWeight.w700,
-                                      ),
-                                    ),
-                                    if (item.hasAmbiguousAirport)
-                                      Padding(
-                                        padding: const EdgeInsets.only(top: 4),
-                                        child: Text(
-                                          s.t('spreadsheetAmbiguousAirport'),
-                                          style: AppTextStyles.label.copyWith(
-                                            color: AppColors.danger,
-                                          ),
-                                        ),
-                                      ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                        );
-                      },
-                    ),
-                  ),
+                              statusColor: isConflict
+                                  ? AppColors.purple
+                                  : flight.isUpcoming
+                                  ? AppColors.purple
+                                  : AppColors.lime,
+                              ambiguousAirportMessage: item.hasAmbiguousAirport
+                                  ? s.t('spreadsheetAmbiguousAirport')
+                                  : null,
+                            );
+                          },
+                        ),
+                ),
                 const SizedBox(height: 12),
                 PrimaryButton(
                   label: s.t('spreadsheetConfirm'),
@@ -1537,56 +1896,447 @@ class _SpreadsheetReviewTabButton extends StatelessWidget {
   final VoidCallback onTap;
 
   @override
-  Widget build(BuildContext context) => Semantics(
-    button: true,
-    selected: selected,
-    label: '$label $count',
-    child: Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: AppRadii.medium,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 160),
-          height: 76,
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
-          decoration: BoxDecoration(
-            color: color,
-            borderRadius: AppRadii.medium,
-            border: Border.all(
-              color: selected ? Colors.black : Colors.transparent,
-              width: selected ? 2 : 1,
+  Widget build(BuildContext context) {
+    final backgroundColor = selected
+        ? color
+        : Color.alphaBlend(
+            color.withValues(alpha: .18),
+            AppColors.surfaceElevated,
+          );
+    final countColor = selected ? Colors.black : color;
+    final labelColor = selected ? Colors.black : AppColors.textSecondary;
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: '$label $count',
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          customBorder: AppShapes.medium,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            height: 82,
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+            decoration: ShapeDecoration(
+              color: backgroundColor,
+              shape: AppShapes.medium,
             ),
-          ),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text(
-                count.toString(),
-                style: const TextStyle(
-                  color: Colors.black,
-                  fontSize: 22,
-                  height: 1,
-                  fontWeight: FontWeight.w800,
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  count.toString(),
+                  style: TextStyle(
+                    color: countColor,
+                    fontSize: 24,
+                    height: 1,
+                    fontWeight: FontWeight.w800,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                label,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  color: Colors.black,
-                  fontSize: 12,
-                  height: 1.1,
-                  fontWeight: FontWeight.w700,
+                const SizedBox(height: 7),
+                Text(
+                  label,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: labelColor,
+                    fontSize: 12,
+                    height: 1.1,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
+    );
+  }
+}
+
+class _SpreadsheetIssuesPanel extends StatelessWidget {
+  const _SpreadsheetIssuesPanel({required this.issues, required this.hint});
+
+  final List<SpreadsheetImportIssue> issues;
+  final String hint;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Container(
+        width: double.infinity,
+        padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
+        decoration: ShapeDecoration(
+          color: AppColors.danger.withValues(alpha: .08),
+          shape: AppShapes.medium,
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Padding(
+              padding: EdgeInsets.only(top: 1),
+              child: Icon(
+                Icons.warning_amber_rounded,
+                color: AppColors.danger,
+                size: 20,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 124),
+                child: ListView.separated(
+                  shrinkWrap: true,
+                  padding: EdgeInsets.zero,
+                  itemCount: issues.length,
+                  separatorBuilder: (_, _) => const SizedBox(height: 8),
+                  itemBuilder: (context, index) {
+                    final issue = issues[index];
+                    return Text.rich(
+                      TextSpan(
+                        children: [
+                          TextSpan(
+                            text: '${issue.rowNumber}  ',
+                            style: const TextStyle(
+                              color: AppColors.danger,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          TextSpan(
+                            text: issue.message,
+                            style: AppTextStyles.label,
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+      const SizedBox(height: 10),
+      Text(
+        hint,
+        style: AppTextStyles.label.copyWith(color: AppColors.textTertiary),
+      ),
+    ],
+  );
+}
+
+class _SpreadsheetFlightCard extends StatelessWidget {
+  const _SpreadsheetFlightCard({
+    required this.item,
+    required this.date,
+    required this.duration,
+    required this.statusLabel,
+    required this.statusColor,
+    this.ambiguousAirportMessage,
+  });
+
+  final SpreadsheetFlightRow item;
+  final String date;
+  final String duration;
+  final String statusLabel;
+  final Color statusColor;
+  final String? ambiguousAirportMessage;
+
+  @override
+  Widget build(BuildContext context) {
+    final flight = item.flight;
+    final airline = (flight.airline ?? '').trim();
+    final flightNumber = (flight.flightNumber ?? '').trim();
+    final title = [
+      airline,
+      flightNumber,
+    ].where((value) => value.isNotEmpty).join('  ');
+    return Semantics(
+      container: true,
+      label: [
+        title,
+        flight.departureIata,
+        item.departureAirportName,
+        context.strings.t('arrival'),
+        flight.arrivalIata,
+        item.arrivalAirportName,
+        date,
+        duration,
+      ].join(' '),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+        decoration: ShapeDecoration(
+          color: AppColors.surfaceElevated,
+          shape: AppShapes.medium,
+          shadows: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: .12),
+              blurRadius: 14,
+              offset: const Offset(0, 6),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _SpreadsheetRowNumber(number: item.rowNumber),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.only(top: 1),
+                    child: Text(
+                      title.isEmpty ? '—' : title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTextStyles.body.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                _SpreadsheetStatusTag(label: statusLabel, color: statusColor),
+              ],
+            ),
+            const SizedBox(height: 14),
+            _SpreadsheetRouteBlock(
+              departureCode: flight.departureIata,
+              departureName: item.departureAirportName,
+              arrivalCode: flight.arrivalIata,
+              arrivalName: item.arrivalAirportName,
+            ),
+            const SizedBox(height: 14),
+            Wrap(
+              spacing: 14,
+              runSpacing: 6,
+              children: [
+                _SpreadsheetMetaItem(
+                  icon: Icons.calendar_today_rounded,
+                  text: date,
+                ),
+                _SpreadsheetMetaItem(
+                  icon: Icons.schedule_rounded,
+                  text: duration,
+                  color: AppColors.purple,
+                ),
+              ],
+            ),
+            if (ambiguousAirportMessage != null) ...[
+              const SizedBox(height: 12),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 10,
+                ),
+                decoration: ShapeDecoration(
+                  color: AppColors.danger.withValues(alpha: .08),
+                  shape: AppShapes.small,
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Padding(
+                      padding: EdgeInsets.only(top: 1),
+                      child: Icon(
+                        Icons.info_outline_rounded,
+                        color: AppColors.danger,
+                        size: 18,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        ambiguousAirportMessage!,
+                        style: AppTextStyles.label.copyWith(
+                          color: AppColors.danger,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SpreadsheetRowNumber extends StatelessWidget {
+  const _SpreadsheetRowNumber({required this.number});
+
+  final int number;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    width: 36,
+    height: 36,
+    alignment: Alignment.center,
+    decoration: BoxDecoration(
+      color: AppColors.lime.withValues(alpha: .14),
+      shape: BoxShape.circle,
+    ),
+    child: Text(
+      '$number',
+      style: const TextStyle(
+        color: AppColors.textPrimary,
+        fontSize: 16,
+        fontWeight: FontWeight.w800,
+      ),
+    ),
+  );
+}
+
+class _SpreadsheetStatusTag extends StatelessWidget {
+  const _SpreadsheetStatusTag({required this.label, required this.color});
+
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+    decoration: BoxDecoration(
+      color: color.withValues(alpha: .14),
+      borderRadius: AppRadii.pill,
+    ),
+    child: Text(
+      label,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: AppTextStyles.label.copyWith(
+        color: color,
+        fontSize: 12,
+        fontWeight: FontWeight.w700,
+      ),
+    ),
+  );
+}
+
+class _SpreadsheetRouteBlock extends StatelessWidget {
+  const _SpreadsheetRouteBlock({
+    required this.departureCode,
+    required this.departureName,
+    required this.arrivalCode,
+    required this.arrivalName,
+  });
+
+  final String departureCode;
+  final String departureName;
+  final String arrivalCode;
+  final String arrivalName;
+
+  @override
+  Widget build(BuildContext context) => Row(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      SizedBox(
+        width: 22,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(
+              Icons.flight_takeoff_rounded,
+              color: AppColors.lime,
+              size: 18,
+            ),
+            Container(
+              width: 1,
+              height: 16,
+              margin: const EdgeInsets.symmetric(vertical: 3),
+              color: AppColors.border,
+            ),
+            const Icon(
+              Icons.flight_land_rounded,
+              color: AppColors.purple,
+              size: 18,
+            ),
+          ],
+        ),
+      ),
+      const SizedBox(width: 10),
+      Expanded(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _SpreadsheetAirportLine(code: departureCode, name: departureName),
+            const SizedBox(height: 10),
+            _SpreadsheetAirportLine(code: arrivalCode, name: arrivalName),
+          ],
+        ),
+      ),
+    ],
+  );
+}
+
+class _SpreadsheetAirportLine extends StatelessWidget {
+  const _SpreadsheetAirportLine({required this.code, required this.name});
+
+  final String code;
+  final String name;
+
+  @override
+  Widget build(BuildContext context) => Text.rich(
+    TextSpan(
+      children: [
+        TextSpan(
+          text: code.isEmpty ? '—' : code,
+          style: const TextStyle(
+            color: AppColors.textPrimary,
+            fontSize: 16,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        if (name.trim().isNotEmpty)
+          TextSpan(
+            text: '  ${name.trim()}',
+            style: AppTextStyles.bodySecondary,
+          ),
+      ],
+    ),
+    maxLines: 2,
+    overflow: TextOverflow.ellipsis,
+  );
+}
+
+class _SpreadsheetMetaItem extends StatelessWidget {
+  const _SpreadsheetMetaItem({
+    required this.icon,
+    required this.text,
+    this.color = AppColors.textSecondary,
+  });
+
+  final IconData icon;
+  final String text;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+    label: text,
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 16, color: color),
+        const SizedBox(width: 6),
+        Text(
+          text,
+          style: AppTextStyles.label.copyWith(
+            color: color,
+            fontWeight: color == AppColors.purple
+                ? FontWeight.w700
+                : FontWeight.w600,
+          ),
+        ),
+      ],
     ),
   );
 }
@@ -1648,7 +2398,7 @@ class _SpreadsheetProgressDialog extends StatelessWidget {
             horizontal: 28,
             vertical: 24,
           ),
-          shape: RoundedRectangleBorder(
+          shape: RoundedSuperellipseBorder(
             borderRadius: AppRadii.large,
             side: const BorderSide(color: AppColors.border),
           ),
@@ -1902,16 +2652,32 @@ class _CloudSyncSheetState extends State<_CloudSyncSheet> {
           child: SafeArea(
             top: false,
             child: SingleChildScrollView(
-              padding: EdgeInsets.fromLTRB(20, 16, 20, 28 + insets.bottom),
+              padding: EdgeInsets.fromLTRB(20, 12, 20, 28 + insets.bottom),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(
                     children: [
+                      Container(
+                        width: 42,
+                        height: 42,
+                        decoration: BoxDecoration(
+                          color: AppColors.lime.withValues(alpha: .14),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          Icons.cloud_outlined,
+                          color: AppColors.lime,
+                          size: 22,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
                       Expanded(
                         child: Text(
                           s.t('cloudSyncTitle'),
-                          style: AppTextStyles.sectionTitle,
+                          style: AppTextStyles.sectionTitle.copyWith(
+                            fontSize: 24,
+                          ),
                         ),
                       ),
                       IconButton(
@@ -1921,12 +2687,12 @@ class _CloudSyncSheetState extends State<_CloudSyncSheet> {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 14),
                   Text(
                     s.t('cloudSetupHint'),
                     style: AppTextStyles.bodySecondary,
                   ),
-                  const SizedBox(height: 20),
+                  const SizedBox(height: 18),
                   if (state.isConfigured) ...[
                     _ConnectedCloudCard(
                       state: state,
@@ -1947,20 +2713,12 @@ class _CloudSyncSheetState extends State<_CloudSyncSheet> {
                     const SizedBox(height: 10),
                     SizedBox(
                       width: double.infinity,
-                      child: OutlinedButton.icon(
+                      child: _CloudSecondaryButton(
                         onPressed: state.isSyncing || _busy
                             ? null
                             : _restoreFromCloud,
                         icon: const Icon(Icons.cloud_download_outlined),
-                        label: Text(s.t('restoreFromCloud')),
-                        style: OutlinedButton.styleFrom(
-                          minimumSize: const Size(44, 50),
-                          foregroundColor: AppColors.textPrimary,
-                          side: const BorderSide(color: AppColors.border),
-                          shape: const RoundedRectangleBorder(
-                            borderRadius: AppRadii.large,
-                          ),
-                        ),
+                        label: s.t('restoreFromCloud'),
                       ),
                     ),
                     const SizedBox(height: 8),
@@ -1972,18 +2730,10 @@ class _CloudSyncSheetState extends State<_CloudSyncSheet> {
                     if (state.hasRecoveryCode || _newRecoveryCode != null)
                       SizedBox(
                         width: double.infinity,
-                        child: OutlinedButton.icon(
+                        child: _CloudSecondaryButton(
                           onPressed: _busy ? null : _showRecoveryCode,
                           icon: const Icon(Icons.key_outlined),
-                          label: Text(s.t('viewRecoveryCode')),
-                          style: OutlinedButton.styleFrom(
-                            minimumSize: const Size(44, 50),
-                            foregroundColor: AppColors.textPrimary,
-                            side: const BorderSide(color: AppColors.border),
-                            shape: const RoundedRectangleBorder(
-                              borderRadius: AppRadii.large,
-                            ),
-                          ),
+                          label: s.t('viewRecoveryCode'),
                         ),
                       ),
                     if (_error != null) ...[
@@ -2005,6 +2755,7 @@ class _CloudSyncSheetState extends State<_CloudSyncSheet> {
                     AppSegmentedControl(
                       labels: [s.t('createCloud'), s.t('restoreCloud')],
                       selectedIndex: _mode,
+                      pill: true,
                       onChanged: _busy
                           ? (_) {}
                           : (value) => setState(() {
@@ -2018,6 +2769,7 @@ class _CloudSyncSheetState extends State<_CloudSyncSheet> {
                       controller: _endpointController,
                       label: s.t('cloudEndpoint'),
                       hint: s.t('cloudEndpointHint'),
+                      prefixIcon: Icons.link_rounded,
                       keyboardType: TextInputType.url,
                       enabled: !_busy,
                     ),
@@ -2030,6 +2782,9 @@ class _CloudSyncSheetState extends State<_CloudSyncSheet> {
                       hint: _mode == 0
                           ? s.t('cloudBootstrapHint')
                           : s.t('cloudRecoveryHint'),
+                      prefixIcon: _mode == 0
+                          ? Icons.key_outlined
+                          : Icons.vpn_key_outlined,
                       obscureText: _mode == 0,
                       enabled: !_busy,
                       textCapitalization: TextCapitalization.none,
@@ -2321,10 +3076,9 @@ class _ConnectedCloudCard extends StatelessWidget {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        border: Border.all(color: AppColors.border),
-        borderRadius: AppRadii.medium,
+      decoration: ShapeDecoration(
+        color: AppColors.surfaceElevated,
+        shape: AppShapes.medium,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -2395,6 +3149,36 @@ class _CloudMeta extends StatelessWidget {
   );
 }
 
+class _CloudSecondaryButton extends StatelessWidget {
+  const _CloudSecondaryButton({
+    required this.icon,
+    required this.label,
+    required this.onPressed,
+  });
+
+  final Widget icon;
+  final String label;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    width: double.infinity,
+    child: FilledButton.icon(
+      onPressed: onPressed,
+      icon: icon,
+      label: Text(label),
+      style: FilledButton.styleFrom(
+        minimumSize: const Size(44, 50),
+        backgroundColor: AppColors.surfaceElevated,
+        foregroundColor: AppColors.textPrimary,
+        disabledBackgroundColor: AppColors.surface,
+        disabledForegroundColor: AppColors.textTertiary,
+        shape: AppShapes.large,
+      ),
+    ),
+  );
+}
+
 class _CloudTextField extends StatelessWidget {
   const _CloudTextField({
     required this.controller,
@@ -2402,6 +3186,7 @@ class _CloudTextField extends StatelessWidget {
     required this.hint,
     this.enabled = true,
     this.obscureText = false,
+    this.prefixIcon,
     this.keyboardType,
     this.textCapitalization = TextCapitalization.sentences,
   });
@@ -2411,6 +3196,7 @@ class _CloudTextField extends StatelessWidget {
   final String hint;
   final bool enabled;
   final bool obscureText;
+  final IconData? prefixIcon;
   final TextInputType? keyboardType;
   final TextCapitalization textCapitalization;
 
@@ -2428,19 +3214,27 @@ class _CloudTextField extends StatelessWidget {
       hintText: hint,
       hintMaxLines: 2,
       filled: true,
-      fillColor: AppColors.surface,
+      fillColor: AppColors.surfaceElevated,
+      prefixIcon: prefixIcon == null
+          ? null
+          : Icon(prefixIcon, color: AppColors.textTertiary),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
       labelStyle: AppTextStyles.label,
+      floatingLabelStyle: const TextStyle(
+        color: AppColors.lime,
+        fontWeight: FontWeight.w600,
+      ),
       hintStyle: AppTextStyles.bodySecondary.copyWith(fontSize: 13),
-      border: OutlineInputBorder(
-        borderRadius: AppRadii.medium,
-        borderSide: const BorderSide(color: AppColors.border),
+      border: ShapedInputBorder(
+        shape: AppShapes.medium,
+        borderSide: BorderSide.none,
       ),
-      enabledBorder: OutlineInputBorder(
-        borderRadius: AppRadii.medium,
-        borderSide: const BorderSide(color: AppColors.border),
+      enabledBorder: ShapedInputBorder(
+        shape: AppShapes.medium,
+        borderSide: BorderSide.none,
       ),
-      focusedBorder: OutlineInputBorder(
-        borderRadius: AppRadii.medium,
+      focusedBorder: ShapedInputBorder(
+        shape: AppShapes.medium,
         borderSide: const BorderSide(color: AppColors.lime, width: 1.5),
       ),
     ),
@@ -2456,17 +3250,21 @@ class _SecurityNotice extends StatelessWidget {
   Widget build(BuildContext context) => Container(
     width: double.infinity,
     padding: const EdgeInsets.all(14),
-    decoration: BoxDecoration(
+    decoration: ShapeDecoration(
       color: AppColors.lime.withValues(alpha: .08),
-      borderRadius: AppRadii.small,
-      border: Border.all(color: AppColors.lime.withValues(alpha: .22)),
+      shape: AppShapes.medium,
     ),
     child: Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const Icon(Icons.shield_outlined, color: AppColors.lime, size: 20),
         const SizedBox(width: 10),
-        Expanded(child: Text(text, style: AppTextStyles.bodySecondary)),
+        Expanded(
+          child: Text(
+            text,
+            style: AppTextStyles.bodySecondary.copyWith(fontSize: 14),
+          ),
+        ),
       ],
     ),
   );
@@ -2481,10 +3279,12 @@ class _ErrorNotice extends StatelessWidget {
   Widget build(BuildContext context) => Container(
     width: double.infinity,
     padding: const EdgeInsets.all(14),
-    decoration: BoxDecoration(
+    decoration: ShapeDecoration(
       color: AppColors.danger.withValues(alpha: .1),
-      borderRadius: AppRadii.small,
-      border: Border.all(color: AppColors.danger.withValues(alpha: .32)),
+      shape: RoundedSuperellipseBorder(
+        borderRadius: AppRadii.small,
+        side: BorderSide(color: AppColors.danger.withValues(alpha: .32)),
+      ),
     ),
     child: Text(text, style: const TextStyle(color: AppColors.danger)),
   );

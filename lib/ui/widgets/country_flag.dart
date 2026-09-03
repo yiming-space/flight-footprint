@@ -25,6 +25,7 @@ class CountryFlag extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.appColors;
     final normalized = code.trim().toLowerCase();
     final valid = RegExp(r'^[a-z]{2}$').hasMatch(normalized);
     return SizedBox(
@@ -53,10 +54,7 @@ class CountryFlag extends StatelessWidget {
                 child: DecoratedBox(
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    border: Border.all(
-                      color: AppColors.textSecondary,
-                      width: .8,
-                    ),
+                    border: Border.all(color: colors.textSecondary, width: .8),
                   ),
                 ),
               ),
@@ -71,10 +69,10 @@ class _UnknownCountryFlag extends StatelessWidget {
   const _UnknownCountryFlag();
 
   @override
-  Widget build(BuildContext context) => const Icon(
+  Widget build(BuildContext context) => Icon(
     Icons.public_rounded,
     size: 18,
-    color: AppColors.textSecondary,
+    color: context.appColors.textSecondary,
   );
 }
 

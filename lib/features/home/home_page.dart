@@ -50,6 +50,7 @@ class _HomePageState extends State<HomePage> {
   @override
   Widget build(BuildContext context) {
     final s = context.strings;
+    final colors = context.appColors;
     final allFlights = widget.controller.flights;
     final hasAnyFlights = allFlights.isNotEmpty;
     final flights = allFlights.where((flight) => flight.isCompleted).toList();
@@ -140,6 +141,8 @@ class _HomePageState extends State<HomePage> {
         .toDouble();
     return SafeArea(
       top: false,
+      left: false,
+      right: false,
       child: CustomScrollView(
         slivers: [
           SliverToBoxAdapter(child: _HomeGreeting(name: travellerName)),
@@ -164,31 +167,44 @@ class _HomePageState extends State<HomePage> {
                   height: mapHeight,
                   clipBehavior: Clip.antiAlias,
                   decoration: ShapeDecoration(
-                    color: AppColors.surface,
+                    color: colors.surface,
                     shape: AppShapes.large,
                     shadows: _cardShadow(),
                   ),
                   child: Stack(
                     fit: StackFit.expand,
                     children: [
-                      OfflineMap(
-                        mode: _mode,
-                        airports: mapAirports.values.toList(),
-                        routes: routes,
-                        places: mapPlaces,
-                        fitPoints: mapFitPoints,
-                        fitToData: true,
-                        fitZoomMultiplier: 1,
-                        // The dashboard preview should use the same visual
-                        // cover treatment as the full-screen map: the whole
-                        // card is occupied, while the camera remains centred
-                        // on the recorded flight region. The projection is
-                        // still uniformly scaled, so filling the portrait
-                        // card never stretches the world silhouette.
-                        fillViewportHeight: true,
-                        horizontalPadding: 0,
-                        verticalPadding: 0,
-                        onPlaceLongPress: _handlePlaceLongPress,
+                      LayoutBuilder(
+                        builder: (context, constraints) => OfflineMap(
+                          mode: _mode,
+                          airports: mapAirports.values.toList(),
+                          routes: routes,
+                          places: mapPlaces,
+                          fitPoints: mapFitPoints,
+                          fitToData: true,
+                          fitZoomMultiplier: 1,
+                          coverViewport: true,
+                          // Keep the cartographic artwork dark even when the
+                          // surrounding home surface follows the light theme.
+                          useLightPalette: false,
+                          // The dashboard preview should use the same visual
+                          // cover treatment as the full-screen map: the whole
+                          // card is occupied, while the camera remains centred
+                          // on the recorded flight region. The projection is
+                          // still uniformly scaled, so filling the portrait
+                          // card never stretches the world silhouette.
+                          fillViewportHeight: true,
+                          // An expanded foldable can be wider than one
+                          // complete world at the preview's fixed height. A
+                          // neighbouring world copy keeps that wide canvas
+                          // continuous instead of exposing a black date-line
+                          // gutter on the right. Phones retain the single-copy
+                          // composition so the preview stays calm.
+                          horizontalWrap: constraints.maxWidth >= 600,
+                          horizontalPadding: 0,
+                          verticalPadding: 0,
+                          onPlaceLongPress: _handlePlaceLongPress,
+                        ),
                       ),
                       Positioned(
                         bottom: 14,
@@ -208,10 +224,10 @@ class _HomePageState extends State<HomePage> {
                             icon: const Icon(Icons.fullscreen_rounded),
                             style: IconButton.styleFrom(
                               fixedSize: const Size(46, 46),
-                              backgroundColor: AppColors.background.withValues(
+                              backgroundColor: colors.background.withValues(
                                 alpha: .94,
                               ),
-                              foregroundColor: AppColors.textPrimary,
+                              foregroundColor: colors.textPrimary,
                             ),
                           ),
                         ),
@@ -229,29 +245,16 @@ class _HomePageState extends State<HomePage> {
                 else
                   _totalDistanceCard(context, totalDistance: totalDistance),
                 const SizedBox(height: AppSpacing.section),
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        s.t('nextTrip'),
-                        style: AppTextStyles.sectionTitle,
-                      ),
-                    ),
-                    TextButton(
-                      onPressed: widget.onShowFlights,
-                      style: TextButton.styleFrom(
-                        minimumSize: const Size(44, 44),
-                        padding: EdgeInsets.zero,
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      ),
-                      child: Text('${s.t('viewAll')}  →'),
-                    ),
-                  ],
+                Text(
+                  s.t('nextTrip'),
+                  style: AppTextStyles.sectionTitle.copyWith(
+                    color: colors.textPrimary,
+                  ),
                 ),
                 const SizedBox(height: 12),
                 if (nextFlight == null)
                   SurfaceCard(
-                    color: AppColors.surfaceElevated,
+                    color: colors.surfaceElevated,
                     borderRadius: AppRadii.large,
                     showBorder: false,
                     boxShadow: _cardShadow(),
@@ -295,13 +298,20 @@ class _HomePageState extends State<HomePage> {
     required double totalDistance,
   }) {
     final s = context.strings;
+    final colors = context.appColors;
+    final isLight = Theme.of(context).brightness == Brightness.light;
+    final metricCardColor = isLight ? colors.cardMint : colors.surfaceElevated;
+    final metricTextColor = isLight ? colors.cardText : colors.lime;
+    final metricSecondaryTextColor = isLight
+        ? colors.cardText.withValues(alpha: .62)
+        : colors.textSecondary;
     final value = _formatNumber(totalDistance.round());
     return Semantics(
       label: '${s.t('totalDistance')} $value ${s.t('km')}',
       container: true,
       child: SurfaceCard(
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
-        color: AppColors.surfaceElevated,
+        color: metricCardColor,
         borderRadius: AppRadii.large,
         showBorder: false,
         boxShadow: _cardShadow(),
@@ -312,10 +322,10 @@ class _HomePageState extends State<HomePage> {
               width: 52,
               height: 52,
               decoration: BoxDecoration(
-                color: AppColors.lime.withValues(alpha: .12),
+                color: metricTextColor.withValues(alpha: .10),
                 shape: BoxShape.circle,
               ),
-              child: const Icon(Icons.radar_rounded, color: AppColors.lime),
+              child: Icon(Icons.radar_rounded, color: metricTextColor),
             ),
             const SizedBox(width: 16),
             Expanded(
@@ -327,8 +337,8 @@ class _HomePageState extends State<HomePage> {
                     s.t('totalDistance'),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: AppColors.textSecondary,
+                    style: TextStyle(
+                      color: metricSecondaryTextColor,
                       fontSize: 16,
                       fontWeight: FontWeight.w600,
                     ),
@@ -349,7 +359,7 @@ class _HomePageState extends State<HomePage> {
                             value,
                             maxLines: 1,
                             style: TextStyle(
-                              color: AppColors.lime,
+                              color: metricTextColor,
                               fontSize: _distanceFontSize(value),
                               height: 1,
                               fontWeight: FontWeight.w700,
@@ -357,10 +367,10 @@ class _HomePageState extends State<HomePage> {
                             ),
                           ),
                           const SizedBox(width: 8),
-                          const Text(
+                          Text(
                             'KM',
                             style: TextStyle(
-                              color: AppColors.lime,
+                              color: metricTextColor,
                               fontSize: 14,
                               fontWeight: FontWeight.w700,
                             ),
@@ -409,6 +419,8 @@ class _HomePageState extends State<HomePage> {
     return FutureBuilder<CityCatalog>(
       future: _chinaCatalog,
       builder: (context, snapshot) {
+        final colors = context.appColors;
+        final isLight = Theme.of(context).brightness == Brightness.light;
         final provinceNames = <String>{};
         final catalog = snapshot.data;
         if (catalog != null) {
@@ -434,8 +446,13 @@ class _HomePageState extends State<HomePage> {
         return Container(
           padding: const EdgeInsets.fromLTRB(22, 22, 22, 20),
           decoration: ShapeDecoration(
-            color: AppColors.surfaceElevated,
-            shape: AppShapes.large,
+            color: isLight ? colors.surface : colors.surfaceElevated,
+            shape: RoundedSuperellipseBorder(
+              borderRadius: AppRadii.large,
+              side: isLight
+                  ? BorderSide(color: colors.border.withValues(alpha: .72))
+                  : BorderSide.none,
+            ),
             shadows: _cardShadow(),
           ),
           child: Column(
@@ -444,20 +461,22 @@ class _HomePageState extends State<HomePage> {
               // The page title and map already establish the context, so the
               // card starts directly with its two progress sections.
               _progressSection(
+                context: context,
                 title: s.t('worldExplorer'),
                 count: countryCount,
                 total: 195,
                 progress: worldProgress,
-                color: AppColors.lime,
+                color: colors.lime,
                 detail: s.t('visitedCountries'),
               ),
               const SizedBox(height: 20),
               _progressSection(
+                context: context,
                 title: s.t('chinaExplorer'),
                 count: chinaCount,
                 total: 34,
                 progress: chinaProgress,
-                color: AppColors.purple,
+                color: colors.purple,
                 detail: s.t('visitedRegions'),
               ),
               const SizedBox(height: 18),
@@ -474,6 +493,7 @@ class _HomePageState extends State<HomePage> {
   }
 
   Widget _progressSection({
+    required BuildContext context,
     required String title,
     required int count,
     required int total,
@@ -481,6 +501,7 @@ class _HomePageState extends State<HomePage> {
     required Color color,
     required String detail,
   }) {
+    final colors = context.appColors;
     final percent =
         '${(progress * 100).toStringAsFixed(progress * 100 < 10 ? 1 : 0)}%';
     return Column(
@@ -492,7 +513,14 @@ class _HomePageState extends State<HomePage> {
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
-                children: [Text(title, style: AppTextStyles.sectionTitle)],
+                children: [
+                  Text(
+                    title,
+                    style: AppTextStyles.sectionTitle.copyWith(
+                      color: colors.textPrimary,
+                    ),
+                  ),
+                ],
               ),
             ),
             Text(
@@ -513,13 +541,18 @@ class _HomePageState extends State<HomePage> {
             height: 10,
             child: LinearProgressIndicator(
               value: progress,
-              backgroundColor: AppColors.background.withValues(alpha: .72),
+              backgroundColor: colors.background.withValues(alpha: .72),
               valueColor: AlwaysStoppedAnimation<Color>(color),
             ),
           ),
         ),
         const SizedBox(height: 8),
-        Text('$count / $total · $detail', style: AppTextStyles.bodySecondary),
+        Text(
+          '$count / $total · $detail',
+          style: AppTextStyles.bodySecondary.copyWith(
+            color: colors.textSecondary,
+          ),
+        ),
       ],
     );
   }
@@ -740,13 +773,16 @@ class _HomePageState extends State<HomePage> {
     return '$country|$name';
   }
 
-  List<BoxShadow> _cardShadow() => [
-    BoxShadow(
-      color: Colors.black.withValues(alpha: .22),
-      blurRadius: 24,
-      offset: const Offset(0, 12),
-    ),
-  ];
+  List<BoxShadow> _cardShadow() {
+    final isLight = Theme.of(context).brightness == Brightness.light;
+    return [
+      BoxShadow(
+        color: Colors.black.withValues(alpha: isLight ? .10 : .22),
+        blurRadius: isLight ? 22 : 24,
+        offset: const Offset(0, 12),
+      ),
+    ];
+  }
 
   Future<void> _openAddPlace([BuildContext? hostContext]) async {
     await showModalBottomSheet<bool>(
@@ -855,6 +891,7 @@ class _HomeGreeting extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final displayName = name.trim().isEmpty ? 'TRAVELER' : name.trim();
+    final colors = context.appColors;
     return Semantics(
       header: true,
       label: 'HELLO, $displayName',
@@ -868,10 +905,10 @@ class _HomeGreeting extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
+            Text(
               'HELLO,',
               style: TextStyle(
-                color: AppColors.lime,
+                color: colors.lime,
                 fontSize: 22,
                 height: 1.1,
                 fontWeight: FontWeight.w700,
@@ -884,6 +921,7 @@ class _HomeGreeting extends StatelessWidget {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: AppTextStyles.pageTitle.copyWith(
+                color: colors.textPrimary,
                 fontSize: 36,
                 letterSpacing: -1.1,
               ),
@@ -903,9 +941,10 @@ class _FootprintCandidateSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final strings = context.strings;
+    final colors = context.appColors;
     final dateFormat = DateFormat('yyyy-MM-dd');
     return Material(
-      color: AppColors.surface,
+      color: colors.surface,
       shape: AppShapes.sheet,
       clipBehavior: Clip.antiAlias,
       child: SafeArea(
@@ -922,7 +961,7 @@ class _FootprintCandidateSheet extends StatelessWidget {
                   width: 38,
                   height: 4,
                   decoration: BoxDecoration(
-                    color: AppColors.textTertiary,
+                    color: colors.textTertiary,
                     borderRadius: BorderRadius.circular(99),
                   ),
                 ),
@@ -933,7 +972,9 @@ class _FootprintCandidateSheet extends StatelessWidget {
                   Expanded(
                     child: Text(
                       strings.t('selectFootprint'),
-                      style: AppTextStyles.sectionTitle,
+                      style: AppTextStyles.sectionTitle.copyWith(
+                        color: colors.textPrimary,
+                      ),
                     ),
                   ),
                   IconButton(
@@ -959,7 +1000,7 @@ class _FootprintCandidateSheet extends StatelessWidget {
                         ? strings.t('visitedDate')
                         : dateFormat.format(visitedAt.toLocal());
                     return Material(
-                      color: AppColors.surfaceElevated,
+                      color: colors.surfaceElevated,
                       shape: AppShapes.medium,
                       clipBehavior: Clip.antiAlias,
                       child: ListTile(
@@ -970,19 +1011,22 @@ class _FootprintCandidateSheet extends StatelessWidget {
                           height: 44,
                           alignment: Alignment.center,
                           decoration: BoxDecoration(
-                            color: AppColors.lime.withValues(alpha: .16),
+                            color: colors.lime.withValues(alpha: .16),
                             shape: BoxShape.circle,
                           ),
-                          child: const Icon(
+                          child: Icon(
                             Icons.location_on_rounded,
-                            color: AppColors.lime,
+                            color: colors.lime,
                           ),
                         ),
                         title: Text(
                           candidate.name,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(fontWeight: FontWeight.w700),
+                          style: TextStyle(
+                            color: colors.textPrimary,
+                            fontWeight: FontWeight.w700,
+                          ),
                         ),
                         subtitle: Text(subtitle),
                         trailing: const Icon(Icons.chevron_right_rounded),
@@ -1008,8 +1052,9 @@ class _DeleteFootprintSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final strings = context.strings;
+    final colors = context.appColors;
     return Material(
-      color: AppColors.surface,
+      color: colors.surface,
       shape: AppShapes.sheet,
       clipBehavior: Clip.antiAlias,
       child: SafeArea(
@@ -1022,14 +1067,21 @@ class _DeleteFootprintSheet extends StatelessWidget {
             children: [
               Text(
                 strings.t('deleteFootprintTitle'),
-                style: AppTextStyles.sectionTitle,
+                style: AppTextStyles.sectionTitle.copyWith(
+                  color: colors.textPrimary,
+                ),
               ),
               const SizedBox(height: 10),
-              Text(place.name, style: AppTextStyles.body),
+              Text(
+                place.name,
+                style: AppTextStyles.body.copyWith(color: colors.textPrimary),
+              ),
               const SizedBox(height: 8),
               Text(
                 strings.t('deleteFootprintMessage'),
-                style: AppTextStyles.bodySecondary,
+                style: AppTextStyles.bodySecondary.copyWith(
+                  color: colors.textSecondary,
+                ),
               ),
               const SizedBox(height: 20),
               Row(
@@ -1039,8 +1091,8 @@ class _DeleteFootprintSheet extends StatelessWidget {
                       onPressed: () => Navigator.pop(context, false),
                       style: OutlinedButton.styleFrom(
                         minimumSize: const Size.fromHeight(52),
-                        foregroundColor: AppColors.textPrimary,
-                        side: const BorderSide(color: AppColors.border),
+                        foregroundColor: colors.textPrimary,
+                        side: BorderSide(color: colors.border),
                         shape: AppShapes.large,
                       ),
                       child: Text(strings.t('cancel')),
@@ -1054,7 +1106,7 @@ class _DeleteFootprintSheet extends StatelessWidget {
                       label: Text(strings.t('delete')),
                       style: FilledButton.styleFrom(
                         minimumSize: const Size.fromHeight(52),
-                        backgroundColor: AppColors.danger,
+                        backgroundColor: colors.danger,
                         foregroundColor: Colors.black,
                         shape: AppShapes.large,
                       ),

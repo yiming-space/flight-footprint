@@ -26,6 +26,7 @@ class OfflineMap extends StatefulWidget {
     this.fitDataCenterY = .5,
     this.fitToData = true,
     this.fillViewportHeight = false,
+    this.coverViewport = false,
     this.compactWorldViewport = false,
     this.horizontalPadding = 16,
     this.verticalPadding = 14,
@@ -39,6 +40,7 @@ class OfflineMap extends StatefulWidget {
     this.showPassportTexture = false,
     this.enableInteraction = false,
     this.horizontalWrap = false,
+    this.useLightPalette,
     this.onMapTap,
     this.onPlaceLongPress,
     this.loader = const GeoJsonMapLoader(),
@@ -85,6 +87,12 @@ class OfflineMap extends StatefulWidget {
   /// tiny horizontal strip; embedded dashboard maps keep the old complete-
   /// world-at-width behavior.
   final bool fillViewportHeight;
+
+  /// Scales the complete map uniformly until the viewport is occupied in
+  /// both dimensions. This is useful for wide foldable layouts: the world
+  /// remains proportional, while the unused side gutters are cropped from
+  /// the map scene instead of leaving the card visibly letterboxed.
+  final bool coverViewport;
 
   /// Uses the passport's tighter latitude window while retaining the full
   /// longitude extent. This removes the unused Antarctic gutter without
@@ -142,6 +150,10 @@ class OfflineMap extends StatefulWidget {
   /// date line never reveals an empty gutter. Embedded maps keep a single
   /// world copy and split route paths at the same seam.
   final bool horizontalWrap;
+
+  /// Lets dashboard maps inherit the active app theme while allowing the
+  /// shareable passport artwork to explicitly keep its dark palette.
+  final bool? useLightPalette;
   final ValueChanged<MapCoordinate>? onMapTap;
   final Future<void> Function(List<MapPlace> candidates)? onPlaceLongPress;
   final GeoJsonMapLoader loader;
@@ -258,8 +270,9 @@ class _MapFullscreenPageState extends State<MapFullscreenPage> {
   @override
   Widget build(BuildContext context) {
     final strings = context.strings;
+    final colors = context.appColors;
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: colors.background,
       body: SafeArea(
         child: Stack(
           fit: StackFit.expand,
@@ -279,6 +292,9 @@ class _MapFullscreenPageState extends State<MapFullscreenPage> {
                 fitZoomMultiplier: 1,
                 enableInteraction: true,
                 horizontalWrap: true,
+                // The map is a visual data surface, so keep its established
+                // dark cartographic palette independent of page brightness.
+                useLightPalette: false,
                 onPlaceLongPress: widget.onPlaceLongPress,
               ),
             ),
@@ -356,9 +372,9 @@ class _MapCircleButton extends StatelessWidget {
       icon: Icon(icon),
       style: IconButton.styleFrom(
         fixedSize: const Size(48, 48),
-        backgroundColor: AppColors.surface.withValues(alpha: .95),
-        foregroundColor: AppColors.textPrimary,
-        side: const BorderSide(color: AppColors.border),
+        backgroundColor: context.appColors.surface.withValues(alpha: .95),
+        foregroundColor: context.appColors.textPrimary,
+        side: BorderSide(color: context.appColors.border),
       ),
     ),
   );
@@ -523,6 +539,7 @@ class _OfflineMapState extends State<OfflineMap> with TickerProviderStateMixin {
         oldWidget.fitDataCenterY != widget.fitDataCenterY ||
         oldWidget.fitToData != widget.fitToData ||
         oldWidget.fillViewportHeight != widget.fillViewportHeight ||
+        oldWidget.coverViewport != widget.coverViewport ||
         oldWidget.compactWorldViewport != widget.compactWorldViewport ||
         oldWidget.horizontalPadding != widget.horizontalPadding ||
         oldWidget.verticalPadding != widget.verticalPadding ||
@@ -618,6 +635,9 @@ class _OfflineMapState extends State<OfflineMap> with TickerProviderStateMixin {
                     : 1,
                 showPassportTexture: widget.showPassportTexture,
                 compactWorldViewport: widget.compactWorldViewport,
+                lightPalette:
+                    widget.useLightPalette ??
+                    Theme.of(context).brightness == Brightness.light,
                 visualScale: _sceneScale,
                 horizontalPadding: widget.horizontalPadding,
                 verticalPadding: widget.verticalPadding,
@@ -789,6 +809,7 @@ class _OfflineMapState extends State<OfflineMap> with TickerProviderStateMixin {
       widget.fitToData,
       widget.horizontalPadding.toStringAsFixed(1),
       widget.verticalPadding.toStringAsFixed(1),
+      widget.coverViewport,
       widget.compactWorldViewport,
     ].join('|');
     if (_fitKey == key) return;
@@ -964,7 +985,6 @@ class _OfflineMapState extends State<OfflineMap> with TickerProviderStateMixin {
     ..translateByDouble(-size.width / 2, -size.height / 2, 0, 1);
 
   double _interactionFloor(Size size) {
-    if (!widget.fillViewportHeight) return 1;
     final projectionScale = MillerCylindricalProjection.scaleForSize(
       size,
       horizontalPadding: widget.horizontalPadding,
@@ -973,8 +993,15 @@ class _OfflineMapState extends State<OfflineMap> with TickerProviderStateMixin {
       maxLatitude: _viewportMaxLatitude,
     );
     final worldHeight = _viewportBounds.height * projectionScale;
-    if (worldHeight <= 0) return 1;
-    return math.max(1.0, size.height / worldHeight);
+    final worldWidth = _viewportBounds.width * projectionScale;
+    var floor = 1.0;
+    if (widget.fillViewportHeight && worldHeight > 0) {
+      floor = math.max(floor, size.height / worldHeight);
+    }
+    if (widget.coverViewport && worldWidth > 0) {
+      floor = math.max(floor, size.width / worldWidth);
+    }
+    return floor;
   }
 
   double get _viewportMinLatitude => widget.compactWorldViewport

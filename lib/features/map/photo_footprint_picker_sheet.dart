@@ -108,8 +108,9 @@ class _PhotoFootprintPickerSheetState extends State<PhotoFootprintPickerSheet> {
   @override
   Widget build(BuildContext context) {
     final s = context.strings;
+    final colors = context.appColors;
     return Material(
-      color: AppColors.background,
+      color: colors.background,
       shape: AppShapes.sheet,
       clipBehavior: Clip.antiAlias,
       child: SafeArea(
@@ -125,7 +126,7 @@ class _PhotoFootprintPickerSheetState extends State<PhotoFootprintPickerSheet> {
                   width: 38,
                   height: 4,
                   decoration: BoxDecoration(
-                    color: AppColors.textTertiary,
+                    color: colors.textTertiary,
                     borderRadius: AppRadii.pill,
                   ),
                 ),
@@ -257,6 +258,7 @@ class _PhotoFootprintPickerSheetState extends State<PhotoFootprintPickerSheet> {
 
   Widget _buildResults(BuildContext context, _PhotoFootprintScan scan) {
     final s = context.strings;
+    final colors = context.appColors;
     final selectedCount = _selectedCount;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -265,15 +267,15 @@ class _PhotoFootprintPickerSheetState extends State<PhotoFootprintPickerSheet> {
           width: double.infinity,
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
           decoration: ShapeDecoration(
-            color: AppColors.lime.withValues(alpha: .10),
+            color: colors.lime.withValues(alpha: .10),
             shape: RoundedSuperellipseBorder(
               borderRadius: AppRadii.medium,
-              side: BorderSide(color: AppColors.lime.withValues(alpha: .34)),
+              side: BorderSide(color: colors.lime.withValues(alpha: .34)),
             ),
           ),
           child: Row(
             children: [
-              const Icon(Icons.auto_awesome_rounded, color: AppColors.lime),
+              Icon(Icons.auto_awesome_rounded, color: colors.lime),
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
@@ -310,12 +312,13 @@ class _PhotoFootprintPickerSheetState extends State<PhotoFootprintPickerSheet> {
     BuildContext context,
     _PhotoFootprintCandidate candidate,
   ) {
+    final colors = context.appColors;
     final asset = candidate.asset;
     final selected = _isSelected(candidate);
     final tileShape = RoundedSuperellipseBorder(
       borderRadius: AppRadii.medium,
       side: BorderSide(
-        color: selected ? AppColors.lime : AppColors.border,
+        color: selected ? colors.lime : colors.border,
         width: selected ? 1.5 : 1,
       ),
     );
@@ -329,10 +332,7 @@ class _PhotoFootprintPickerSheetState extends State<PhotoFootprintPickerSheet> {
         customBorder: tileShape,
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 180),
-          decoration: ShapeDecoration(
-            color: AppColors.surface,
-            shape: tileShape,
-          ),
+          decoration: ShapeDecoration(color: colors.surface, shape: tileShape),
           clipBehavior: Clip.antiAlias,
           child: AnimatedOpacity(
             duration: const Duration(milliseconds: 180),
@@ -349,16 +349,16 @@ class _PhotoFootprintPickerSheetState extends State<PhotoFootprintPickerSheet> {
                         return Center(
                           child:
                               snapshot.connectionState == ConnectionState.done
-                              ? const Icon(
+                              ? Icon(
                                   Icons.broken_image_outlined,
-                                  color: AppColors.textTertiary,
+                                  color: colors.textTertiary,
                                 )
-                              : const SizedBox(
+                              : SizedBox(
                                   width: 22,
                                   height: 22,
                                   child: CircularProgressIndicator(
                                     strokeWidth: 2,
-                                    color: AppColors.lime,
+                                    color: colors.lime,
                                   ),
                                 ),
                         );
@@ -375,10 +375,10 @@ class _PhotoFootprintPickerSheetState extends State<PhotoFootprintPickerSheet> {
                   padding: const EdgeInsets.fromLTRB(10, 8, 10, 9),
                   child: Row(
                     children: [
-                      const Icon(
+                      Icon(
                         Icons.location_on_rounded,
                         size: 15,
-                        color: AppColors.lime,
+                        color: colors.lime,
                       ),
                       const SizedBox(width: 4),
                       Expanded(
@@ -409,9 +409,7 @@ class _PhotoFootprintPickerSheetState extends State<PhotoFootprintPickerSheet> {
                             ? Icons.check_circle_rounded
                             : Icons.radio_button_unchecked_rounded,
                         size: 19,
-                        color: selected
-                            ? AppColors.lime
-                            : AppColors.textTertiary,
+                        color: selected ? colors.lime : colors.textTertiary,
                       ),
                     ],
                   ),
@@ -739,6 +737,7 @@ class _PhotoScanLoadingState extends State<_PhotoScanLoading>
   Widget build(BuildContext context) {
     final s = context.strings;
     final total = widget.total;
+    final colors = context.appColors;
     final count = widget.phase == _PhotoScanPhase.scanning
         ? widget.scanned
         : widget.processed;
@@ -773,6 +772,7 @@ class _PhotoScanLoadingState extends State<_PhotoScanLoading>
                     size: Size(240, 190),
                     painter: _PhotoScanIllustrationPainter(
                       progress: _controller.value,
+                      colors: context.appColors,
                     ),
                   ),
                 ),
@@ -782,7 +782,7 @@ class _PhotoScanLoadingState extends State<_PhotoScanLoading>
                 countText,
                 textAlign: TextAlign.center,
                 style: AppTextStyles.body.copyWith(
-                  color: AppColors.textSecondary,
+                  color: colors.textSecondary,
                   fontWeight: FontWeight.w600,
                 ),
               ),
@@ -799,10 +799,8 @@ class _PhotoScanLoadingState extends State<_PhotoScanLoading>
                       borderRadius: AppRadii.pill,
                       child: LinearProgressIndicator(
                         value: value,
-                        backgroundColor: AppColors.surfaceElevated,
-                        valueColor: const AlwaysStoppedAnimation(
-                          AppColors.lime,
-                        ),
+                        backgroundColor: colors.surfaceElevated,
+                        valueColor: AlwaysStoppedAnimation(colors.lime),
                       ),
                     ),
                   ),
@@ -813,7 +811,7 @@ class _PhotoScanLoadingState extends State<_PhotoScanLoading>
                 FilledButton(
                   onPressed: widget.onCancel,
                   style: FilledButton.styleFrom(
-                    backgroundColor: AppColors.lime,
+                    backgroundColor: colors.lime,
                     foregroundColor: Colors.black,
                     minimumSize: const Size(112, 44),
                     padding: const EdgeInsets.symmetric(horizontal: 30),
@@ -831,9 +829,13 @@ class _PhotoScanLoadingState extends State<_PhotoScanLoading>
 }
 
 class _PhotoScanIllustrationPainter extends CustomPainter {
-  const _PhotoScanIllustrationPainter({required this.progress});
+  const _PhotoScanIllustrationPainter({
+    required this.progress,
+    required this.colors,
+  });
 
   final double progress;
+  final AppThemeColors colors;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -851,24 +853,24 @@ class _PhotoScanIllustrationPainter extends CustomPainter {
     canvas.scale(scale);
 
     final ink = Paint()
-      ..color = AppColors.textSecondary.withValues(alpha: .88)
+      ..color = colors.textSecondary.withValues(alpha: .88)
       ..style = PaintingStyle.stroke
       ..strokeWidth = 2.6
       ..strokeCap = StrokeCap.round
       ..strokeJoin = StrokeJoin.round;
     final softInk = Paint()
-      ..color = AppColors.textTertiary.withValues(alpha: .76)
+      ..color = colors.textTertiary.withValues(alpha: .76)
       ..style = PaintingStyle.stroke
       ..strokeWidth = 2
       ..strokeCap = StrokeCap.round
       ..strokeJoin = StrokeJoin.round;
     final routeInk = Paint()
-      ..color = AppColors.textTertiary.withValues(alpha: .62)
+      ..color = colors.textTertiary.withValues(alpha: .62)
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1.8
       ..strokeCap = StrokeCap.round;
     final purple = Paint()
-      ..color = AppColors.purple
+      ..color = colors.purple
       ..style = PaintingStyle.fill;
     final cardRect = Rect.fromLTWH(28, 18, 138, 106);
     canvas.drawRRect(
@@ -913,7 +915,7 @@ class _PhotoScanIllustrationPainter extends CustomPainter {
       final bob = math.sin(phase * math.pi * 2) * 1.8;
       final opacity = .84 + math.sin(phase * math.pi * 2) * .10;
       final lime = Paint()
-        ..color = AppColors.lime.withValues(alpha: opacity)
+        ..color = colors.lime.withValues(alpha: opacity)
         ..style = PaintingStyle.fill;
       canvas.drawCircle(dotPositions[index] + Offset(0, bob), 8.5, lime);
     }
@@ -926,7 +928,7 @@ class _PhotoScanIllustrationPainter extends CustomPainter {
       ..cubicTo(198, 76, 189, 65, 173, 65)
       ..close();
     final pinFill = Paint()
-      ..color = AppColors.background
+      ..color = colors.background
       ..style = PaintingStyle.fill;
     canvas.drawPath(pin, pinFill);
     canvas.drawPath(pin, ink);
@@ -959,7 +961,7 @@ class _PhotoScanIllustrationPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _PhotoScanIllustrationPainter oldDelegate) =>
-      oldDelegate.progress != progress;
+      oldDelegate.progress != progress || oldDelegate.colors != colors;
 }
 
 class _PhotoGalleryMessage extends StatelessWidget {
@@ -982,7 +984,7 @@ class _PhotoGalleryMessage extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 42, color: AppColors.textTertiary),
+          Icon(icon, size: 42, color: context.appColors.textTertiary),
           const SizedBox(height: 12),
           Text(
             message,

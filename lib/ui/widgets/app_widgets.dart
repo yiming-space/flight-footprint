@@ -41,7 +41,14 @@ class PageHeader extends StatelessWidget {
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
-              children: [Text(title, style: AppTextStyles.pageTitle)],
+              children: [
+                Text(
+                  title,
+                  style: AppTextStyles.pageTitle.copyWith(
+                    color: context.appColors.textPrimary,
+                  ),
+                ),
+              ],
             ),
           ),
           if (trailing != null) trailing!,
@@ -84,16 +91,16 @@ class AppBottomNav extends StatelessWidget {
           AppSpacing.xs,
         ),
         decoration: ShapeDecoration(
-          color: AppColors.surface.withValues(alpha: .96),
+          color: context.appColors.surface.withValues(alpha: .96),
           shape: RoundedSuperellipseBorder(
             borderRadius: AppRadii.large,
-            side: BorderSide(color: AppColors.border),
+            side: BorderSide(color: context.appColors.border),
           ),
         ),
         child: Row(
           children: [
-            Expanded(child: _destination(_items[0])),
-            Expanded(child: _destination(_items[1])),
+            Expanded(child: _destination(context, _items[0])),
+            Expanded(child: _destination(context, _items[1])),
             SizedBox(
               width: 72,
               child: Center(
@@ -105,23 +112,26 @@ class AppBottomNav extends StatelessWidget {
                     iconSize: 34,
                     style: IconButton.styleFrom(
                       minimumSize: const Size(56, 56),
-                      backgroundColor: AppColors.purple,
-                      foregroundColor: Colors.white,
+                      backgroundColor: context.appColors.purple,
+                      foregroundColor: context.appColors.cardText,
                     ),
                     icon: const Icon(Icons.add),
                   ),
                 ),
               ),
             ),
-            Expanded(child: _destination(_items[2])),
-            Expanded(child: _destination(_items[3])),
+            Expanded(child: _destination(context, _items[2])),
+            Expanded(child: _destination(context, _items[3])),
           ],
         ),
       ),
     );
   }
 
-  Widget _destination((AppNavDestination, IconData, IconData, String) item) {
+  Widget _destination(
+    BuildContext context,
+    (AppNavDestination, IconData, IconData, String) item,
+  ) {
     final selected = current == item.$1;
     return Semantics(
       button: true,
@@ -137,7 +147,9 @@ class AppBottomNav extends StatelessWidget {
             children: [
               Icon(
                 selected ? item.$3 : item.$2,
-                color: selected ? AppColors.lime : AppColors.textSecondary,
+                color: selected
+                    ? context.appColors.lime
+                    : context.appColors.textSecondary,
                 size: 26,
               ),
               const SizedBox(height: AppSpacing.xs),
@@ -145,7 +157,9 @@ class AppBottomNav extends StatelessWidget {
                 item.$4,
                 style: TextStyle(
                   fontSize: 12,
-                  color: selected ? AppColors.lime : AppColors.textSecondary,
+                  color: selected
+                      ? context.appColors.lime
+                      : context.appColors.textSecondary,
                 ),
               ),
             ],
@@ -176,9 +190,10 @@ class AppSegmentedControl extends StatelessWidget {
     final safeIndex = selectedIndex.clamp(0, labels.length - 1);
     final controlRadius = pill ? AppRadii.pill : AppRadii.medium;
     final itemRadius = pill ? AppRadii.pill : AppRadii.small;
+    final colors = context.appColors;
     final controlShape = RoundedSuperellipseBorder(
       borderRadius: controlRadius,
-      side: pill ? BorderSide.none : const BorderSide(color: AppColors.border),
+      side: pill ? BorderSide.none : BorderSide(color: colors.border),
     );
     final itemShape = RoundedSuperellipseBorder(borderRadius: itemRadius);
     return Semantics(
@@ -188,7 +203,7 @@ class AppSegmentedControl extends StatelessWidget {
         height: height,
         padding: const EdgeInsets.all(AppSpacing.xs),
         decoration: ShapeDecoration(
-          color: pill ? AppColors.surfaceElevated : AppColors.surface,
+          color: pill ? colors.surfaceElevated : colors.surface,
           shape: controlShape,
         ),
         child: ClipPath(
@@ -220,7 +235,7 @@ class AppSegmentedControl extends StatelessWidget {
                         child: SizedBox.expand(
                           child: DecoratedBox(
                             decoration: ShapeDecoration(
-                              color: AppColors.lime,
+                              color: colors.lime,
                               shape: itemShape,
                             ),
                           ),
@@ -249,8 +264,8 @@ class AppSegmentedControl extends StatelessWidget {
                                         ? FontWeight.w700
                                         : FontWeight.w500,
                                     color: i == safeIndex
-                                        ? Colors.black
-                                        : AppColors.textSecondary,
+                                        ? colors.cardText
+                                        : colors.textSecondary,
                                   ),
                                   child: Text(labels[i]),
                                 ),
@@ -277,7 +292,7 @@ class SurfaceCard extends StatelessWidget {
     this.padding = const EdgeInsets.all(AppSpacing.lg),
     this.onTap,
     this.margin,
-    this.color = AppColors.surface,
+    this.color,
     this.borderRadius = AppRadii.medium,
     this.showBorder = false,
     this.boxShadow,
@@ -286,23 +301,22 @@ class SurfaceCard extends StatelessWidget {
   final EdgeInsetsGeometry padding;
   final VoidCallback? onTap;
   final EdgeInsetsGeometry? margin;
-  final Color color;
+  final Color? color;
   final BorderRadius borderRadius;
   final bool showBorder;
   final List<BoxShadow>? boxShadow;
   @override
   Widget build(BuildContext context) {
+    final colors = context.appColors;
     final content = Padding(padding: padding, child: child);
     final cardShape = RoundedSuperellipseBorder(
       borderRadius: borderRadius,
-      side: showBorder
-          ? const BorderSide(color: AppColors.border)
-          : BorderSide.none,
+      side: showBorder ? BorderSide(color: colors.border) : BorderSide.none,
     );
     return Container(
       margin: margin,
       decoration: ShapeDecoration(
-        color: color,
+        color: color ?? colors.surface,
         shape: cardShape,
         shadows: boxShadow,
       ),
@@ -326,38 +340,52 @@ class MetricText extends StatelessWidget {
     required this.value,
     this.unit,
     this.label,
-    this.color = AppColors.textPrimary,
+    this.color,
   });
   final String value;
   final String? unit;
   final String? label;
-  final Color color;
+  final Color? color;
   @override
-  Widget build(BuildContext context) => Semantics(
-    label: [?label, value, ?unit].join(' '),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        if (label != null) Text(label!, style: AppTextStyles.bodySecondary),
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.baseline,
-          textBaseline: TextBaseline.alphabetic,
-          children: [
-            Text(value, style: AppTextStyles.metric.copyWith(color: color)),
-            if (unit != null) ...[
-              const SizedBox(width: AppSpacing.sm),
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    return Semantics(
+      label: [?label, value, ?unit].join(' '),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (label != null)
+            Text(
+              label!,
+              style: AppTextStyles.bodySecondary.copyWith(
+                color: colors.textSecondary,
+              ),
+            ),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.baseline,
+            textBaseline: TextBaseline.alphabetic,
+            children: [
               Text(
-                unit!,
-                style: AppTextStyles.sectionTitle.copyWith(
-                  color: AppColors.lime,
+                value,
+                style: AppTextStyles.metric.copyWith(
+                  color: color ?? colors.textPrimary,
                 ),
               ),
+              if (unit != null) ...[
+                const SizedBox(width: AppSpacing.sm),
+                Text(
+                  unit!,
+                  style: AppTextStyles.sectionTitle.copyWith(
+                    color: colors.lime,
+                  ),
+                ),
+              ],
             ],
-          ],
-        ),
-      ],
-    ),
-  );
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class EmptyState extends StatelessWidget {
@@ -373,39 +401,46 @@ class EmptyState extends StatelessWidget {
   final IconData icon;
   final Widget? action;
   @override
-  Widget build(BuildContext context) => Semantics(
-    liveRegion: true,
-    container: true,
-    child: Center(
-      child: Padding(
-        padding: const EdgeInsets.all(AppSpacing.xl),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 48, color: AppColors.textTertiary),
-            const SizedBox(height: AppSpacing.md),
-            Text(
-              title,
-              style: AppTextStyles.sectionTitle,
-              textAlign: TextAlign.center,
-            ),
-            if (message != null) ...[
-              const SizedBox(height: AppSpacing.sm),
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    return Semantics(
+      liveRegion: true,
+      container: true,
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(AppSpacing.xl),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 48, color: colors.textTertiary),
+              const SizedBox(height: AppSpacing.md),
               Text(
-                message!,
-                style: AppTextStyles.bodySecondary,
+                title,
+                style: AppTextStyles.sectionTitle.copyWith(
+                  color: colors.textPrimary,
+                ),
                 textAlign: TextAlign.center,
               ),
+              if (message != null) ...[
+                const SizedBox(height: AppSpacing.sm),
+                Text(
+                  message!,
+                  style: AppTextStyles.bodySecondary.copyWith(
+                    color: colors.textSecondary,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ],
+              if (action != null) ...[
+                const SizedBox(height: AppSpacing.lg),
+                action!,
+              ],
             ],
-            if (action != null) ...[
-              const SizedBox(height: AppSpacing.lg),
-              action!,
-            ],
-          ],
+          ),
         ),
       ),
-    ),
-  );
+    );
+  }
 }
 
 class DisclosureRow extends StatelessWidget {
@@ -425,48 +460,63 @@ class DisclosureRow extends StatelessWidget {
   final VoidCallback? onTap;
   final bool showChevron;
   @override
-  Widget build(BuildContext context) => Semantics(
-    button: onTap != null,
-    label: [title, ?subtitle, ?value].join(' '),
-    child: InkWell(
-      onTap: onTap,
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(minHeight: 68),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-          child: Row(
-            children: [
-              if (leading != null) ...[
-                leading!,
-                const SizedBox(width: AppSpacing.md),
-              ],
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(title, style: AppTextStyles.body),
-                    if (subtitle != null)
-                      Text(subtitle!, style: AppTextStyles.bodySecondary),
-                  ],
-                ),
-              ),
-              if (value != null)
-                Text(value!, style: AppTextStyles.bodySecondary),
-              if (showChevron)
-                const Padding(
-                  padding: EdgeInsets.only(left: AppSpacing.sm),
-                  child: Icon(
-                    Icons.chevron_right,
-                    color: AppColors.textSecondary,
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    return Semantics(
+      button: onTap != null,
+      label: [title, ?subtitle, ?value].join(' '),
+      child: InkWell(
+        onTap: onTap,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 68),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+            child: Row(
+              children: [
+                if (leading != null) ...[
+                  leading!,
+                  const SizedBox(width: AppSpacing.md),
+                ],
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        title,
+                        style: AppTextStyles.body.copyWith(
+                          color: colors.textPrimary,
+                        ),
+                      ),
+                      if (subtitle != null)
+                        Text(
+                          subtitle!,
+                          style: AppTextStyles.bodySecondary.copyWith(
+                            color: colors.textSecondary,
+                          ),
+                        ),
+                    ],
                   ),
                 ),
-            ],
+                if (value != null)
+                  Text(
+                    value!,
+                    style: AppTextStyles.bodySecondary.copyWith(
+                      color: colors.textSecondary,
+                    ),
+                  ),
+                if (showChevron)
+                  const Padding(
+                    padding: EdgeInsets.only(left: AppSpacing.sm),
+                    child: Icon(Icons.chevron_right),
+                  ),
+              ],
+            ),
           ),
         ),
       ),
-    ),
-  );
+    );
+  }
 }
 
 class PrimaryButton extends StatelessWidget {
@@ -483,14 +533,15 @@ class PrimaryButton extends StatelessWidget {
   final bool expand;
   @override
   Widget build(BuildContext context) {
+    final colors = context.appColors;
     final button = FilledButton.icon(
       onPressed: onPressed,
       icon: icon == null ? const SizedBox.shrink() : Icon(icon),
       label: Text(label),
       style: FilledButton.styleFrom(
         minimumSize: const Size(44, 56),
-        backgroundColor: AppColors.lime,
-        foregroundColor: Colors.black,
+        backgroundColor: colors.lime,
+        foregroundColor: colors.cardText,
         shape: AppShapes.large,
         textStyle: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
       ),

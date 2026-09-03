@@ -8,6 +8,7 @@ import android.provider.CalendarContract
 import androidx.core.content.FileProvider
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.android.RenderMode
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
 
@@ -26,6 +27,12 @@ class MainActivity : FlutterActivity() {
 
     private var pendingCalendarArguments: Map<*, *>? = null
     private var pendingCalendarResult: MethodChannel.Result? = null
+
+    // A TextureView stays inside Android's resizable view hierarchy. That is
+    // important on foldables: the outer and inner displays have different
+    // aspect ratios, and a SurfaceView can briefly scale its previous buffer
+    // non-uniformly while the display is switching.
+    override fun getRenderMode(): RenderMode = RenderMode.texture
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)

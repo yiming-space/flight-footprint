@@ -59,8 +59,9 @@ class _AddVisitedPlaceSheetState extends State<AddVisitedPlaceSheet> {
   @override
   Widget build(BuildContext context) {
     final s = context.strings;
+    final colors = context.appColors;
     return Material(
-      color: AppColors.background,
+      color: colors.background,
       child: SafeArea(
         top: true,
         bottom: true,
@@ -98,8 +99,8 @@ class _AddVisitedPlaceSheetState extends State<AddVisitedPlaceSheet> {
                 label: Text(s.t('addFromPhotos')),
                 style: OutlinedButton.styleFrom(
                   minimumSize: const Size.fromHeight(52),
-                  foregroundColor: AppColors.textPrimary,
-                  side: const BorderSide(color: AppColors.border),
+                  foregroundColor: colors.textPrimary,
+                  side: BorderSide(color: colors.border),
                   shape: AppShapes.medium,
                 ),
               ),
@@ -113,14 +114,14 @@ class _AddVisitedPlaceSheetState extends State<AddVisitedPlaceSheet> {
                   prefixIcon: const Icon(Icons.search_rounded),
                   hintText: s.t('searchCity'),
                   filled: true,
-                  fillColor: AppColors.surface,
+                  fillColor: colors.surface,
                   border: ShapedInputBorder(
                     shape: AppShapes.medium,
-                    borderSide: const BorderSide(color: AppColors.border),
+                    borderSide: BorderSide(color: colors.border),
                   ),
                   enabledBorder: ShapedInputBorder(
                     shape: AppShapes.medium,
-                    borderSide: const BorderSide(color: AppColors.border),
+                    borderSide: BorderSide(color: colors.border),
                   ),
                 ),
               ),
@@ -171,14 +172,12 @@ class _AddVisitedPlaceSheetState extends State<AddVisitedPlaceSheet> {
                                   height: 42,
                                   alignment: Alignment.center,
                                   decoration: BoxDecoration(
-                                    color: AppColors.lime.withValues(
-                                      alpha: .16,
-                                    ),
+                                    color: colors.lime.withValues(alpha: .16),
                                     shape: BoxShape.circle,
                                   ),
-                                  child: const Icon(
+                                  child: Icon(
                                     Icons.location_on_rounded,
-                                    color: AppColors.lime,
+                                    color: colors.lime,
                                     size: 20,
                                   ),
                                 ),
@@ -225,10 +224,10 @@ class _AddVisitedPlaceSheetState extends State<AddVisitedPlaceSheet> {
                       vertical: 14,
                     ),
                     decoration: ShapeDecoration(
-                      color: AppColors.surface,
-                      shape: const RoundedSuperellipseBorder(
+                      color: colors.surface,
+                      shape: RoundedSuperellipseBorder(
                         borderRadius: BorderRadius.all(Radius.circular(18)),
-                        side: BorderSide(color: AppColors.border),
+                        side: BorderSide(color: colors.border),
                       ),
                     ),
                     child: Row(
@@ -264,15 +263,17 @@ class _AddVisitedPlaceSheetState extends State<AddVisitedPlaceSheet> {
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       decoration: ShapeDecoration(
-        color: AppColors.lime.withValues(alpha: .14),
+        color: context.appColors.lime.withValues(alpha: .14),
         shape: RoundedSuperellipseBorder(
           borderRadius: const BorderRadius.all(Radius.circular(18)),
-          side: BorderSide(color: AppColors.lime.withValues(alpha: .55)),
+          side: BorderSide(
+            color: context.appColors.lime.withValues(alpha: .55),
+          ),
         ),
       ),
       child: Row(
         children: [
-          const Icon(Icons.check_circle_rounded, color: AppColors.lime),
+          Icon(Icons.check_circle_rounded, color: context.appColors.lime),
           const SizedBox(width: 12),
           Expanded(
             child: Column(

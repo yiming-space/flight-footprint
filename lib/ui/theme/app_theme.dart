@@ -1,5 +1,156 @@
 import 'package:flutter/material.dart';
 
+/// Semantic colors that follow the app's selected brightness.
+///
+/// Keep product colors here so the light theme can be art-directed as a whole
+/// instead of leaving individual cards to carry their own unrelated hexes.
+@immutable
+class AppThemeColors extends ThemeExtension<AppThemeColors> {
+  const AppThemeColors({
+    required this.background,
+    required this.surface,
+    required this.surfaceElevated,
+    required this.border,
+    required this.textPrimary,
+    required this.textSecondary,
+    required this.textTertiary,
+    required this.lime,
+    required this.purple,
+    required this.danger,
+    required this.cardLavender,
+    required this.cardBlue,
+    required this.cardMint,
+    required this.cardCoral,
+    required this.cardYellow,
+    required this.cardText,
+  });
+
+  final Color background;
+  final Color surface;
+  final Color surfaceElevated;
+  final Color border;
+  final Color textPrimary;
+  final Color textSecondary;
+  final Color textTertiary;
+  final Color lime;
+  final Color purple;
+  final Color danger;
+  final Color cardLavender;
+  final Color cardBlue;
+  final Color cardMint;
+  final Color cardCoral;
+  final Color cardYellow;
+  final Color cardText;
+
+  static const dark = AppThemeColors(
+    background: Color(0xFF0B0E12),
+    surface: Color(0xFF171B20),
+    surfaceElevated: Color(0xFF1D2228),
+    border: Color(0xFF30363D),
+    textPrimary: Color(0xFFF5F6F7),
+    textSecondary: Color(0xFFB2B6BC),
+    textTertiary: Color(0xFF7E858D),
+    lime: Color(0xFFA8E85C),
+    purple: Color(0xFF9274FF),
+    danger: Color(0xFFFF7A7A),
+    cardLavender: Color(0xFFB9A9F2),
+    cardBlue: Color(0xFF9CCFE6),
+    cardMint: Color(0xFFA8D7AF),
+    cardCoral: Color(0xFFE2B4D1),
+    cardYellow: Color(0xFFE6DD79),
+    cardText: Color(0xFF0B0E12),
+  );
+
+  static const light = AppThemeColors(
+    // A near-white warm neutral keeps the light mode comfortable without
+    // reading as a beige filter; the pastel cards and dark map still carry
+    // the color.
+    background: Color(0xFFFAF9F6),
+    surface: Color(0xFFFFFEFC),
+    surfaceElevated: Color(0xFFF1F0EC),
+    border: Color(0xFFE0DDD5),
+    textPrimary: Color(0xFF181A1D),
+    textSecondary: Color(0xFF5E646C),
+    textTertiary: Color(0xFF858C95),
+    // A softer sage-lime keeps the light home surface calm; the map retains
+    // its own dark cartographic lime for route legibility.
+    lime: Color(0xFFA4C969),
+    purple: Color(0xFF9876E8),
+    danger: Color(0xFFD96E84),
+    cardLavender: Color(0xFFCAB8F2),
+    cardBlue: Color(0xFFAEC9E8),
+    cardMint: Color(0xFFB8D795),
+    cardCoral: Color(0xFFE8A6D0),
+    cardYellow: Color(0xFFF5DC70),
+    cardText: Color(0xFF181A1D),
+  );
+
+  @override
+  AppThemeColors copyWith({
+    Color? background,
+    Color? surface,
+    Color? surfaceElevated,
+    Color? border,
+    Color? textPrimary,
+    Color? textSecondary,
+    Color? textTertiary,
+    Color? lime,
+    Color? purple,
+    Color? danger,
+    Color? cardLavender,
+    Color? cardBlue,
+    Color? cardMint,
+    Color? cardCoral,
+    Color? cardYellow,
+    Color? cardText,
+  }) => AppThemeColors(
+    background: background ?? this.background,
+    surface: surface ?? this.surface,
+    surfaceElevated: surfaceElevated ?? this.surfaceElevated,
+    border: border ?? this.border,
+    textPrimary: textPrimary ?? this.textPrimary,
+    textSecondary: textSecondary ?? this.textSecondary,
+    textTertiary: textTertiary ?? this.textTertiary,
+    lime: lime ?? this.lime,
+    purple: purple ?? this.purple,
+    danger: danger ?? this.danger,
+    cardLavender: cardLavender ?? this.cardLavender,
+    cardBlue: cardBlue ?? this.cardBlue,
+    cardMint: cardMint ?? this.cardMint,
+    cardCoral: cardCoral ?? this.cardCoral,
+    cardYellow: cardYellow ?? this.cardYellow,
+    cardText: cardText ?? this.cardText,
+  );
+
+  @override
+  AppThemeColors lerp(covariant AppThemeColors? other, double t) {
+    if (other == null) return this;
+    return AppThemeColors(
+      background: Color.lerp(background, other.background, t)!,
+      surface: Color.lerp(surface, other.surface, t)!,
+      surfaceElevated: Color.lerp(surfaceElevated, other.surfaceElevated, t)!,
+      border: Color.lerp(border, other.border, t)!,
+      textPrimary: Color.lerp(textPrimary, other.textPrimary, t)!,
+      textSecondary: Color.lerp(textSecondary, other.textSecondary, t)!,
+      textTertiary: Color.lerp(textTertiary, other.textTertiary, t)!,
+      lime: Color.lerp(lime, other.lime, t)!,
+      purple: Color.lerp(purple, other.purple, t)!,
+      danger: Color.lerp(danger, other.danger, t)!,
+      cardLavender: Color.lerp(cardLavender, other.cardLavender, t)!,
+      cardBlue: Color.lerp(cardBlue, other.cardBlue, t)!,
+      cardMint: Color.lerp(cardMint, other.cardMint, t)!,
+      cardCoral: Color.lerp(cardCoral, other.cardCoral, t)!,
+      cardYellow: Color.lerp(cardYellow, other.cardYellow, t)!,
+      cardText: Color.lerp(cardText, other.cardText, t)!,
+    );
+  }
+}
+
+extension AppThemeColorsContext on BuildContext {
+  AppThemeColors get appColors =>
+      Theme.of(this).extension<AppThemeColors>() ?? AppThemeColors.dark;
+}
+
 /// Semantic palette shared by every Flight Footprint surface.
 abstract final class AppColors {
   static const background = Color(0xFF0B0E12);
@@ -66,70 +217,74 @@ abstract final class AppTextStyles {
     height: 1.1,
     fontWeight: FontWeight.w700,
     letterSpacing: -1.2,
-    color: AppColors.textPrimary,
   );
   static const sectionTitle = TextStyle(
     fontSize: 22,
     height: 1.2,
     fontWeight: FontWeight.w600,
-    color: AppColors.textPrimary,
   );
-  static const body = TextStyle(
-    fontSize: 16,
-    height: 1.4,
-    color: AppColors.textPrimary,
-  );
-  static const bodySecondary = TextStyle(
-    fontSize: 16,
-    height: 1.4,
-    color: AppColors.textSecondary,
-  );
+  static const body = TextStyle(fontSize: 16, height: 1.4);
+  static const bodySecondary = TextStyle(fontSize: 16, height: 1.4);
   static const label = TextStyle(
     fontSize: 14,
     height: 1.25,
     fontWeight: FontWeight.w600,
-    color: AppColors.textSecondary,
   );
   static const metric = TextStyle(
     fontSize: 48,
     height: 1,
     fontWeight: FontWeight.w300,
     letterSpacing: -1.2,
-    color: AppColors.textPrimary,
   );
 }
 
 abstract final class AppTheme {
-  static ThemeData dark() {
+  static ThemeData dark() => _build(AppThemeColors.dark, Brightness.dark);
+
+  static ThemeData light() => _build(AppThemeColors.light, Brightness.light);
+
+  static ThemeData _build(AppThemeColors colors, Brightness brightness) {
     final scheme =
         ColorScheme.fromSeed(
-          seedColor: AppColors.lime,
-          brightness: Brightness.dark,
-          surface: AppColors.surface,
+          seedColor: colors.lime,
+          brightness: brightness,
+          surface: colors.surface,
         ).copyWith(
-          primary: AppColors.lime,
-          onPrimary: Colors.black,
-          secondary: AppColors.purple,
-          onSecondary: Colors.white,
-          surface: AppColors.surface,
-          onSurface: AppColors.textPrimary,
-          outline: AppColors.border,
-          error: AppColors.danger,
+          primary: colors.lime,
+          onPrimary: colors.cardText,
+          secondary: colors.purple,
+          onSecondary: brightness == Brightness.dark
+              ? Colors.white
+              : colors.cardText,
+          surface: colors.surface,
+          surfaceContainerHighest: colors.surfaceElevated,
+          onSurface: colors.textPrimary,
+          onSurfaceVariant: colors.textSecondary,
+          outline: colors.border,
+          error: colors.danger,
+          surfaceTint: Colors.transparent,
         );
     return ThemeData(
-      brightness: Brightness.dark,
+      brightness: brightness,
       colorScheme: scheme,
-      scaffoldBackgroundColor: AppColors.background,
+      scaffoldBackgroundColor: colors.background,
       useMaterial3: true,
       fontFamily: 'PingFang SC',
-      textTheme: const TextTheme(
-        headlineLarge: AppTextStyles.pageTitle,
-        titleLarge: AppTextStyles.sectionTitle,
-        bodyLarge: AppTextStyles.body,
-        bodyMedium: AppTextStyles.bodySecondary,
-        labelLarge: AppTextStyles.label,
+      extensions: [colors],
+      textTheme: TextTheme(
+        headlineLarge: AppTextStyles.pageTitle.copyWith(
+          color: colors.textPrimary,
+        ),
+        titleLarge: AppTextStyles.sectionTitle.copyWith(
+          color: colors.textPrimary,
+        ),
+        bodyLarge: AppTextStyles.body.copyWith(color: colors.textPrimary),
+        bodyMedium: AppTextStyles.bodySecondary.copyWith(
+          color: colors.textSecondary,
+        ),
+        labelLarge: AppTextStyles.label.copyWith(color: colors.textSecondary),
       ),
-      dividerColor: AppColors.border,
+      dividerColor: colors.border,
       // InkSparkle can paint outside a rounded InkWell's visual surface when
       // the nearest Material is the page scaffold. Keep the press state quiet
       // so card corners never flash on tap; selected states still animate via

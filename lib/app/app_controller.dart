@@ -1,6 +1,7 @@
 import 'dart:ui';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 
 import '../data/airport_catalog.dart';
 import '../data/calendar_import_service.dart';
@@ -33,9 +34,11 @@ class AppController extends ChangeNotifier {
   final CalendarImportService calendarImport;
   Locale _locale = const Locale('zh');
   String _travellerName = 'TRAVELER';
+  ThemeMode _themeMode = ThemeMode.system;
 
   Locale get locale => _locale;
   String get travellerName => _travellerName;
+  ThemeMode get themeMode => _themeMode;
   List<Flight> get flights => data.flights;
   List<VisitedPlace> get visitedPlaces => data.visitedPlaces;
   bool get isLoading => data.isLoading;
@@ -70,6 +73,9 @@ class AppController extends ChangeNotifier {
     if (travellerName != null && travellerName.trim().isNotEmpty) {
       controller._travellerName = travellerName.trim();
     }
+    controller._themeMode = _themeModeFromStorage(
+      await repository.getMeta('theme_mode'),
+    );
     await data.refresh();
     await cloudSync.initialize();
     return controller;
@@ -80,6 +86,13 @@ class AppController extends ChangeNotifier {
     _locale = value;
     notifyListeners();
     await repository.setMeta('language', value.languageCode);
+  }
+
+  Future<void> setThemeMode(ThemeMode value) async {
+    if (_themeMode == value) return;
+    _themeMode = value;
+    notifyListeners();
+    await repository.setMeta('theme_mode', _themeModeToStorage(value));
   }
 
   Future<void> setTravellerName(String value) async {
@@ -263,4 +276,16 @@ class AppController extends ChangeNotifier {
     flightEnrichment.dispose();
     super.dispose();
   }
+
+  static ThemeMode _themeModeFromStorage(String? value) => switch (value) {
+    'light' => ThemeMode.light,
+    'dark' => ThemeMode.dark,
+    _ => ThemeMode.system,
+  };
+
+  static String _themeModeToStorage(ThemeMode value) => switch (value) {
+    ThemeMode.light => 'light',
+    ThemeMode.dark => 'dark',
+    ThemeMode.system => 'system',
+  };
 }

@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -38,6 +39,8 @@ class ProfilePage extends StatefulWidget {
 }
 
 class _ProfilePageState extends State<ProfilePage> {
+  static const _wideLayoutBreakpoint = 700.0;
+
   AppController get controller => widget.controller;
 
   bool _isRecognizingSpreadsheet = false;
@@ -46,13 +49,29 @@ class _ProfilePageState extends State<ProfilePage> {
   bool _hasCheckedForUpdatesAutomatically = false;
   bool _hasScheduledAutomaticUpdateCheck = false;
   String? _promptedUpdateVersion;
+  String? _appVersion;
   AppUpdateResult? _updateResult;
   final AppUpdateService _updateService = AppUpdateService();
 
   @override
   void initState() {
     super.initState();
+    unawaited(_loadAppVersion());
     if (widget.isActive) _scheduleAutomaticUpdateCheck();
+  }
+
+  Future<void> _loadAppVersion() async {
+    try {
+      final packageInfo = await PackageInfo.fromPlatform();
+      if (!mounted) return;
+      final version = packageInfo.version.trim();
+      if (version.isEmpty) return;
+      setState(() {
+        _appVersion = version;
+      });
+    } catch (_) {
+      // Keep the About page usable on platforms without package metadata.
+    }
   }
 
   @override
@@ -87,9 +106,11 @@ class _ProfilePageState extends State<ProfilePage> {
 
   @override
   Widget build(BuildContext context) {
-    final s = context.strings;
+    final bottomPadding = AppSpacing.bottomBarClearance(context);
     return SafeArea(
       top: false,
+      left: false,
+      right: false,
       child: CustomScrollView(
         slivers: [
           if (_isRecognizingSpreadsheet)
@@ -101,326 +122,60 @@ class _ProfilePageState extends State<ProfilePage> {
               AppSpacing.page,
               AppSpacing.lg,
               AppSpacing.page,
-              AppSpacing.bottomBarClearance(context),
+              bottomPadding,
             ),
-            sliver: SliverList.list(
-              children: [
-                Container(
-                  padding: const EdgeInsets.fromLTRB(24, 20, 24, 20),
-                  decoration: ShapeDecoration(
-                    color: const Color(0xFFB9A9F2),
-                    shape: AppShapes.large,
-                    shadows: _cardShadow(),
-                  ),
-                  child: DefaultTextStyle(
-                    style: const TextStyle(color: Colors.black),
+            sliver: SliverLayoutBuilder(
+              builder: (context, constraints) {
+                final localData = _localDataCard(context);
+                final dataManagement = _dataManagementSection(context);
+                final settings = _settingsSection(context);
+                final about = _aboutSection(context);
+                final isWide =
+                    constraints.crossAxisExtent >= _wideLayoutBreakpoint;
+
+                if (isWide) {
+                  return SliverToBoxAdapter(
                     child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Container(
-                          width: 54,
-                          height: 54,
-                          decoration: BoxDecoration(
-                            color: Colors.black.withValues(alpha: .09),
-                            shape: BoxShape.circle,
-                          ),
-                          child: const Icon(
-                            Icons.phone_android_rounded,
-                            color: Colors.black,
-                          ),
-                        ),
-                        const SizedBox(width: 16),
                         Expanded(
                           child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
-                              Text(
-                                s.t('localData'),
-                                style: const TextStyle(
-                                  fontSize: 20,
-                                  fontWeight: FontWeight.w800,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                s.t('localOnly'),
-                                style: const TextStyle(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
+                              localData,
+                              const SizedBox(height: AppSpacing.section),
+                              dataManagement,
                             ],
                           ),
                         ),
-                        Text(
-                          '${controller.flights.length}',
-                          style: const TextStyle(
-                            fontSize: 40,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.section),
-                Column(
-                  children: [
-                    Row(
-                      children: [
+                        const SizedBox(width: AppSpacing.cardGap),
                         Expanded(
-                          child: _ProfileActionTile(
-                            title: s.t('exportBackup'),
-                            subtitle: 'JSON',
-                            icon: Icons.ios_share_rounded,
-                            color: Colors.black,
-                            backgroundColor: const Color(0xFFB9A9F2),
-                            textColor: Colors.black,
-                            secondaryTextColor: const Color(0xA6252A2E),
-                            onTap: () => _export(context),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: _ProfileActionTile(
-                            title: s.t('importWebData'),
-                            subtitle: 'JSON',
-                            icon: Icons.file_download_outlined,
-                            color: Colors.black,
-                            backgroundColor: const Color(0xFF9CCFE6),
-                            textColor: Colors.black,
-                            secondaryTextColor: const Color(0xA6252A2E),
-                            onTap: () => _import(context),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _ProfileActionTile(
-                            title: s.t('importExcel'),
-                            subtitle: '.xlsx / .xls / .csv',
-                            icon: Icons.table_view_rounded,
-                            color: Colors.black,
-                            backgroundColor: const Color(0xFFA8D7AF),
-                            textColor: Colors.black,
-                            secondaryTextColor: const Color(0xA6252A2E),
-                            onTap: () => _importSpreadsheet(context),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: _ProfileActionTile(
-                            title: s.t('importCalendar'),
-                            subtitle: '系统日历',
-                            icon: Icons.calendar_month_rounded,
-                            color: Colors.black,
-                            backgroundColor: const Color(0xFFE2B4D1),
-                            textColor: Colors.black,
-                            secondaryTextColor: const Color(0xA6252A2E),
-                            onTap: () => _importCalendar(context),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    ListenableBuilder(
-                      listenable: controller.cloudSync,
-                      builder: (context, _) {
-                        final cloud = controller.cloudSync.state;
-                        final value = switch (cloud.status) {
-                          CloudSyncStatus.syncing => s.t('cloudSyncing'),
-                          CloudSyncStatus.synced => s.t('cloudSynced'),
-                          CloudSyncStatus.error => s.t('cloudSyncFailed'),
-                          CloudSyncStatus.ready => s.t('cloudReady'),
-                          CloudSyncStatus.disconnected => s.t('notConfigured'),
-                        };
-                        final isConfigured = cloud.isConfigured;
-                        return _ProfileActionTile(
-                          title: s.t('cloudSync'),
-                          value: value,
-                          icon: isConfigured
-                              ? Icons.cloud_done_outlined
-                              : Icons.cloud_outlined,
-                          color: isConfigured
-                              ? Colors.black
-                              : AppColors.textTertiary,
-                          backgroundColor: isConfigured
-                              ? AppColors.lime
-                              : AppColors.surfaceElevated,
-                          textColor: isConfigured
-                              ? Colors.black
-                              : AppColors.textPrimary,
-                          secondaryTextColor: isConfigured
-                              ? const Color(0xA6000000)
-                              : AppColors.textSecondary,
-                          wide: true,
-                          onTap: () => _openCloudSync(context),
-                        );
-                      },
-                    ),
-                  ],
-                ),
-                const SizedBox(height: AppSpacing.section),
-                Text(s.t('settings'), style: AppTextStyles.sectionTitle),
-                const SizedBox(height: 12),
-                Column(
-                  children: [
-                    _ProfileActionTile(
-                      title: s.t('travellerName'),
-                      value: controller.travellerName == 'TRAVELER'
-                          ? s.t('travellerNameEmpty')
-                          : controller.travellerName,
-                      icon: Icons.badge_outlined,
-                      color: Colors.black,
-                      backgroundColor: const Color(0xFFA8D7AF),
-                      textColor: Colors.black,
-                      secondaryTextColor: Colors.black,
-                      wide: true,
-                      onTap: () => _editTravellerName(context),
-                    ),
-                    const SizedBox(height: 10),
-                    _ProfileActionTile(
-                      title: s.t('language'),
-                      value: controller.locale.languageCode == 'zh'
-                          ? s.t('chinese')
-                          : s.t('english'),
-                      icon: Icons.translate_rounded,
-                      color: Colors.black,
-                      backgroundColor: const Color(0xFF9CCFE6),
-                      textColor: Colors.black,
-                      secondaryTextColor: Colors.black,
-                      wide: true,
-                      onTap: () => _language(context),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: AppSpacing.section),
-                Text(s.t('about'), style: AppTextStyles.sectionTitle),
-                const SizedBox(height: 12),
-                SurfaceCard(
-                  padding: EdgeInsets.zero,
-                  color: AppColors.surfaceElevated,
-                  borderRadius: AppRadii.large,
-                  showBorder: false,
-                  boxShadow: _cardShadow(),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.all(AppSpacing.lg),
-                        child: Row(
-                          children: [
-                            Container(
-                              width: 48,
-                              height: 48,
-                              decoration: BoxDecoration(
-                                color: AppColors.lime.withValues(alpha: .14),
-                                shape: BoxShape.circle,
-                              ),
-                              child: const Icon(
-                                Icons.flight_takeoff_rounded,
-                                color: AppColors.lime,
-                              ),
-                            ),
-                            const SizedBox(width: 14),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  const Text(
-                                    'Flight Footprint',
-                                    style: TextStyle(
-                                      color: AppColors.textPrimary,
-                                      fontSize: 22,
-                                      fontWeight: FontWeight.w800,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    s.t('version'),
-                                    style: AppTextStyles.label.copyWith(
-                                      color: AppColors.purple,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(
-                          AppSpacing.md,
-                          0,
-                          AppSpacing.md,
-                          AppSpacing.md,
-                        ),
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: _ProfileAboutButton(
-                                title: s.t('checkForUpdates'),
-                                value: _updateValue(),
-                                icon: Icons.system_update_alt_rounded,
-                                backgroundColor: const Color(0xFFA8D7AF),
-                                foregroundColor: Colors.black,
-                                onPressed: () => _checkForUpdates(context),
-                              ),
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: _ProfileAboutButton(
-                                title: s.t('githubProject'),
-                                icon: Icons.code_rounded,
-                                backgroundColor: const Color(0xFFB9A9F2),
-                                foregroundColor: Colors.black,
-                                onPressed: AppLinks.githubRepository == null
-                                    ? null
-                                    : () => _openExternalUrl(
-                                        context,
-                                        AppLinks.githubRepository!,
-                                      ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(
-                          AppSpacing.md,
-                          AppSpacing.sm,
-                          AppSpacing.md,
-                          AppSpacing.lg,
-                        ),
-                        child: Center(
-                          child: Wrap(
-                            alignment: WrapAlignment.center,
-                            crossAxisAlignment: WrapCrossAlignment.center,
-                            spacing: 8,
-                            runSpacing: 2,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
-                              const Icon(
-                                Icons.shield_outlined,
-                                color: AppColors.textTertiary,
-                                size: 18,
-                              ),
-                              Text(
-                                s.t('privacy'),
-                                textAlign: TextAlign.center,
-                                style: AppTextStyles.bodySecondary.copyWith(
-                                  color: AppColors.textTertiary,
-                                ),
-                              ),
+                              settings,
+                              const SizedBox(height: AppSpacing.section),
+                              about,
                             ],
                           ),
                         ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
+                      ],
+                    ),
+                  );
+                }
+
+                return SliverList.list(
+                  children: [
+                    localData,
+                    const SizedBox(height: AppSpacing.section),
+                    dataManagement,
+                    const SizedBox(height: AppSpacing.section),
+                    settings,
+                    const SizedBox(height: AppSpacing.section),
+                    about,
+                  ],
+                );
+              },
             ),
           ),
         ],
@@ -428,13 +183,436 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
-  List<BoxShadow> _cardShadow() => [
-    BoxShadow(
-      color: Colors.black.withValues(alpha: .22),
-      blurRadius: 24,
-      offset: const Offset(0, 12),
-    ),
-  ];
+  Widget _localDataCard(BuildContext context) {
+    final s = context.strings;
+    final colors = context.appColors;
+    final textColor = _profileTextColor(context);
+    return Container(
+      padding: const EdgeInsets.fromLTRB(24, 20, 24, 20),
+      decoration: ShapeDecoration(
+        color: _profileCardColor(
+          context,
+          colors.cardLavender,
+          lightOpacity: .92,
+        ),
+        shape: AppShapes.large,
+        shadows: _cardShadow(),
+      ),
+      child: DefaultTextStyle(
+        style: TextStyle(color: textColor),
+        child: Row(
+          children: [
+            Container(
+              width: 54,
+              height: 54,
+              decoration: BoxDecoration(
+                color: textColor.withValues(alpha: .09),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(Icons.phone_android_rounded, color: textColor),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    s.t('localData'),
+                    style: const TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    s.t('localOnly'),
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Text(
+              '${controller.flights.length}',
+              style: const TextStyle(fontSize: 40, fontWeight: FontWeight.w700),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _dataManagementSection(BuildContext context) {
+    final s = context.strings;
+    final colors = context.appColors;
+    final textColor = _profileTextColor(context);
+    final secondaryTextColor = _profileSecondaryTextColor(context);
+    return Column(
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: _ProfileActionTile(
+                title: s.t('exportBackup'),
+                subtitle: 'JSON',
+                icon: Icons.ios_share_rounded,
+                color: textColor,
+                backgroundColor: _profileCardColor(
+                  context,
+                  colors.cardLavender,
+                ),
+                textColor: textColor,
+                secondaryTextColor: secondaryTextColor,
+                onTap: () => _export(context),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: _ProfileActionTile(
+                title: s.t('importWebData'),
+                subtitle: 'JSON',
+                icon: Icons.file_download_outlined,
+                color: textColor,
+                backgroundColor: _profileCardColor(context, colors.cardBlue),
+                textColor: textColor,
+                secondaryTextColor: secondaryTextColor,
+                onTap: () => _import(context),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              child: _ProfileActionTile(
+                title: s.t('importExcel'),
+                subtitle: '.xlsx / .xls / .csv',
+                icon: Icons.table_view_rounded,
+                color: textColor,
+                backgroundColor: _profileCardColor(context, colors.cardMint),
+                textColor: textColor,
+                secondaryTextColor: secondaryTextColor,
+                onTap: () => _importSpreadsheet(context),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: _ProfileActionTile(
+                title: s.t('importCalendar'),
+                subtitle: '系统日历',
+                icon: Icons.calendar_month_rounded,
+                color: textColor,
+                backgroundColor: _profileCardColor(context, colors.cardCoral),
+                textColor: textColor,
+                secondaryTextColor: secondaryTextColor,
+                onTap: () => _importCalendar(context),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        ListenableBuilder(
+          listenable: controller.cloudSync,
+          builder: (context, _) {
+            final cloud = controller.cloudSync.state;
+            final value = switch (cloud.status) {
+              CloudSyncStatus.syncing => s.t('cloudSyncing'),
+              CloudSyncStatus.synced => s.t('cloudSynced'),
+              CloudSyncStatus.error => s.t('cloudSyncFailed'),
+              CloudSyncStatus.ready => s.t('cloudReady'),
+              CloudSyncStatus.disconnected => s.t('notConfigured'),
+            };
+            final isConfigured = cloud.isConfigured;
+            final isLight = Theme.of(context).brightness == Brightness.light;
+            return _ProfileActionTile(
+              title: s.t('cloudSync'),
+              value: value,
+              icon: isConfigured
+                  ? Icons.cloud_done_outlined
+                  : Icons.cloud_outlined,
+              color: isConfigured ? textColor : colors.textTertiary,
+              backgroundColor: isConfigured
+                  ? (isLight
+                        ? _profileCardColor(
+                            context,
+                            colors.cardMint,
+                            lightOpacity: .82,
+                          )
+                        : colors.lime)
+                  : colors.surfaceElevated,
+              textColor: isConfigured ? textColor : colors.textPrimary,
+              secondaryTextColor: isConfigured
+                  ? secondaryTextColor
+                  : colors.textSecondary,
+              wide: true,
+              onTap: () => _openCloudSync(context),
+            );
+          },
+        ),
+      ],
+    );
+  }
+
+  Widget _settingsSection(BuildContext context) {
+    final s = context.strings;
+    final colors = context.appColors;
+    final textColor = _profileTextColor(context);
+    final isLight = Theme.of(context).brightness == Brightness.light;
+    final secondaryColor = isLight ? colors.textSecondary : colors.cardText;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          s.t('settings'),
+          style: AppTextStyles.sectionTitle.copyWith(color: colors.textPrimary),
+        ),
+        const SizedBox(height: 12),
+        _ProfileActionTile(
+          title: s.t('travellerName'),
+          value: controller.travellerName == 'TRAVELER'
+              ? s.t('travellerNameEmpty')
+              : controller.travellerName,
+          icon: Icons.badge_outlined,
+          color: isLight ? colors.cardMint : colors.cardText,
+          backgroundColor: _profileSurfaceTint(context, colors.cardMint),
+          textColor: textColor,
+          secondaryTextColor: secondaryColor,
+          wide: true,
+          onTap: () => _editTravellerName(context),
+        ),
+        const SizedBox(height: 10),
+        _ProfileActionTile(
+          title: s.t('language'),
+          value: controller.locale.languageCode == 'zh'
+              ? s.t('chinese')
+              : s.t('english'),
+          icon: Icons.translate_rounded,
+          color: isLight ? colors.cardBlue : colors.cardText,
+          backgroundColor: _profileSurfaceTint(context, colors.cardBlue),
+          textColor: textColor,
+          secondaryTextColor: secondaryColor,
+          wide: true,
+          onTap: () => _language(context),
+        ),
+        const SizedBox(height: 10),
+        _ProfileActionTile(
+          title: s.t('theme'),
+          value: switch (controller.themeMode) {
+            ThemeMode.system => s.t('themeSystem'),
+            ThemeMode.light => s.t('themeLight'),
+            ThemeMode.dark => s.t('themeDark'),
+          },
+          icon: Icons.brightness_6_rounded,
+          color: isLight ? colors.cardCoral : colors.cardText,
+          backgroundColor: _profileSurfaceTint(context, colors.cardCoral),
+          textColor: textColor,
+          secondaryTextColor: secondaryColor,
+          wide: true,
+          onTap: () => _theme(context),
+        ),
+      ],
+    );
+  }
+
+  Widget _aboutSection(BuildContext context) {
+    final s = context.strings;
+    final colors = context.appColors;
+    final isLight = Theme.of(context).brightness == Brightness.light;
+    final textColor = _profileTextColor(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          s.t('about'),
+          style: AppTextStyles.sectionTitle.copyWith(color: colors.textPrimary),
+        ),
+        const SizedBox(height: 12),
+        SurfaceCard(
+          padding: EdgeInsets.zero,
+          color: isLight ? colors.surface : colors.surfaceElevated,
+          borderRadius: AppRadii.large,
+          showBorder: isLight,
+          boxShadow: _cardShadow(),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(AppSpacing.lg),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 48,
+                      height: 48,
+                      decoration: BoxDecoration(
+                        color: (isLight ? colors.cardMint : colors.lime)
+                            .withValues(alpha: isLight ? .24 : .14),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(
+                        Icons.flight_takeoff_rounded,
+                        color: isLight ? colors.cardMint : colors.lime,
+                      ),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Flight Footprint',
+                            style: TextStyle(
+                              color: colors.textPrimary,
+                              fontSize: 22,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            '${s.t('version')} ${_appVersion ?? '…'}',
+                            style: AppTextStyles.label.copyWith(
+                              color: colors.purple,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.md,
+                  0,
+                  AppSpacing.md,
+                  AppSpacing.md,
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: _ProfileAboutButton(
+                        title: s.t('checkForUpdates'),
+                        value: _updateValue(),
+                        icon: Icons.system_update_alt_rounded,
+                        backgroundColor: _profileCardColor(
+                          context,
+                          colors.cardMint,
+                          lightOpacity: .78,
+                        ),
+                        foregroundColor: textColor,
+                        onPressed: () => _checkForUpdates(context),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: _ProfileAboutButton(
+                        title: s.t('githubProject'),
+                        icon: Icons.code_rounded,
+                        backgroundColor: _profileCardColor(
+                          context,
+                          colors.cardLavender,
+                          lightOpacity: .78,
+                        ),
+                        foregroundColor: textColor,
+                        onPressed: AppLinks.githubRepository == null
+                            ? null
+                            : () => _openExternalUrl(
+                                context,
+                                AppLinks.githubRepository!,
+                              ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.md,
+                  AppSpacing.sm,
+                  AppSpacing.md,
+                  AppSpacing.lg,
+                ),
+                child: Center(
+                  child: Wrap(
+                    alignment: WrapAlignment.center,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    spacing: 8,
+                    runSpacing: 2,
+                    children: [
+                      Icon(
+                        Icons.shield_outlined,
+                        color: colors.textTertiary,
+                        size: 18,
+                      ),
+                      Text(
+                        s.t('privacy'),
+                        textAlign: TextAlign.center,
+                        style: AppTextStyles.bodySecondary.copyWith(
+                          color: colors.textTertiary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  bool _isLight(BuildContext context) =>
+      Theme.of(context).brightness == Brightness.light;
+
+  Color _profileTextColor(BuildContext context) {
+    final colors = context.appColors;
+    return _isLight(context) ? colors.textPrimary : colors.cardText;
+  }
+
+  Color _profileSecondaryTextColor(BuildContext context) {
+    final colors = context.appColors;
+    return _isLight(context)
+        ? colors.textSecondary
+        : colors.cardText.withValues(alpha: .64);
+  }
+
+  Color _profileCardColor(
+    BuildContext context,
+    Color accent, {
+    double lightOpacity = .88,
+  }) {
+    if (!_isLight(context)) return accent;
+    return Color.alphaBlend(
+      accent.withValues(alpha: lightOpacity),
+      context.appColors.surface,
+    );
+  }
+
+  Color _profileSurfaceTint(
+    BuildContext context,
+    Color accent, {
+    double lightOpacity = .26,
+  }) {
+    if (!_isLight(context)) return accent;
+    return Color.alphaBlend(
+      accent.withValues(alpha: lightOpacity),
+      context.appColors.surface,
+    );
+  }
+
+  List<BoxShadow> _cardShadow() {
+    final isLight = Theme.of(context).brightness == Brightness.light;
+    return [
+      BoxShadow(
+        color: Colors.black.withValues(alpha: isLight ? .10 : .22),
+        blurRadius: isLight ? 22 : 24,
+        offset: const Offset(0, 12),
+      ),
+    ];
+  }
 
   String _updateSubtitle(BuildContext context) {
     final strings = context.strings;
@@ -514,6 +692,7 @@ class _ProfilePageState extends State<ProfilePage> {
     _promptedUpdateVersion = latestVersion;
 
     final strings = context.strings;
+    final colors = context.appColors;
     final currentVersion = result.currentVersion ?? '—';
     final canInstallInApp =
         result.canDownloadInApp && AppUpdateInstaller.isSupported;
@@ -521,7 +700,7 @@ class _ProfilePageState extends State<ProfilePage> {
       context: context,
       barrierColor: Colors.black.withValues(alpha: .72),
       builder: (dialogContext) => Dialog(
-        backgroundColor: AppColors.surfaceElevated,
+        backgroundColor: colors.surfaceElevated,
         surfaceTintColor: Colors.transparent,
         insetPadding: const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
         shape: AppShapes.large,
@@ -535,30 +714,34 @@ class _ProfilePageState extends State<ProfilePage> {
                 width: 52,
                 height: 52,
                 decoration: BoxDecoration(
-                  color: AppColors.lime.withValues(alpha: .14),
+                  color: colors.lime.withValues(alpha: .14),
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(
+                child: Icon(
                   Icons.system_update_alt_rounded,
-                  color: AppColors.lime,
+                  color: colors.lime,
                   size: 26,
                 ),
               ),
               const SizedBox(height: 18),
               Text(
                 strings.t('updateAvailable'),
-                style: AppTextStyles.sectionTitle,
+                style: AppTextStyles.sectionTitle.copyWith(
+                  color: colors.textPrimary,
+                ),
               ),
               const SizedBox(height: 8),
               Text(
                 '${strings.t('currentVersionLabel')}  v$currentVersion',
-                style: AppTextStyles.bodySecondary,
+                style: AppTextStyles.bodySecondary.copyWith(
+                  color: colors.textSecondary,
+                ),
               ),
               const SizedBox(height: 4),
               Text(
                 '${strings.t('latestVersionLabel')}  v$latestVersion',
                 style: AppTextStyles.body.copyWith(
-                  color: AppColors.lime,
+                  color: colors.lime,
                   fontWeight: FontWeight.w700,
                 ),
               ),
@@ -574,7 +757,7 @@ class _ProfilePageState extends State<ProfilePage> {
                   FilledButton.icon(
                     onPressed: () => Navigator.pop(dialogContext, true),
                     style: FilledButton.styleFrom(
-                      backgroundColor: AppColors.lime,
+                      backgroundColor: colors.lime,
                       foregroundColor: Colors.black,
                       shape: AppShapes.pill,
                     ),
@@ -617,7 +800,7 @@ class _ProfilePageState extends State<ProfilePage> {
     final dialogFuture = showDialog<void>(
       context: context,
       barrierDismissible: false,
-      barrierColor: AppColors.background.withValues(alpha: .86),
+      barrierColor: context.appColors.background.withValues(alpha: .86),
       builder: (_) => _UpdateDownloadDialog(progress: progress),
     );
 
@@ -780,7 +963,7 @@ class _ProfilePageState extends State<ProfilePage> {
       final progressDialog = showDialog<void>(
         context: context,
         barrierDismissible: false,
-        barrierColor: AppColors.background,
+        barrierColor: context.appColors.background,
         builder: (_) => _SpreadsheetProgressDialog(progress: progress),
       );
       FlightImportSummary imported;
@@ -904,7 +1087,10 @@ class _ProfilePageState extends State<ProfilePage> {
     await showDialog<void>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        icon: const Icon(Icons.event_available_rounded, color: AppColors.lime),
+        icon: Icon(
+          Icons.event_available_rounded,
+          color: dialogContext.appColors.lime,
+        ),
         title: Text(s.t('calendarImportDone')),
         content: Text(detail),
         actions: [
@@ -962,7 +1148,10 @@ class _ProfilePageState extends State<ProfilePage> {
     await showDialog<void>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        icon: const Icon(Icons.check_circle_rounded, color: AppColors.lime),
+        icon: Icon(
+          Icons.check_circle_rounded,
+          color: dialogContext.appColors.lime,
+        ),
         title: Text(s.t('spreadsheetImportDone')),
         content: Text(detail),
         actions: [
@@ -978,7 +1167,7 @@ class _ProfilePageState extends State<ProfilePage> {
   void _language(BuildContext context) {
     showModalBottomSheet<void>(
       context: context,
-      backgroundColor: AppColors.surface,
+      backgroundColor: context.appColors.surface,
       builder: (context) => SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(20),
@@ -988,7 +1177,7 @@ class _ProfilePageState extends State<ProfilePage> {
               ListTile(
                 title: Text(context.strings.t('chinese')),
                 trailing: controller.locale.languageCode == 'zh'
-                    ? const Icon(Icons.check_circle, color: AppColors.lime)
+                    ? Icon(Icons.check_circle, color: context.appColors.lime)
                     : null,
                 onTap: () async {
                   await controller.setLocale(const Locale('zh'));
@@ -998,7 +1187,7 @@ class _ProfilePageState extends State<ProfilePage> {
               ListTile(
                 title: Text(context.strings.t('english')),
                 trailing: controller.locale.languageCode == 'en'
-                    ? const Icon(Icons.check_circle, color: AppColors.lime)
+                    ? Icon(Icons.check_circle, color: context.appColors.lime)
                     : null,
                 onTap: () async {
                   await controller.setLocale(const Locale('en'));
@@ -1012,6 +1201,55 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
+  void _theme(BuildContext context) {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: context.appColors.surface,
+      showDragHandle: true,
+      shape: AppShapes.sheet,
+      builder: (sheetContext) {
+        final s = sheetContext.strings;
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _ThemeOption(
+                  title: s.t('themeSystem'),
+                  icon: Icons.brightness_auto_rounded,
+                  selected: controller.themeMode == ThemeMode.system,
+                  onTap: () async {
+                    await controller.setThemeMode(ThemeMode.system);
+                    if (sheetContext.mounted) Navigator.pop(sheetContext);
+                  },
+                ),
+                _ThemeOption(
+                  title: s.t('themeLight'),
+                  icon: Icons.light_mode_rounded,
+                  selected: controller.themeMode == ThemeMode.light,
+                  onTap: () async {
+                    await controller.setThemeMode(ThemeMode.light);
+                    if (sheetContext.mounted) Navigator.pop(sheetContext);
+                  },
+                ),
+                _ThemeOption(
+                  title: s.t('themeDark'),
+                  icon: Icons.dark_mode_rounded,
+                  selected: controller.themeMode == ThemeMode.dark,
+                  onTap: () async {
+                    await controller.setThemeMode(ThemeMode.dark);
+                    if (sheetContext.mounted) Navigator.pop(sheetContext);
+                  },
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   Future<void> _editTravellerName(BuildContext context) async {
     final value = await showModalBottomSheet<String>(
       context: context,
@@ -1021,7 +1259,7 @@ class _ProfilePageState extends State<ProfilePage> {
       // inherited element with live dependents during deactivation on some
       // Android Flutter builds.
       requestFocus: false,
-      backgroundColor: AppColors.surface,
+      backgroundColor: context.appColors.surface,
       showDragHandle: true,
       shape: AppShapes.sheet,
       builder: (_) => _TravellerNameSheet(
@@ -1055,6 +1293,40 @@ class _ProfilePageState extends State<ProfilePage> {
   }) =>
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text(message), action: action));
+}
+
+class _ThemeOption extends StatelessWidget {
+  const _ThemeOption({
+    required this.title,
+    required this.icon,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String title;
+  final IconData icon;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    return ListTile(
+      shape: AppShapes.medium,
+      leading: Icon(icon, color: selected ? colors.lime : colors.textSecondary),
+      title: Text(
+        title,
+        style: TextStyle(
+          color: colors.textPrimary,
+          fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+        ),
+      ),
+      trailing: selected
+          ? Icon(Icons.check_circle_rounded, color: colors.lime)
+          : null,
+      onTap: onTap,
+    );
+  }
 }
 
 /// Owns the text field lifecycle for the username sheet.
@@ -1105,6 +1377,7 @@ class _TravellerNameSheetState extends State<_TravellerNameSheet> {
   @override
   Widget build(BuildContext context) {
     final s = context.strings;
+    final colors = context.appColors;
     final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
     return SafeArea(
       child: Padding(
@@ -1113,9 +1386,19 @@ class _TravellerNameSheetState extends State<_TravellerNameSheet> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(s.t('enterTravellerName'), style: AppTextStyles.sectionTitle),
+            Text(
+              s.t('enterTravellerName'),
+              style: AppTextStyles.sectionTitle.copyWith(
+                color: colors.textPrimary,
+              ),
+            ),
             const SizedBox(height: 6),
-            Text(s.t('travellerNameHint'), style: AppTextStyles.bodySecondary),
+            Text(
+              s.t('travellerNameHint'),
+              style: AppTextStyles.bodySecondary.copyWith(
+                color: colors.textSecondary,
+              ),
+            ),
             const SizedBox(height: 16),
             TextField(
               controller: _editor,
@@ -1126,14 +1409,14 @@ class _TravellerNameSheetState extends State<_TravellerNameSheet> {
                 hintText: s.t('travellerName'),
                 prefixIcon: const Icon(Icons.badge_outlined),
                 filled: true,
-                fillColor: AppColors.surfaceElevated,
+                fillColor: colors.surfaceElevated,
                 border: ShapedInputBorder(
                   shape: AppShapes.small,
-                  borderSide: const BorderSide(color: AppColors.border),
+                  borderSide: BorderSide(color: colors.border),
                 ),
                 enabledBorder: ShapedInputBorder(
                   shape: AppShapes.small,
-                  borderSide: const BorderSide(color: AppColors.border),
+                  borderSide: BorderSide(color: colors.border),
                 ),
               ),
               onSubmitted: (_) => _submit(),
@@ -1198,8 +1481,9 @@ class _ProfileAboutButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.appColors;
     final enabled = onPressed != null;
-    final primaryColor = enabled ? foregroundColor : AppColors.textSecondary;
+    final primaryColor = enabled ? foregroundColor : colors.textSecondary;
     return SizedBox(
       width: double.infinity,
       child: FilledButton(
@@ -1209,8 +1493,8 @@ class _ProfileAboutButton extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
           backgroundColor: backgroundColor,
           foregroundColor: foregroundColor,
-          disabledBackgroundColor: AppColors.surface,
-          disabledForegroundColor: AppColors.textTertiary,
+          disabledBackgroundColor: colors.surface,
+          disabledForegroundColor: colors.textTertiary,
           shape: AppShapes.medium,
         ),
         child: Row(
@@ -1256,8 +1540,9 @@ class _UpdateDownloadDialog extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final strings = context.strings;
+    final colors = context.appColors;
     return Dialog(
-      backgroundColor: AppColors.surfaceElevated,
+      backgroundColor: colors.surfaceElevated,
       surfaceTintColor: Colors.transparent,
       shape: AppShapes.large,
       child: Padding(
@@ -1268,30 +1553,30 @@ class _UpdateDownloadDialog extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Icon(
-                Icons.downloading_rounded,
-                color: AppColors.lime,
-                size: 30,
-              ),
+              Icon(Icons.downloading_rounded, color: colors.lime, size: 30),
               const SizedBox(height: 16),
               Text(
                 strings.t('downloadingUpdate'),
-                style: AppTextStyles.sectionTitle,
+                style: AppTextStyles.sectionTitle.copyWith(
+                  color: colors.textPrimary,
+                ),
               ),
               const SizedBox(height: 18),
               LinearProgressIndicator(
                 value: value,
                 minHeight: 6,
                 borderRadius: BorderRadius.circular(99),
-                color: AppColors.lime,
-                backgroundColor: AppColors.lime.withValues(alpha: .14),
+                color: colors.lime,
+                backgroundColor: colors.lime.withValues(alpha: .14),
               ),
               const SizedBox(height: 10),
               Text(
                 value == null
                     ? strings.t('preparingUpdate')
                     : '${(value * 100).round()}%',
-                style: AppTextStyles.label,
+                style: AppTextStyles.label.copyWith(
+                  color: colors.textSecondary,
+                ),
               ),
             ],
           ),
@@ -1310,8 +1595,8 @@ class _ProfileActionTile extends StatelessWidget {
     required this.backgroundColor,
     this.subtitle,
     this.value,
-    this.textColor = AppColors.textPrimary,
-    this.secondaryTextColor = AppColors.textSecondary,
+    this.textColor,
+    this.secondaryTextColor,
     this.wide = false,
     this.showChevron = false,
   });
@@ -1322,14 +1607,18 @@ class _ProfileActionTile extends StatelessWidget {
   final IconData icon;
   final Color color;
   final Color backgroundColor;
-  final Color textColor;
-  final Color secondaryTextColor;
+  final Color? textColor;
+  final Color? secondaryTextColor;
   final VoidCallback? onTap;
   final bool wide;
   final bool showChevron;
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.appColors;
+    final resolvedTextColor = textColor ?? colors.textPrimary;
+    final resolvedSecondaryTextColor =
+        secondaryTextColor ?? colors.textSecondary;
     final label = [title, ?subtitle, ?value].join(' ');
     final content = wide
         ? Row(
@@ -1340,7 +1629,7 @@ class _ProfileActionTile extends StatelessWidget {
                 child: Text(
                   title,
                   style: AppTextStyles.body.copyWith(
-                    color: textColor,
+                    color: resolvedTextColor,
                     fontWeight: FontWeight.w700,
                   ),
                 ),
@@ -1354,7 +1643,7 @@ class _ProfileActionTile extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     textAlign: TextAlign.end,
                     style: AppTextStyles.bodySecondary.copyWith(
-                      color: secondaryTextColor,
+                      color: resolvedSecondaryTextColor,
                     ),
                   ),
                 ),
@@ -1363,7 +1652,7 @@ class _ProfileActionTile extends StatelessWidget {
                   padding: const EdgeInsets.only(left: 10),
                   child: Icon(
                     Icons.chevron_right_rounded,
-                    color: secondaryTextColor,
+                    color: resolvedSecondaryTextColor,
                   ),
                 ),
             ],
@@ -1380,7 +1669,7 @@ class _ProfileActionTile extends StatelessWidget {
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
                 style: AppTextStyles.body.copyWith(
-                  color: textColor,
+                  color: resolvedTextColor,
                   fontSize: 17,
                   height: 1.2,
                   fontWeight: FontWeight.w700,
@@ -1393,7 +1682,7 @@ class _ProfileActionTile extends StatelessWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: AppTextStyles.label.copyWith(
-                    color: secondaryTextColor,
+                    color: resolvedSecondaryTextColor,
                     fontSize: 13,
                   ),
                 ),
@@ -1428,15 +1717,16 @@ class _SpreadsheetRecognizingNotice extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.appColors;
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         decoration: ShapeDecoration(
-          color: AppColors.surfaceElevated,
+          color: colors.surfaceElevated,
           shape: RoundedSuperellipseBorder(
             borderRadius: AppRadii.medium,
-            side: BorderSide(color: AppColors.lime.withValues(alpha: .5)),
+            side: BorderSide(color: colors.lime.withValues(alpha: .5)),
           ),
         ),
         child: Row(
@@ -1446,27 +1736,30 @@ class _SpreadsheetRecognizingNotice extends StatelessWidget {
               height: 30,
               alignment: Alignment.center,
               decoration: ShapeDecoration(
-                color: AppColors.lime.withValues(alpha: .16),
+                color: colors.lime.withValues(alpha: .16),
                 shape: AppShapes.small,
               ),
-              child: const Icon(
+              child: Icon(
                 Icons.table_chart_rounded,
                 size: 18,
-                color: AppColors.lime,
+                color: colors.lime,
               ),
             ),
             const SizedBox(width: 10),
             Expanded(
               child: Text(
                 context.strings.t('spreadsheetRecognizing'),
-                style: AppTextStyles.body.copyWith(fontWeight: FontWeight.w700),
+                style: AppTextStyles.body.copyWith(
+                  color: colors.textPrimary,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
             ),
             Container(
               width: 7,
               height: 7,
-              decoration: const BoxDecoration(
-                color: AppColors.lime,
+              decoration: BoxDecoration(
+                color: colors.lime,
                 shape: BoxShape.circle,
               ),
             ),
@@ -1482,15 +1775,16 @@ class _CalendarReadingNotice extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.appColors;
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         decoration: ShapeDecoration(
-          color: AppColors.surfaceElevated,
+          color: colors.surfaceElevated,
           shape: RoundedSuperellipseBorder(
             borderRadius: AppRadii.medium,
-            side: BorderSide(color: AppColors.purple.withValues(alpha: .5)),
+            side: BorderSide(color: colors.purple.withValues(alpha: .5)),
           ),
         ),
         child: Row(
@@ -1500,13 +1794,13 @@ class _CalendarReadingNotice extends StatelessWidget {
               height: 30,
               alignment: Alignment.center,
               decoration: ShapeDecoration(
-                color: AppColors.purple.withValues(alpha: .16),
+                color: colors.purple.withValues(alpha: .16),
                 shape: AppShapes.small,
               ),
-              child: const Icon(
+              child: Icon(
                 Icons.calendar_month_rounded,
                 size: 18,
-                color: AppColors.purple,
+                color: colors.purple,
               ),
             ),
             const SizedBox(width: 10),
@@ -1519,8 +1813,8 @@ class _CalendarReadingNotice extends StatelessWidget {
             Container(
               width: 7,
               height: 7,
-              decoration: const BoxDecoration(
-                color: AppColors.purple,
+              decoration: BoxDecoration(
+                color: colors.purple,
                 shape: BoxShape.circle,
               ),
             ),
@@ -1556,11 +1850,12 @@ class _CalendarPreviewSheetState extends State<_CalendarPreviewSheet> {
   @override
   Widget build(BuildContext context) {
     final s = context.strings;
+    final colors = context.appColors;
     final allSelected = _selected.length == widget.result.flights.length;
     return FractionallySizedBox(
       heightFactor: .9,
       child: Material(
-        color: AppColors.background,
+        color: colors.background,
         shape: AppShapes.sheet,
         clipBehavior: Clip.antiAlias,
         child: SafeArea(
@@ -1650,14 +1945,14 @@ class _CalendarPreviewSheetState extends State<_CalendarPreviewSheet> {
                               padding: const EdgeInsets.fromLTRB(14, 12, 8, 12),
                               decoration: ShapeDecoration(
                                 color: selected
-                                    ? AppColors.surface
-                                    : AppColors.surfaceElevated,
+                                    ? colors.surface
+                                    : colors.surfaceElevated,
                                 shape: RoundedSuperellipseBorder(
                                   borderRadius: AppRadii.medium,
                                   side: BorderSide(
                                     color: selected
-                                        ? AppColors.lime.withValues(alpha: .72)
-                                        : AppColors.border,
+                                        ? colors.lime.withValues(alpha: .72)
+                                        : colors.border,
                                   ),
                                 ),
                               ),
@@ -1692,8 +1987,8 @@ class _CalendarPreviewSheetState extends State<_CalendarPreviewSheet> {
                                                         draft.status ==
                                                             FlightStatus
                                                                 .upcoming
-                                                        ? AppColors.purple
-                                                        : AppColors.lime,
+                                                        ? colors.purple
+                                                        : colors.lime,
                                                     fontWeight: FontWeight.w700,
                                                   ),
                                             ),
@@ -1717,7 +2012,7 @@ class _CalendarPreviewSheetState extends State<_CalendarPreviewSheet> {
                                         Text(
                                           '${_formatSpreadsheetDuration(context, draft.durationMinutes)} · ${draft.distanceKm.round()} km',
                                           style: AppTextStyles.label.copyWith(
-                                            color: AppColors.purple,
+                                            color: colors.purple,
                                             fontWeight: FontWeight.w700,
                                           ),
                                         ),
@@ -1734,7 +2029,7 @@ class _CalendarPreviewSheetState extends State<_CalendarPreviewSheet> {
                                         _selected.add(key);
                                       }
                                     }),
-                                    activeColor: AppColors.lime,
+                                    activeColor: colors.lime,
                                     checkColor: Colors.black,
                                   ),
                                 ],
@@ -1806,10 +2101,11 @@ class _SpreadsheetPreviewSheetState extends State<_SpreadsheetPreviewSheet> {
   @override
   Widget build(BuildContext context) {
     final s = context.strings;
+    final colors = context.appColors;
     return FractionallySizedBox(
       heightFactor: .9,
       child: Material(
-        color: AppColors.background,
+        color: colors.background,
         shape: AppShapes.sheet,
         clipBehavior: Clip.antiAlias,
         child: SafeArea(
@@ -1825,12 +2121,12 @@ class _SpreadsheetPreviewSheetState extends State<_SpreadsheetPreviewSheet> {
                       width: 42,
                       height: 42,
                       decoration: BoxDecoration(
-                        color: AppColors.lime.withValues(alpha: .14),
+                        color: colors.lime.withValues(alpha: .14),
                         shape: BoxShape.circle,
                       ),
-                      child: const Icon(
+                      child: Icon(
                         Icons.table_chart_outlined,
-                        color: AppColors.lime,
+                        color: colors.lime,
                         size: 22,
                       ),
                     ),
@@ -1871,7 +2167,7 @@ class _SpreadsheetPreviewSheetState extends State<_SpreadsheetPreviewSheet> {
                       child: _SpreadsheetReviewTabButton(
                         label: s.t('spreadsheetValidRows'),
                         count: _readyRows.length,
-                        color: const Color(0xFFA8D7AF),
+                        color: colors.cardMint,
                         selected: _selectedTab == 0,
                         onTap: () => setState(() => _selectedTab = 0),
                       ),
@@ -1881,7 +2177,7 @@ class _SpreadsheetPreviewSheetState extends State<_SpreadsheetPreviewSheet> {
                       child: _SpreadsheetReviewTabButton(
                         label: s.t('spreadsheetIssueRows'),
                         count: result.issues.length,
-                        color: const Color(0xFFE7C6BF),
+                        color: colors.cardCoral,
                         selected: _selectedTab == 1,
                         onTap: () => setState(() => _selectedTab = 1),
                       ),
@@ -1891,7 +2187,7 @@ class _SpreadsheetPreviewSheetState extends State<_SpreadsheetPreviewSheet> {
                       child: _SpreadsheetReviewTabButton(
                         label: s.t('spreadsheetConflicts'),
                         count: _conflictRows.length,
-                        color: const Color(0xFFB9A9F2),
+                        color: colors.cardLavender,
                         selected: _selectedTab == 2,
                         onTap: () => setState(() => _selectedTab = 2),
                       ),
@@ -1948,10 +2244,10 @@ class _SpreadsheetPreviewSheetState extends State<_SpreadsheetPreviewSheet> {
                                           : 'completed',
                                     ),
                               statusColor: isConflict
-                                  ? AppColors.purple
+                                  ? colors.purple
                                   : flight.isUpcoming
-                                  ? AppColors.purple
-                                  : AppColors.lime,
+                                  ? colors.purple
+                                  : colors.lime,
                               ambiguousAirportMessage: item.hasAmbiguousAirport
                                   ? s.t('spreadsheetAmbiguousAirport')
                                   : null,
@@ -2011,10 +2307,11 @@ class _SpreadsheetReviewTabButton extends StatelessWidget {
         ? color
         : Color.alphaBlend(
             color.withValues(alpha: .18),
-            AppColors.surfaceElevated,
+            context.appColors.surfaceElevated,
           );
-    final countColor = selected ? Colors.black : color;
-    final labelColor = selected ? Colors.black : AppColors.textSecondary;
+    final colors = context.appColors;
+    final countColor = selected ? colors.cardText : color;
+    final labelColor = selected ? colors.cardText : colors.textSecondary;
     return Semantics(
       button: true,
       selected: selected,
@@ -2073,69 +2370,72 @@ class _SpreadsheetIssuesPanel extends StatelessWidget {
   final String hint;
 
   @override
-  Widget build(BuildContext context) => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      Container(
-        width: double.infinity,
-        padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
-        decoration: ShapeDecoration(
-          color: AppColors.danger.withValues(alpha: .08),
-          shape: AppShapes.medium,
-        ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Padding(
-              padding: EdgeInsets.only(top: 1),
-              child: Icon(
-                Icons.warning_amber_rounded,
-                color: AppColors.danger,
-                size: 20,
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxHeight: 124),
-                child: ListView.separated(
-                  shrinkWrap: true,
-                  padding: EdgeInsets.zero,
-                  itemCount: issues.length,
-                  separatorBuilder: (_, _) => const SizedBox(height: 8),
-                  itemBuilder: (context, index) {
-                    final issue = issues[index];
-                    return Text.rich(
-                      TextSpan(
-                        children: [
-                          TextSpan(
-                            text: '${issue.rowNumber}  ',
-                            style: const TextStyle(
-                              color: AppColors.danger,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                          TextSpan(
-                            text: issue.message,
-                            style: AppTextStyles.label,
-                          ),
-                        ],
-                      ),
-                    );
-                  },
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
+          decoration: ShapeDecoration(
+            color: colors.danger.withValues(alpha: .08),
+            shape: AppShapes.medium,
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: EdgeInsets.only(top: 1),
+                child: Icon(
+                  Icons.warning_amber_rounded,
+                  color: colors.danger,
+                  size: 20,
                 ),
               ),
-            ),
-          ],
+              const SizedBox(width: 10),
+              Expanded(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxHeight: 124),
+                  child: ListView.separated(
+                    shrinkWrap: true,
+                    padding: EdgeInsets.zero,
+                    itemCount: issues.length,
+                    separatorBuilder: (_, _) => const SizedBox(height: 8),
+                    itemBuilder: (context, index) {
+                      final issue = issues[index];
+                      return Text.rich(
+                        TextSpan(
+                          children: [
+                            TextSpan(
+                              text: '${issue.rowNumber}  ',
+                              style: TextStyle(
+                                color: colors.danger,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                            TextSpan(
+                              text: issue.message,
+                              style: AppTextStyles.label,
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
-      ),
-      const SizedBox(height: 10),
-      Text(
-        hint,
-        style: AppTextStyles.label.copyWith(color: AppColors.textTertiary),
-      ),
-    ],
-  );
+        const SizedBox(height: 10),
+        Text(
+          hint,
+          style: AppTextStyles.label.copyWith(color: colors.textTertiary),
+        ),
+      ],
+    );
+  }
 }
 
 class _SpreadsheetFlightCard extends StatelessWidget {
@@ -2157,6 +2457,7 @@ class _SpreadsheetFlightCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.appColors;
     final flight = item.flight;
     final airline = (flight.airline ?? '').trim();
     final flightNumber = (flight.flightNumber ?? '').trim();
@@ -2180,7 +2481,7 @@ class _SpreadsheetFlightCard extends StatelessWidget {
         width: double.infinity,
         padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
         decoration: ShapeDecoration(
-          color: AppColors.surfaceElevated,
+          color: colors.surfaceElevated,
           shape: AppShapes.medium,
           shadows: [
             BoxShadow(
@@ -2234,7 +2535,7 @@ class _SpreadsheetFlightCard extends StatelessWidget {
                 _SpreadsheetMetaItem(
                   icon: Icons.schedule_rounded,
                   text: duration,
-                  color: AppColors.purple,
+                  color: colors.purple,
                 ),
               ],
             ),
@@ -2247,17 +2548,17 @@ class _SpreadsheetFlightCard extends StatelessWidget {
                   vertical: 10,
                 ),
                 decoration: ShapeDecoration(
-                  color: AppColors.danger.withValues(alpha: .08),
+                  color: colors.danger.withValues(alpha: .08),
                   shape: AppShapes.small,
                 ),
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Padding(
+                    Padding(
                       padding: EdgeInsets.only(top: 1),
                       child: Icon(
                         Icons.info_outline_rounded,
-                        color: AppColors.danger,
+                        color: colors.danger,
                         size: 18,
                       ),
                     ),
@@ -2266,7 +2567,7 @@ class _SpreadsheetFlightCard extends StatelessWidget {
                       child: Text(
                         ambiguousAirportMessage!,
                         style: AppTextStyles.label.copyWith(
-                          color: AppColors.danger,
+                          color: colors.danger,
                         ),
                       ),
                     ),
@@ -2287,23 +2588,26 @@ class _SpreadsheetRowNumber extends StatelessWidget {
   final int number;
 
   @override
-  Widget build(BuildContext context) => Container(
-    width: 36,
-    height: 36,
-    alignment: Alignment.center,
-    decoration: BoxDecoration(
-      color: AppColors.lime.withValues(alpha: .14),
-      shape: BoxShape.circle,
-    ),
-    child: Text(
-      '$number',
-      style: const TextStyle(
-        color: AppColors.textPrimary,
-        fontSize: 16,
-        fontWeight: FontWeight.w800,
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    return Container(
+      width: 36,
+      height: 36,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: colors.lime.withValues(alpha: .14),
+        shape: BoxShape.circle,
       ),
-    ),
-  );
+      child: Text(
+        '$number',
+        style: TextStyle(
+          color: colors.textPrimary,
+          fontSize: 16,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    );
+  }
 }
 
 class _SpreadsheetStatusTag extends StatelessWidget {
@@ -2346,46 +2650,41 @@ class _SpreadsheetRouteBlock extends StatelessWidget {
   final String arrivalName;
 
   @override
-  Widget build(BuildContext context) => Row(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      SizedBox(
-        width: 22,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(
-              Icons.flight_takeoff_rounded,
-              color: AppColors.lime,
-              size: 18,
-            ),
-            Container(
-              width: 1,
-              height: 16,
-              margin: const EdgeInsets.symmetric(vertical: 3),
-              color: AppColors.border,
-            ),
-            const Icon(
-              Icons.flight_land_rounded,
-              color: AppColors.purple,
-              size: 18,
-            ),
-          ],
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 22,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.flight_takeoff_rounded, color: colors.lime, size: 18),
+              Container(
+                width: 1,
+                height: 16,
+                margin: const EdgeInsets.symmetric(vertical: 3),
+                color: colors.border,
+              ),
+              Icon(Icons.flight_land_rounded, color: colors.purple, size: 18),
+            ],
+          ),
         ),
-      ),
-      const SizedBox(width: 10),
-      Expanded(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _SpreadsheetAirportLine(code: departureCode, name: departureName),
-            const SizedBox(height: 10),
-            _SpreadsheetAirportLine(code: arrivalCode, name: arrivalName),
-          ],
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _SpreadsheetAirportLine(code: departureCode, name: departureName),
+              const SizedBox(height: 10),
+              _SpreadsheetAirportLine(code: arrivalCode, name: arrivalName),
+            ],
+          ),
         ),
-      ),
-    ],
-  );
+      ],
+    );
+  }
 }
 
 class _SpreadsheetAirportLine extends StatelessWidget {
@@ -2395,60 +2694,69 @@ class _SpreadsheetAirportLine extends StatelessWidget {
   final String name;
 
   @override
-  Widget build(BuildContext context) => Text.rich(
-    TextSpan(
-      children: [
-        TextSpan(
-          text: code.isEmpty ? '—' : code,
-          style: const TextStyle(
-            color: AppColors.textPrimary,
-            fontSize: 16,
-            fontWeight: FontWeight.w800,
-          ),
-        ),
-        if (name.trim().isNotEmpty)
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    return Text.rich(
+      TextSpan(
+        children: [
           TextSpan(
-            text: '  ${name.trim()}',
-            style: AppTextStyles.bodySecondary,
+            text: code.isEmpty ? '—' : code,
+            style: TextStyle(
+              color: colors.textPrimary,
+              fontSize: 16,
+              fontWeight: FontWeight.w800,
+            ),
           ),
-      ],
-    ),
-    maxLines: 2,
-    overflow: TextOverflow.ellipsis,
-  );
+          if (name.trim().isNotEmpty)
+            TextSpan(
+              text: '  ${name.trim()}',
+              style: AppTextStyles.bodySecondary.copyWith(
+                color: colors.textSecondary,
+              ),
+            ),
+        ],
+      ),
+      maxLines: 2,
+      overflow: TextOverflow.ellipsis,
+    );
+  }
 }
 
 class _SpreadsheetMetaItem extends StatelessWidget {
   const _SpreadsheetMetaItem({
     required this.icon,
     required this.text,
-    this.color = AppColors.textSecondary,
+    this.color,
   });
 
   final IconData icon;
   final String text;
-  final Color color;
+  final Color? color;
 
   @override
-  Widget build(BuildContext context) => Semantics(
-    label: text,
-    child: Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, size: 16, color: color),
-        const SizedBox(width: 6),
-        Text(
-          text,
-          style: AppTextStyles.label.copyWith(
-            color: color,
-            fontWeight: color == AppColors.purple
-                ? FontWeight.w700
-                : FontWeight.w600,
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    final resolvedColor = color ?? colors.textSecondary;
+    return Semantics(
+      label: text,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 16, color: resolvedColor),
+          const SizedBox(width: 6),
+          Text(
+            text,
+            style: AppTextStyles.label.copyWith(
+              color: resolvedColor,
+              fontWeight: resolvedColor == colors.purple
+                  ? FontWeight.w700
+                  : FontWeight.w600,
+            ),
           ),
-        ),
-      ],
-    ),
-  );
+        ],
+      ),
+    );
+  }
 }
 
 class _SpreadsheetReviewEmpty extends StatelessWidget {
@@ -2464,7 +2772,7 @@ class _SpreadsheetReviewEmpty extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 42, color: AppColors.textTertiary),
+          Icon(icon, size: 42, color: context.appColors.textTertiary),
           const SizedBox(height: 12),
           Text(
             message,
@@ -2485,6 +2793,7 @@ class _SpreadsheetProgressDialog extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final s = context.strings;
+    final colors = context.appColors;
     return ValueListenableBuilder<double?>(
       valueListenable: progress,
       builder: (context, value, _) {
@@ -2499,7 +2808,7 @@ class _SpreadsheetProgressDialog extends StatelessWidget {
         final title = s.t('spreadsheetImporting');
         final hint = s.t('spreadsheetImportingHint');
         return Dialog(
-          backgroundColor: AppColors.surface,
+          backgroundColor: colors.surface,
           surfaceTintColor: Colors.transparent,
           elevation: 0,
           shadowColor: Colors.transparent,
@@ -2510,7 +2819,7 @@ class _SpreadsheetProgressDialog extends StatelessWidget {
           ),
           shape: RoundedSuperellipseBorder(
             borderRadius: AppRadii.large,
-            side: const BorderSide(color: AppColors.border),
+            side: BorderSide(color: colors.border),
           ),
           child: Padding(
             padding: const EdgeInsets.fromLTRB(24, 22, 24, 24),
@@ -2539,14 +2848,14 @@ class _SpreadsheetProgressDialog extends StatelessWidget {
                         CircularProgressIndicator(
                           value: normalized,
                           strokeWidth: 5,
-                          color: AppColors.lime,
-                          backgroundColor: AppColors.surfaceElevated,
+                          color: colors.lime,
+                          backgroundColor: colors.surfaceElevated,
                         ),
-                        const SizedBox(
+                        SizedBox(
                           width: 54,
                           height: 54,
                           child: CustomPaint(
-                            painter: _SpreadsheetTablePainter(),
+                            painter: _SpreadsheetTablePainter(colors: colors),
                           ),
                         ),
                       ],
@@ -2557,7 +2866,7 @@ class _SpreadsheetProgressDialog extends StatelessWidget {
                     Text(
                       '${(normalized * 100).round()}%',
                       style: AppTextStyles.label.copyWith(
-                        color: AppColors.lime,
+                        color: colors.lime,
                         fontWeight: FontWeight.w800,
                       ),
                     ),
@@ -2569,7 +2878,7 @@ class _SpreadsheetProgressDialog extends StatelessWidget {
                     hint,
                     textAlign: TextAlign.center,
                     style: AppTextStyles.label.copyWith(
-                      color: AppColors.textTertiary,
+                      color: colors.textTertiary,
                       fontWeight: FontWeight.w500,
                     ),
                   ),
@@ -2591,6 +2900,7 @@ class _SpreadsheetStageRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final s = context.strings;
+    final colors = context.appColors;
     final labels = [
       s.t('spreadsheetStageReading'),
       s.t('spreadsheetStageMatching'),
@@ -2607,8 +2917,8 @@ class _SpreadsheetStageRow extends StatelessWidget {
                 child: Container(
                   height: 1,
                   color: index <= activeIndex
-                      ? AppColors.lime.withValues(alpha: .48)
-                      : AppColors.border,
+                      ? colors.lime.withValues(alpha: .48)
+                      : colors.border,
                 ),
               ),
             ),
@@ -2624,12 +2934,10 @@ class _SpreadsheetStageRow extends StatelessWidget {
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     color: index <= activeIndex
-                        ? AppColors.lime
-                        : AppColors.surfaceElevated,
+                        ? colors.lime
+                        : colors.surfaceElevated,
                     border: Border.all(
-                      color: index <= activeIndex
-                          ? AppColors.lime
-                          : AppColors.border,
+                      color: index <= activeIndex ? colors.lime : colors.border,
                     ),
                   ),
                   child: index < activeIndex
@@ -2645,7 +2953,7 @@ class _SpreadsheetStageRow extends StatelessWidget {
                             fontWeight: FontWeight.w800,
                             color: index == activeIndex
                                 ? Colors.black
-                                : AppColors.textTertiary,
+                                : colors.textTertiary,
                           ),
                         ),
                 ),
@@ -2658,8 +2966,8 @@ class _SpreadsheetStageRow extends StatelessWidget {
                   style: AppTextStyles.label.copyWith(
                     fontSize: 11,
                     color: index <= activeIndex
-                        ? AppColors.textSecondary
-                        : AppColors.textTertiary,
+                        ? colors.textSecondary
+                        : colors.textTertiary,
                   ),
                 ),
               ],
@@ -2672,18 +2980,20 @@ class _SpreadsheetStageRow extends StatelessWidget {
 }
 
 class _SpreadsheetTablePainter extends CustomPainter {
-  const _SpreadsheetTablePainter();
+  const _SpreadsheetTablePainter({required this.colors});
+
+  final AppThemeColors colors;
 
   @override
   void paint(Canvas canvas, Size size) {
     final ink = Paint()
-      ..color = AppColors.textPrimary
+      ..color = colors.textPrimary
       ..style = PaintingStyle.stroke
       ..strokeWidth = 2
       ..strokeCap = StrokeCap.round
       ..strokeJoin = StrokeJoin.round;
     final softInk = Paint()
-      ..color = AppColors.textSecondary
+      ..color = colors.textSecondary
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1.4
       ..strokeCap = StrokeCap.round
@@ -2756,9 +3066,10 @@ class _CloudSyncSheetState extends State<_CloudSyncSheet> {
       listenable: _cloud,
       builder: (context, _) {
         final state = _cloud.state;
+        final colors = context.appColors;
         final insets = MediaQuery.viewInsetsOf(context);
         return Material(
-          color: AppColors.background,
+          color: colors.background,
           child: SafeArea(
             top: false,
             child: SingleChildScrollView(
@@ -2772,12 +3083,12 @@ class _CloudSyncSheetState extends State<_CloudSyncSheet> {
                         width: 42,
                         height: 42,
                         decoration: BoxDecoration(
-                          color: AppColors.lime.withValues(alpha: .14),
+                          color: colors.lime.withValues(alpha: .14),
                           shape: BoxShape.circle,
                         ),
-                        child: const Icon(
+                        child: Icon(
                           Icons.cloud_outlined,
-                          color: AppColors.lime,
+                          color: colors.lime,
                           size: 22,
                         ),
                       ),
@@ -2857,7 +3168,7 @@ class _CloudSyncSheetState extends State<_CloudSyncSheet> {
                         onPressed: _busy ? null : _disconnect,
                         child: Text(
                           s.t('disconnectCloud'),
-                          style: const TextStyle(color: AppColors.danger),
+                          style: TextStyle(color: colors.danger),
                         ),
                       ),
                     ),
@@ -3025,7 +3336,9 @@ class _CloudSyncSheetState extends State<_CloudSyncSheet> {
           ),
           FilledButton(
             onPressed: () => Navigator.pop(dialogContext, true),
-            style: FilledButton.styleFrom(backgroundColor: AppColors.danger),
+            style: FilledButton.styleFrom(
+              backgroundColor: context.appColors.danger,
+            ),
             child: Text(s.t('disconnectCloud')),
           ),
         ],
@@ -3118,10 +3431,10 @@ class _CloudSyncSheetState extends State<_CloudSyncSheet> {
           children: [
             SelectableText(
               code,
-              style: const TextStyle(
+              style: TextStyle(
                 fontFamily: 'monospace',
                 fontSize: 13,
-                color: AppColors.textPrimary,
+                color: dialogContext.appColors.textPrimary,
               ),
             ),
             const SizedBox(height: 16),
@@ -3173,6 +3486,7 @@ class _ConnectedCloudCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final s = context.strings;
+    final colors = context.appColors;
     final lastSynced = state.lastSyncedAt == null
         ? s.t('neverSynced')
         : state.lastSyncedAt!.toLocal().toString().substring(0, 16);
@@ -3187,7 +3501,7 @@ class _ConnectedCloudCard extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(18),
       decoration: ShapeDecoration(
-        color: AppColors.surfaceElevated,
+        color: colors.surfaceElevated,
         shape: AppShapes.medium,
       ),
       child: Column(
@@ -3195,7 +3509,7 @@ class _ConnectedCloudCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              const Icon(Icons.cloud_done_rounded, color: AppColors.lime),
+              Icon(Icons.cloud_done_rounded, color: colors.lime),
               const SizedBox(width: 10),
               Text(status, style: AppTextStyles.sectionTitle),
             ],
@@ -3215,7 +3529,7 @@ class _ConnectedCloudCard extends StatelessWidget {
               icon: const Icon(Icons.swap_horiz_rounded, size: 18),
               label: Text(s.t('changeCloudEndpoint')),
               style: TextButton.styleFrom(
-                foregroundColor: AppColors.lime,
+                foregroundColor: colors.lime,
                 padding: const EdgeInsets.symmetric(horizontal: 0, vertical: 4),
               ),
             ),
@@ -3233,7 +3547,7 @@ class _ConnectedCloudCard extends StatelessWidget {
             const SizedBox(height: 10),
             Text(
               state.message!,
-              style: const TextStyle(color: AppColors.danger, fontSize: 13),
+              style: TextStyle(color: colors.danger, fontSize: 13),
             ),
           ],
         ],
@@ -3271,22 +3585,25 @@ class _CloudSecondaryButton extends StatelessWidget {
   final VoidCallback? onPressed;
 
   @override
-  Widget build(BuildContext context) => SizedBox(
-    width: double.infinity,
-    child: FilledButton.icon(
-      onPressed: onPressed,
-      icon: icon,
-      label: Text(label),
-      style: FilledButton.styleFrom(
-        minimumSize: const Size(44, 50),
-        backgroundColor: AppColors.surfaceElevated,
-        foregroundColor: AppColors.textPrimary,
-        disabledBackgroundColor: AppColors.surface,
-        disabledForegroundColor: AppColors.textTertiary,
-        shape: AppShapes.large,
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    return SizedBox(
+      width: double.infinity,
+      child: FilledButton.icon(
+        onPressed: onPressed,
+        icon: icon,
+        label: Text(label),
+        style: FilledButton.styleFrom(
+          minimumSize: const Size(44, 50),
+          backgroundColor: colors.surfaceElevated,
+          foregroundColor: colors.textPrimary,
+          disabledBackgroundColor: colors.surface,
+          disabledForegroundColor: colors.textTertiary,
+          shape: AppShapes.large,
+        ),
       ),
-    ),
-  );
+    );
+  }
 }
 
 class _CloudTextField extends StatelessWidget {
@@ -3311,44 +3628,53 @@ class _CloudTextField extends StatelessWidget {
   final TextCapitalization textCapitalization;
 
   @override
-  Widget build(BuildContext context) => TextField(
-    controller: controller,
-    enabled: enabled,
-    obscureText: obscureText,
-    keyboardType: keyboardType,
-    autocorrect: false,
-    textCapitalization: textCapitalization,
-    style: AppTextStyles.body,
-    decoration: InputDecoration(
-      labelText: label,
-      hintText: hint,
-      hintMaxLines: 2,
-      filled: true,
-      fillColor: AppColors.surfaceElevated,
-      prefixIcon: prefixIcon == null
-          ? null
-          : Icon(prefixIcon, color: AppColors.textTertiary),
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
-      labelStyle: AppTextStyles.label,
-      floatingLabelStyle: const TextStyle(
-        color: AppColors.lime,
-        fontWeight: FontWeight.w600,
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    return TextField(
+      controller: controller,
+      enabled: enabled,
+      obscureText: obscureText,
+      keyboardType: keyboardType,
+      autocorrect: false,
+      textCapitalization: textCapitalization,
+      style: AppTextStyles.body.copyWith(color: colors.textPrimary),
+      decoration: InputDecoration(
+        labelText: label,
+        hintText: hint,
+        hintMaxLines: 2,
+        filled: true,
+        fillColor: colors.surfaceElevated,
+        prefixIcon: prefixIcon == null
+            ? null
+            : Icon(prefixIcon, color: colors.textTertiary),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 18,
+        ),
+        labelStyle: AppTextStyles.label.copyWith(color: colors.textSecondary),
+        floatingLabelStyle: TextStyle(
+          color: colors.lime,
+          fontWeight: FontWeight.w600,
+        ),
+        hintStyle: AppTextStyles.bodySecondary.copyWith(
+          color: colors.textTertiary,
+          fontSize: 13,
+        ),
+        border: ShapedInputBorder(
+          shape: AppShapes.medium,
+          borderSide: BorderSide.none,
+        ),
+        enabledBorder: ShapedInputBorder(
+          shape: AppShapes.medium,
+          borderSide: BorderSide.none,
+        ),
+        focusedBorder: ShapedInputBorder(
+          shape: AppShapes.medium,
+          borderSide: BorderSide(color: colors.lime, width: 1.5),
+        ),
       ),
-      hintStyle: AppTextStyles.bodySecondary.copyWith(fontSize: 13),
-      border: ShapedInputBorder(
-        shape: AppShapes.medium,
-        borderSide: BorderSide.none,
-      ),
-      enabledBorder: ShapedInputBorder(
-        shape: AppShapes.medium,
-        borderSide: BorderSide.none,
-      ),
-      focusedBorder: ShapedInputBorder(
-        shape: AppShapes.medium,
-        borderSide: const BorderSide(color: AppColors.lime, width: 1.5),
-      ),
-    ),
-  );
+    );
+  }
 }
 
 class _SecurityNotice extends StatelessWidget {
@@ -3357,27 +3683,30 @@ class _SecurityNotice extends StatelessWidget {
   final String text;
 
   @override
-  Widget build(BuildContext context) => Container(
-    width: double.infinity,
-    padding: const EdgeInsets.all(14),
-    decoration: ShapeDecoration(
-      color: AppColors.lime.withValues(alpha: .08),
-      shape: AppShapes.medium,
-    ),
-    child: Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Icon(Icons.shield_outlined, color: AppColors.lime, size: 20),
-        const SizedBox(width: 10),
-        Expanded(
-          child: Text(
-            text,
-            style: AppTextStyles.bodySecondary.copyWith(fontSize: 14),
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: ShapeDecoration(
+        color: colors.lime.withValues(alpha: .08),
+        shape: AppShapes.medium,
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.shield_outlined, color: colors.lime, size: 20),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              text,
+              style: AppTextStyles.bodySecondary.copyWith(fontSize: 14),
+            ),
           ),
-        ),
-      ],
-    ),
-  );
+        ],
+      ),
+    );
+  }
 }
 
 class _ErrorNotice extends StatelessWidget {
@@ -3386,16 +3715,19 @@ class _ErrorNotice extends StatelessWidget {
   final String text;
 
   @override
-  Widget build(BuildContext context) => Container(
-    width: double.infinity,
-    padding: const EdgeInsets.all(14),
-    decoration: ShapeDecoration(
-      color: AppColors.danger.withValues(alpha: .1),
-      shape: RoundedSuperellipseBorder(
-        borderRadius: AppRadii.small,
-        side: BorderSide(color: AppColors.danger.withValues(alpha: .32)),
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: ShapeDecoration(
+        color: colors.danger.withValues(alpha: .1),
+        shape: RoundedSuperellipseBorder(
+          borderRadius: AppRadii.small,
+          side: BorderSide(color: colors.danger.withValues(alpha: .32)),
+        ),
       ),
-    ),
-    child: Text(text, style: const TextStyle(color: AppColors.danger)),
-  );
+      child: Text(text, style: TextStyle(color: colors.danger)),
+    );
+  }
 }

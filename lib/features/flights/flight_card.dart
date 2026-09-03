@@ -27,19 +27,19 @@ class FlightCard extends StatelessWidget {
   final VoidCallback? onEdit;
   final VoidCallback? onDelete;
 
-  static const colors = [
-    Color(0xFFB9A9F2),
-    Color(0xFF9CCFE6),
-    Color(0xFFA8D7AF),
-    Color(0xFFE2B4D1),
-    Color(0xFFE6DD79),
-  ];
-
   @override
   Widget build(BuildContext context) {
+    final colors = context.appColors;
+    final isLight = Theme.of(context).brightness == Brightness.light;
     final from = controller.airportFor(flight.departureIata);
     final to = controller.airportFor(flight.arrivalIata);
-    final color = colors[index % colors.length];
+    final color = switch (index % 5) {
+      0 => colors.cardLavender,
+      1 => colors.cardBlue,
+      2 => colors.cardMint,
+      3 => colors.cardCoral,
+      _ => colors.cardYellow,
+    };
     final arrivalAt = flight.arrivedAt ?? _estimatedArrival(flight);
     final flightLabel = [flight.airline, flight.flightNumber]
         .whereType<String>()
@@ -58,17 +58,17 @@ class FlightCard extends StatelessWidget {
             gradient: LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
-              stops: const [0, .7, 1],
+              stops: isLight ? const [0, .68, 1] : const [0, .7, 1],
               colors: [
                 color,
-                Color.lerp(color, Colors.white, .035)!,
-                Color.lerp(color, Colors.white, .10)!,
+                Color.lerp(color, Colors.white, isLight ? .025 : .035)!,
+                Color.lerp(color, Colors.white, isLight ? .075 : .10)!,
               ],
             ),
             shape: AppShapes.large,
           ),
           child: DefaultTextStyle(
-            style: const TextStyle(color: Color(0xFF0B0E12)),
+            style: TextStyle(color: colors.cardText),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
@@ -162,37 +162,40 @@ class _FlightDuration extends StatelessWidget {
   final int? minutes;
 
   @override
-  Widget build(BuildContext context) => Column(
-    mainAxisSize: MainAxisSize.min,
-    children: [
-      Container(
-        width: 42,
-        height: 42,
-        decoration: ShapeDecoration(
-          color: Colors.black.withValues(alpha: .08),
-          shape: AppShapes.pill,
-        ),
-        child: const Icon(
-          Icons.flight_takeoff_rounded,
-          color: Color(0xFF0B0E12),
-          size: 23,
-        ),
-      ),
-      if (minutes != null) ...[
-        const SizedBox(height: 5),
-        Text(
-          FlightCard._formatDuration(minutes!),
-          textAlign: TextAlign.center,
-          style: const TextStyle(
-            fontSize: 11,
-            height: 1,
-            fontWeight: FontWeight.w700,
-            letterSpacing: -.1,
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 42,
+          height: 42,
+          decoration: ShapeDecoration(
+            color: colors.cardText.withValues(alpha: .08),
+            shape: AppShapes.pill,
+          ),
+          child: Icon(
+            Icons.flight_takeoff_rounded,
+            color: colors.cardText,
+            size: 23,
           ),
         ),
+        if (minutes != null) ...[
+          const SizedBox(height: 5),
+          Text(
+            FlightCard._formatDuration(minutes!),
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              fontSize: 11,
+              height: 1,
+              fontWeight: FontWeight.w700,
+              letterSpacing: -.1,
+            ),
+          ),
+        ],
       ],
-    ],
-  );
+    );
+  }
 }
 
 class _MetaPill extends StatelessWidget {
@@ -201,26 +204,29 @@ class _MetaPill extends StatelessWidget {
   final String label;
 
   @override
-  Widget build(BuildContext context) => DecoratedBox(
-    decoration: ShapeDecoration(
-      color: Colors.black.withValues(alpha: .08),
-      shape: AppShapes.pill,
-    ),
-    child: Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-      child: Text(
-        label,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: const TextStyle(
-          fontSize: 10,
-          height: 1,
-          fontWeight: FontWeight.w700,
-          letterSpacing: .15,
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    return DecoratedBox(
+      decoration: ShapeDecoration(
+        color: colors.cardText.withValues(alpha: .08),
+        shape: AppShapes.pill,
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        child: Text(
+          label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(
+            fontSize: 10,
+            height: 1,
+            fontWeight: FontWeight.w700,
+            letterSpacing: .15,
+          ),
         ),
       ),
-    ),
-  );
+    );
+  }
 }
 
 class _DateTimeStrip extends StatelessWidget {
@@ -230,23 +236,26 @@ class _DateTimeStrip extends StatelessWidget {
   final DateTime? arrival;
 
   @override
-  Widget build(BuildContext context) => DecoratedBox(
-    decoration: ShapeDecoration(
-      color: Colors.black.withValues(alpha: .075),
-      shape: AppShapes.medium,
-    ),
-    child: Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          Expanded(child: _DateTimeInfo(value: departure)),
-          const SizedBox(width: 24),
-          Expanded(child: _DateTimeInfo(value: arrival, alignEnd: true)),
-        ],
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    return DecoratedBox(
+      decoration: ShapeDecoration(
+        color: colors.cardText.withValues(alpha: .075),
+        shape: AppShapes.medium,
       ),
-    ),
-  );
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Expanded(child: _DateTimeInfo(value: departure)),
+            const SizedBox(width: 24),
+            Expanded(child: _DateTimeInfo(value: arrival, alignEnd: true)),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _SwipeActions extends StatefulWidget {
@@ -305,7 +314,7 @@ class _SwipeActionsState extends State<_SwipeActions> {
                       _SwipeActionButton(
                         tooltip: context.strings.t('edit'),
                         icon: Icons.edit_rounded,
-                        color: AppColors.purple,
+                        color: context.appColors.purple,
                         onPressed: () {
                           _close();
                           widget.onEdit?.call();
@@ -315,7 +324,7 @@ class _SwipeActionsState extends State<_SwipeActions> {
                       _SwipeActionButton(
                         tooltip: context.strings.t('delete'),
                         icon: Icons.delete_outline_rounded,
-                        color: AppColors.danger,
+                        color: context.appColors.danger,
                         onPressed: () {
                           _close();
                           widget.onDelete?.call();
@@ -368,7 +377,7 @@ class _SwipeActionButton extends StatelessWidget {
         style: IconButton.styleFrom(
           fixedSize: const Size(48, 48),
           backgroundColor: color,
-          foregroundColor: Colors.black,
+          foregroundColor: context.appColors.cardText,
         ),
       ),
     ),
@@ -395,7 +404,7 @@ class _Airport extends StatelessWidget {
       Text(
         label,
         style: TextStyle(
-          color: Colors.black.withValues(alpha: .47),
+          color: context.appColors.cardText.withValues(alpha: .47),
           fontSize: 10,
           height: 1,
           fontWeight: FontWeight.w700,
@@ -472,7 +481,7 @@ class _DateTimeInfo extends StatelessWidget {
               textAlign: alignment,
               maxLines: 1,
               style: TextStyle(
-                color: Colors.black.withValues(alpha: .58),
+                color: context.appColors.cardText.withValues(alpha: .58),
                 fontSize: 10.5,
                 height: 1,
                 fontWeight: FontWeight.w700,
@@ -491,8 +500,8 @@ class _DateTimeInfo extends StatelessWidget {
             child: Text(
               time,
               textAlign: alignment,
-              style: const TextStyle(
-                color: Color(0xFF0B0E12),
+              style: TextStyle(
+                color: context.appColors.cardText,
                 fontSize: 21,
                 height: 1,
                 fontWeight: FontWeight.w700,

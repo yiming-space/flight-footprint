@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/physics.dart';
 
 import '../core/localization/app_strings.dart';
 import '../features/add_flight/add_flight_page.dart';
@@ -20,7 +22,7 @@ class AppShell extends StatefulWidget {
 }
 
 class _AppShellState extends State<AppShell>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   int _index = 0;
   late final AnimationController _addAnimation = AnimationController(
     vsync: this,
@@ -31,7 +33,24 @@ class _AppShellState extends State<AppShell>
   );
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void didChangeMetrics() {
+    // A fold/unfold can interrupt the add-button spring while Android is
+    // resizing the window. Reset it before the next frame so the fixed
+    // circular button is never left in a stale transform state.
+    _addAnimation
+      ..stop()
+      ..value = 1;
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _addAnimation.dispose();
     super.dispose();
   }
@@ -80,6 +99,13 @@ class _AppShellState extends State<AppShell>
   @override
   Widget build(BuildContext context) {
     final strings = context.strings;
+    final media = MediaQuery.of(context);
+    final bottomBarKey = ValueKey(
+      '${media.size.width}:${media.size.height}:'
+      '${media.padding.left}:${media.padding.right}:'
+      '${media.padding.top}:${media.padding.bottom}:'
+      '${media.devicePixelRatio}',
+    );
     final pages = [
       HomePage(
         controller: widget.controller,
@@ -88,10 +114,7 @@ class _AppShellState extends State<AppShell>
       ),
       FlightsPage(controller: widget.controller, onAdd: _openAdd),
       StatsPage(controller: widget.controller),
-      ProfilePage(
-        controller: widget.controller,
-        isActive: _index == 3,
-      ),
+      ProfilePage(controller: widget.controller, isActive: _index == 3),
     ];
     return PopScope(
       canPop: _index == 0,
@@ -109,6 +132,8 @@ class _AppShellState extends State<AppShell>
             SafeArea(
               top: true,
               bottom: false,
+              left: false,
+              right: false,
               child: IndexedStack(index: _index, children: pages),
             ),
             Positioned(
@@ -116,6 +141,7 @@ class _AppShellState extends State<AppShell>
               right: 0,
               bottom: 0,
               child: _BottomBar(
+                key: bottomBarKey,
                 index: _index,
                 labels: [
                   strings.t('home'),
@@ -135,8 +161,9 @@ class _AppShellState extends State<AppShell>
   }
 }
 
-class _BottomBar extends StatelessWidget {
+class _BottomBar extends StatefulWidget {
   const _BottomBar({
+    super.key,
     required this.index,
     required this.labels,
     required this.addAnimation,
@@ -150,7 +177,73 @@ class _BottomBar extends StatelessWidget {
   final VoidCallback onAdd;
 
   @override
+  State<_BottomBar> createState() => _BottomBarState();
+}
+
+class _BottomBarState extends State<_BottomBar>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _selectionAnimation;
+  var _selectionStart = 0.0;
+  var _selectionTarget = 0.0;
+
+  @override
+  void initState() {
+    super.initState();
+    final initialSlot = _slotForIndex(widget.index).toDouble();
+    _selectionStart = initialSlot;
+    _selectionTarget = initialSlot;
+    _selectionAnimation = AnimationController.unbounded(
+      vsync: this,
+      value: initialSlot,
+    );
+  }
+
+  @override
+  void didUpdateWidget(covariant _BottomBar oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.index == widget.index) return;
+
+    final target = _slotForIndex(widget.index).toDouble();
+    _selectionStart = _selectionAnimation.value;
+    _selectionTarget = target;
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _selectionAnimation.value = target;
+      return;
+    }
+
+    final spring = SpringDescription.withDurationAndBounce(
+      duration: const Duration(milliseconds: 400),
+      bounce: 0,
+    );
+    unawaited(
+      _selectionAnimation.animateWith(
+        SpringSimulation(
+          spring,
+          _selectionAnimation.value,
+          target,
+          _selectionAnimation.velocity,
+        ),
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    _selectionAnimation.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final colors = context.appColors;
+    final isLight = Theme.of(context).brightness == Brightness.light;
+    final glassBorder = isLight
+        ? Colors.white.withValues(alpha: .22)
+        : Colors.white.withValues(alpha: .16);
+    final glassColor = isLight
+        ? const Color(0xff171b20).withValues(alpha: .86)
+        : colors.surface.withValues(alpha: .46);
+    final glassShadow = Colors.black.withValues(alpha: isLight ? .14 : .28);
     const icons = [
       Icons.home_rounded,
       Icons.flight_rounded,
@@ -159,10 +252,12 @@ class _BottomBar extends StatelessWidget {
     ];
     final glassShape = RoundedSuperellipseBorder(
       borderRadius: BorderRadius.circular(44),
-      side: BorderSide(color: Colors.white.withValues(alpha: .16), width: .8),
+      side: BorderSide(color: glassBorder, width: .8),
     );
     return SafeArea(
       top: false,
+      left: false,
+      right: false,
       minimum: const EdgeInsets.fromLTRB(
         AppSpacing.page,
         AppSpacing.sm,
@@ -174,16 +269,19 @@ class _BottomBar extends StatelessWidget {
         child: ClipPath(
           clipper: ShapeBorderClipper(shape: glassShape),
           child: BackdropFilter(
-            filter: ui.ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+            filter: ui.ImageFilter.blur(
+              sigmaX: isLight ? 24 : 20,
+              sigmaY: isLight ? 24 : 20,
+            ),
             child: DecoratedBox(
               decoration: ShapeDecoration(
                 // A translucent material lets the page remain present beneath
                 // the bar while the blur keeps labels readable over maps/cards.
-                color: AppColors.surface.withValues(alpha: .46),
+                color: glassColor,
                 shape: glassShape,
                 shadows: [
                   BoxShadow(
-                    color: Colors.black.withValues(alpha: .28),
+                    color: glassShadow,
                     blurRadius: 24,
                     offset: const Offset(0, 10),
                   ),
@@ -199,8 +297,12 @@ class _BottomBar extends StatelessWidget {
                             begin: Alignment.topCenter,
                             end: Alignment.bottomCenter,
                             colors: [
-                              Colors.white.withValues(alpha: .10),
-                              Colors.white.withValues(alpha: .025),
+                              Colors.white.withValues(
+                                alpha: isLight ? .14 : .10,
+                              ),
+                              Colors.white.withValues(
+                                alpha: isLight ? .035 : .025,
+                              ),
                               Colors.transparent,
                             ],
                             stops: const [0, .24, 1],
@@ -210,6 +312,7 @@ class _BottomBar extends StatelessWidget {
                       ),
                     ),
                   ),
+                  _liquidSelection(),
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 8),
                     child: Row(
@@ -219,17 +322,27 @@ class _BottomBar extends StatelessWidget {
                         Expanded(
                           child: Center(
                             child: ScaleTransition(
-                              scale: addAnimation,
-                              child: Semantics(
-                                button: true,
-                                label: context.strings.t('addFlight'),
-                                child: IconButton.filled(
-                                  onPressed: onAdd,
-                                  icon: const Icon(Icons.add_rounded, size: 34),
-                                  style: IconButton.styleFrom(
-                                    fixedSize: const Size(64, 64),
-                                    backgroundColor: AppColors.purple,
-                                    foregroundColor: Colors.black,
+                              scale: widget.addAnimation,
+                              child: SizedBox.square(
+                                dimension: 64,
+                                child: Semantics(
+                                  button: true,
+                                  label: context.strings.t('addFlight'),
+                                  child: Material(
+                                    color: colors.purple,
+                                    shape: const CircleBorder(),
+                                    clipBehavior: Clip.antiAlias,
+                                    child: InkWell(
+                                      onTap: widget.onAdd,
+                                      customBorder: const CircleBorder(),
+                                      child: Center(
+                                        child: Icon(
+                                          Icons.add_rounded,
+                                          size: 34,
+                                          color: colors.cardText,
+                                        ),
+                                      ),
+                                    ),
                                   ),
                                 ),
                               ),
@@ -250,44 +363,159 @@ class _BottomBar extends StatelessWidget {
     );
   }
 
-  Widget _item(int value, IconData icon) {
-    final selected = value == index;
-    return Expanded(
-      child: InkWell(
-        onTap: () => onChanged(value),
-        customBorder: AppShapes.medium,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 220),
-          curve: Curves.easeOutCubic,
-          margin: const EdgeInsets.symmetric(horizontal: 3, vertical: 8),
-          padding: const EdgeInsets.symmetric(vertical: 4),
-          decoration: ShapeDecoration(
-            color: selected
-                ? AppColors.lime.withValues(alpha: .14)
-                : Colors.transparent,
-            shape: AppShapes.medium,
-          ),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                icon,
-                color: selected ? AppColors.lime : AppColors.textTertiary,
-                size: 25,
-              ),
-              const SizedBox(height: 4),
-              Text(
-                labels[value],
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-                  color: selected ? AppColors.lime : AppColors.textTertiary,
+  Widget _liquidSelection() {
+    final colors = context.appColors;
+    final isLight = Theme.of(context).brightness == Brightness.light;
+    return Positioned.fill(
+      child: IgnorePointer(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final slotWidth = (constraints.maxWidth - 16) / 5;
+              final baseWidth = math.max(0.0, slotWidth - 6);
+              final shape = RoundedSuperellipseBorder(
+                borderRadius: BorderRadius.circular(26),
+                side: BorderSide(
+                  color: isLight
+                      ? Colors.white.withValues(alpha: .18)
+                      : colors.lime.withValues(alpha: .08),
+                  width: .6,
                 ),
-              ),
-            ],
+              );
+
+              return AnimatedBuilder(
+                animation: _selectionAnimation,
+                builder: (context, child) {
+                  final travel = _selectionTarget - _selectionStart;
+                  final progress = travel.abs() < .001
+                      ? 1.0
+                      : ((_selectionAnimation.value - _selectionStart) / travel)
+                            .clamp(0.0, 1.0)
+                            .toDouble();
+                  // Stretch from the middle of the route, not from the raw
+                  // spring velocity. This keeps the blob's edge motion
+                  // continuous when the user quickly changes destinations.
+                  final stretch = math.sin(progress * math.pi) * 10;
+                  final scaleX = baseWidth <= 0 ? 1.0 : 1 + stretch / baseWidth;
+                  final left =
+                      8 +
+                      _selectionAnimation.value * slotWidth +
+                      3 -
+                      stretch / 2;
+                  return Align(
+                    alignment: Alignment.centerLeft,
+                    child: Transform.translate(
+                      offset: Offset(left, 0),
+                      child: Transform.scale(
+                        alignment: Alignment.center,
+                        scaleX: scaleX,
+                        child: SizedBox(
+                          width: baseWidth,
+                          height: constraints.maxHeight,
+                          child: child,
+                        ),
+                      ),
+                    ),
+                  );
+                },
+                child: DecoratedBox(
+                  decoration: ShapeDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        colors.lime.withValues(alpha: isLight ? .25 : .22),
+                        colors.lime.withValues(alpha: isLight ? .10 : .11),
+                        colors.lime.withValues(alpha: isLight ? .18 : .16),
+                      ],
+                    ),
+                    shape: shape,
+                    shadows: [
+                      BoxShadow(
+                        color: colors.lime.withValues(
+                          alpha: isLight ? .10 : .08,
+                        ),
+                        blurRadius: 18,
+                        spreadRadius: 1,
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
           ),
         ),
       ),
     );
   }
+
+  Widget _item(int value, IconData icon) {
+    final colors = context.appColors;
+    final isLight = Theme.of(context).brightness == Brightness.light;
+    final selected = value == widget.index;
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
+    final inactiveColor = isLight
+        ? Colors.white.withValues(alpha: .68)
+        : colors.textTertiary;
+    final style = TextStyle(
+      fontSize: 11,
+      fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+      color: selected ? colors.lime : inactiveColor,
+    );
+    return Expanded(
+      child: InkWell(
+        onTap: () => widget.onChanged(value),
+        customBorder: AppShapes.medium,
+        child: Container(
+          margin: const EdgeInsets.symmetric(horizontal: 3, vertical: 8),
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                AnimatedSwitcher(
+                  duration: reduceMotion
+                      ? Duration.zero
+                      : const Duration(milliseconds: 180),
+                  switchInCurve: Curves.easeOutCubic,
+                  switchOutCurve: Curves.easeInCubic,
+                  transitionBuilder: (child, animation) => FadeTransition(
+                    opacity: animation,
+                    child: ScaleTransition(
+                      scale: Tween<double>(
+                        begin: .82,
+                        end: 1,
+                      ).animate(animation),
+                      child: child,
+                    ),
+                  ),
+                  child: SizedBox.square(
+                    key: ValueKey('$value-$selected'),
+                    dimension: 25,
+                    child: Icon(
+                      icon,
+                      color: selected ? colors.lime : inactiveColor,
+                      size: 25,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                AnimatedDefaultTextStyle(
+                  duration: reduceMotion
+                      ? Duration.zero
+                      : const Duration(milliseconds: 180),
+                  curve: Curves.easeOutCubic,
+                  style: style,
+                  child: Text(widget.labels[value]),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  static int _slotForIndex(int value) => value < 2 ? value : value + 1;
 }

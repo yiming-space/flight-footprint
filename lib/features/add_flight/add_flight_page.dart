@@ -112,6 +112,7 @@ class _AddFlightPageState extends State<AddFlightPage> {
   @override
   Widget build(BuildContext context) {
     final s = context.strings;
+    final colors = context.appColors;
     return Scaffold(
       body: SafeArea(
         top: true,
@@ -132,12 +133,12 @@ class _AddFlightPageState extends State<AddFlightPage> {
                   Container(
                     padding: const EdgeInsets.fromLTRB(24, 22, 24, 20),
                     decoration: ShapeDecoration(
-                      color: AppColors.surface,
+                      color: colors.surface,
                       shape: AppShapes.large,
                       shadows: _surfaceShadow(),
                     ),
                     child: DefaultTextStyle(
-                      style: const TextStyle(color: AppColors.textPrimary),
+                      style: TextStyle(color: colors.textPrimary),
                       child: Column(
                         children: [
                           Row(
@@ -156,10 +157,10 @@ class _AddFlightPageState extends State<AddFlightPage> {
                                 child: SizedBox(
                                   width: 48,
                                   height: 72,
-                                  child: const Center(
+                                  child: Center(
                                     child: Icon(
                                       Icons.flight_takeoff_rounded,
-                                      color: AppColors.lime,
+                                      color: colors.lime,
                                       size: 28,
                                     ),
                                   ),
@@ -209,7 +210,7 @@ class _AddFlightPageState extends State<AddFlightPage> {
                   const SizedBox(height: 20),
                   SurfaceCard(
                     padding: const EdgeInsets.fromLTRB(20, 20, 20, 18),
-                    color: AppColors.surfaceElevated,
+                    color: colors.surfaceElevated,
                     borderRadius: AppRadii.large,
                     showBorder: false,
                     boxShadow: _surfaceShadow(),
@@ -230,7 +231,7 @@ class _AddFlightPageState extends State<AddFlightPage> {
                           Text(
                             s.t('requiredHint'),
                             style: AppTextStyles.label.copyWith(
-                              color: AppColors.textTertiary,
+                              color: colors.textTertiary,
                               fontWeight: FontWeight.w500,
                             ),
                           ),
@@ -256,12 +257,12 @@ class _AddFlightPageState extends State<AddFlightPage> {
                             ),
                             style: FilledButton.styleFrom(
                               minimumSize: const Size(44, 56),
-                              backgroundColor: AppColors.lime.withValues(
+                              backgroundColor: colors.lime.withValues(
                                 alpha: .14,
                               ),
-                              foregroundColor: AppColors.lime,
-                              disabledBackgroundColor: AppColors.surface,
-                              disabledForegroundColor: AppColors.textTertiary,
+                              foregroundColor: colors.lime,
+                              disabledBackgroundColor: colors.surface,
+                              disabledForegroundColor: colors.textTertiary,
                               shape: AppShapes.large,
                               textStyle: const TextStyle(
                                 fontSize: 16,
@@ -272,7 +273,12 @@ class _AddFlightPageState extends State<AddFlightPage> {
                         ),
                         if (_lookupMessage != null) ...[
                           const SizedBox(height: 8),
-                          Text(_lookupMessage!, style: AppTextStyles.label),
+                          Text(
+                            _lookupMessage!,
+                            style: AppTextStyles.label.copyWith(
+                              color: colors.textSecondary,
+                            ),
+                          ),
                         ],
                       ],
                     ),
@@ -280,7 +286,7 @@ class _AddFlightPageState extends State<AddFlightPage> {
                   const SizedBox(height: 20),
                   SurfaceCard(
                     padding: EdgeInsets.zero,
-                    color: AppColors.surfaceElevated,
+                    color: colors.surfaceElevated,
                     borderRadius: AppRadii.large,
                     showBorder: false,
                     boxShadow: _surfaceShadow(),
@@ -395,39 +401,42 @@ class _AddFlightPageState extends State<AddFlightPage> {
       hintText: hintText,
       prefixIcon: prefixIcon == null
           ? null
-          : Icon(prefixIcon, color: AppColors.textTertiary),
+          : Icon(prefixIcon, color: context.appColors.textTertiary),
     ),
   );
 
-  InputDecoration _decoration(String label) => InputDecoration(
-    labelText: label,
-    filled: true,
-    fillColor: AppColors.surface,
-    labelStyle: AppTextStyles.label,
-    floatingLabelStyle: const TextStyle(
-      color: AppColors.lime,
-      backgroundColor: AppColors.surface,
-      fontSize: 12,
-      height: 1,
-      fontWeight: FontWeight.w600,
-    ),
-    contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 18),
-    border: ShapedInputBorder(
-      shape: AppShapes.medium,
-      borderSide: const BorderSide(color: AppColors.border),
-      gapPadding: 8,
-    ),
-    enabledBorder: ShapedInputBorder(
-      shape: AppShapes.medium,
-      borderSide: const BorderSide(color: AppColors.border),
-      gapPadding: 8,
-    ),
-    focusedBorder: ShapedInputBorder(
-      shape: AppShapes.medium,
-      borderSide: const BorderSide(color: AppColors.lime, width: 1.5),
-      gapPadding: 8,
-    ),
-  );
+  InputDecoration _decoration(String label) {
+    final colors = context.appColors;
+    return InputDecoration(
+      labelText: label,
+      filled: true,
+      fillColor: colors.surface,
+      labelStyle: AppTextStyles.label.copyWith(color: colors.textSecondary),
+      floatingLabelStyle: TextStyle(
+        color: colors.lime,
+        backgroundColor: colors.surface,
+        fontSize: 12,
+        height: 1,
+        fontWeight: FontWeight.w600,
+      ),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 18),
+      border: ShapedInputBorder(
+        shape: AppShapes.medium,
+        borderSide: BorderSide(color: colors.border),
+        gapPadding: 8,
+      ),
+      enabledBorder: ShapedInputBorder(
+        shape: AppShapes.medium,
+        borderSide: BorderSide(color: colors.border),
+        gapPadding: 8,
+      ),
+      focusedBorder: ShapedInputBorder(
+        shape: AppShapes.medium,
+        borderSide: BorderSide(color: colors.lime, width: 1.5),
+        gapPadding: 8,
+      ),
+    );
+  }
 
   List<BoxShadow> _surfaceShadow() => [
     BoxShadow(
@@ -631,7 +640,7 @@ class _AddFlightPageState extends State<AddFlightPage> {
     final airport = await showModalBottomSheet<Airport>(
       context: context,
       isScrollControlled: true,
-      backgroundColor: AppColors.background,
+      backgroundColor: context.appColors.background,
       builder: (_) => _AirportPicker(controller: widget.controller),
     );
     if (airport == null) return;
@@ -889,6 +898,7 @@ class _AirportSelector extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final selectedAirport = airport;
+    final colors = context.appColors;
     return InkWell(
       onTap: onTap,
       customBorder: AppShapes.small,
@@ -901,8 +911,8 @@ class _AirportSelector extends StatelessWidget {
           children: [
             Text(
               label,
-              style: const TextStyle(
-                color: AppColors.textSecondary,
+              style: TextStyle(
+                color: colors.textSecondary,
                 fontSize: 14,
                 fontWeight: FontWeight.w800,
                 letterSpacing: -.1,
@@ -911,8 +921,8 @@ class _AirportSelector extends StatelessWidget {
             const SizedBox(height: 8),
             Text(
               airport?.iataCode ?? '—',
-              style: const TextStyle(
-                color: AppColors.textPrimary,
+              style: TextStyle(
+                color: colors.textPrimary,
                 fontSize: 40,
                 height: 1,
                 fontWeight: FontWeight.w700,
@@ -930,9 +940,7 @@ class _AirportSelector extends StatelessWidget {
                 fontSize: 12,
                 height: 1.15,
                 fontWeight: FontWeight.w600,
-                color: airport == null
-                    ? AppColors.lime
-                    : AppColors.textSecondary,
+                color: airport == null ? colors.lime : colors.textSecondary,
               ),
             ),
           ],
@@ -957,6 +965,7 @@ class _DateTimeSelector extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.appColors;
     final date = value == null
         ? context.strings.t('unknown')
         : DateFormat('yyyy-MM-dd').format(value!);
@@ -964,7 +973,7 @@ class _DateTimeSelector extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 10),
       decoration: ShapeDecoration(
-        color: Colors.black.withValues(alpha: .24),
+        color: colors.surfaceElevated,
         shape: AppShapes.medium,
       ),
       child: Column(
@@ -972,8 +981,8 @@ class _DateTimeSelector extends StatelessWidget {
         children: [
           Text(
             label,
-            style: const TextStyle(
-              color: AppColors.textSecondary,
+            style: TextStyle(
+              color: colors.textSecondary,
               fontSize: 12,
               fontWeight: FontWeight.w800,
               letterSpacing: .1,
@@ -987,9 +996,9 @@ class _DateTimeSelector extends StatelessWidget {
               padding: const EdgeInsets.symmetric(vertical: 6),
               child: Row(
                 children: [
-                  const Icon(
+                  Icon(
                     Icons.calendar_today_rounded,
-                    color: AppColors.textSecondary,
+                    color: colors.textSecondary,
                     size: 15,
                   ),
                   const SizedBox(width: 6),
@@ -998,8 +1007,8 @@ class _DateTimeSelector extends StatelessWidget {
                       date,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: AppColors.textPrimary,
+                      style: TextStyle(
+                        color: colors.textPrimary,
                         fontSize: 13,
                         fontWeight: FontWeight.w700,
                       ),
@@ -1016,16 +1025,16 @@ class _DateTimeSelector extends StatelessWidget {
               padding: const EdgeInsets.symmetric(vertical: 4),
               child: Row(
                 children: [
-                  const Icon(
+                  Icon(
                     Icons.schedule_rounded,
-                    color: AppColors.textSecondary,
+                    color: colors.textSecondary,
                     size: 18,
                   ),
                   const SizedBox(width: 6),
                   Text(
                     time,
-                    style: const TextStyle(
-                      color: AppColors.textPrimary,
+                    style: TextStyle(
+                      color: colors.textPrimary,
                       fontSize: 22,
                       height: 1,
                       fontWeight: FontWeight.w700,
@@ -1126,44 +1135,47 @@ class _AirportPickerState extends State<_AirportPicker> {
         onTap: () => _selectCountry(country),
       );
 
-  Widget _countryHeader(BuildContext context, AirportCountry country) =>
-      Container(
-        margin: const EdgeInsets.only(bottom: 4),
-        padding: const EdgeInsets.fromLTRB(12, 10, 6, 10),
-        decoration: ShapeDecoration(
-          color: AppColors.lime.withValues(alpha: .12),
-          shape: RoundedSuperellipseBorder(
-            borderRadius: BorderRadius.circular(16),
-            side: BorderSide(color: AppColors.lime.withValues(alpha: .42)),
+  Widget _countryHeader(BuildContext context, AirportCountry country) {
+    final colors = context.appColors;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 4),
+      padding: const EdgeInsets.fromLTRB(12, 10, 6, 10),
+      decoration: ShapeDecoration(
+        color: colors.lime.withValues(alpha: .12),
+        shape: RoundedSuperellipseBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(color: colors.lime.withValues(alpha: .42)),
+        ),
+      ),
+      child: Row(
+        children: [
+          Text(
+            localizedCountryFlag(country.code),
+            style: const TextStyle(fontSize: 22),
           ),
-        ),
-        child: Row(
-          children: [
-            Text(
-              localizedCountryFlag(country.code),
-              style: const TextStyle(fontSize: 22),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              context.strings
+                  .t('countryAirports')
+                  .replaceAll('{country}', country.name)
+                  .replaceAll('{count}', country.airportCount.toString()),
+              style: const TextStyle(fontWeight: FontWeight.w700),
             ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                context.strings
-                    .t('countryAirports')
-                    .replaceAll('{country}', country.name)
-                    .replaceAll('{count}', country.airportCount.toString()),
-                style: const TextStyle(fontWeight: FontWeight.w700),
-              ),
-            ),
-            IconButton(
-              tooltip: context.strings.t('clear'),
-              onPressed: _clearCountry,
-              icon: const Icon(Icons.close_rounded),
-              visualDensity: VisualDensity.compact,
-            ),
-          ],
-        ),
-      );
+          ),
+          IconButton(
+            tooltip: context.strings.t('clear'),
+            onPressed: _clearCountry,
+            icon: const Icon(Icons.close_rounded),
+            visualDensity: VisualDensity.compact,
+          ),
+        ],
+      ),
+    );
+  }
 
   Widget _airportResult(Airport airport) {
+    final colors = context.appColors;
     final city = localizedAirportCity(airport);
     final title = city.isEmpty
         ? (airport.city.trim().isEmpty ? airport.iataCode : airport.city)
@@ -1175,7 +1187,7 @@ class _AirportPickerState extends State<_AirportPicker> {
         height: 42,
         alignment: Alignment.center,
         decoration: ShapeDecoration(
-          color: AppColors.lime,
+          color: colors.lime,
           shape: RoundedSuperellipseBorder(
             borderRadius: BorderRadius.circular(14),
           ),
@@ -1200,6 +1212,7 @@ class _AirportPickerState extends State<_AirportPicker> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.appColors;
     final selectedCountry = _selectedCountry;
     final countryRows = selectedCountry == null ? _countryResults.length : 1;
     final totalRows = countryRows + _results.length;
@@ -1219,7 +1232,9 @@ class _AirportPickerState extends State<_AirportPicker> {
             children: [
               Text(
                 context.strings.t('selectAirport'),
-                style: AppTextStyles.sectionTitle,
+                style: AppTextStyles.sectionTitle.copyWith(
+                  color: colors.textPrimary,
+                ),
               ),
               const SizedBox(height: 16),
               TextField(
@@ -1231,10 +1246,10 @@ class _AirportPickerState extends State<_AirportPicker> {
                   prefixIcon: const Icon(Icons.search_rounded),
                   hintText: context.strings.t('searchAirport'),
                   filled: true,
-                  fillColor: AppColors.surface,
+                  fillColor: colors.surface,
                   border: ShapedInputBorder(
                     shape: AppShapes.medium,
-                    borderSide: const BorderSide(color: AppColors.border),
+                    borderSide: BorderSide(color: colors.border),
                   ),
                 ),
               ),

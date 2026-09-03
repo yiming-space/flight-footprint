@@ -279,6 +279,7 @@ class _PassportArtwork extends StatelessWidget {
                       animateRouteReveal: true,
                       showPassportTexture: false,
                       compactWorldViewport: true,
+                      useLightPalette: false,
                       horizontalPadding: 0,
                       verticalPadding: 0,
                       // Keep route endpoints in the upper artwork area; the

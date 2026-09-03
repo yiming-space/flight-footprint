@@ -8,7 +8,8 @@ import 'map_projection.dart';
 import 'map_models.dart';
 import '../../ui/theme/app_theme.dart';
 
-/// Paints the same deliberately flat, dark map language as the web app.
+/// Paints the app's deliberately flat map language in either the dark or light
+/// product palette.
 ///
 /// The painter stays offline and dependency-free, while keeping the web
 /// projection and great-circle route math in one place. The map is therefore
@@ -35,6 +36,7 @@ class FlatMapPainter extends CustomPainter {
     this.horizontalPadding = 16,
     this.verticalPadding = 14,
     this.horizontalWrap = false,
+    this.lightPalette = false,
   });
 
   final GeoJsonMapBundle data;
@@ -89,23 +91,75 @@ class FlatMapPainter extends CustomPainter {
   /// single world copy and split routes at the same seam instead.
   final bool horizontalWrap;
 
-  static const _routeColors = <Color>[
+  /// Dashboard maps inherit the app theme. Passport artwork explicitly keeps
+  /// this false so its shareable card remains an independent dark composition.
+  final bool lightPalette;
+
+  static const _darkRouteColors = <Color>[
     Color(0xffc6ff32),
     Color(0xffa58aff),
     Color(0xff75dce9),
     Color(0xfff6e68a),
     Color(0xffff8b7a),
   ];
-  static const _landColors = <Color>[
+  static const _lightRouteColors = <Color>[
+    Color(0xff78b82f),
+    Color(0xff7e65c7),
+    Color(0xff2a9cab),
+    Color(0xffc49e2a),
+    Color(0xffd86479),
+  ];
+  static const _darkLandColors = <Color>[
     Color(0xff1b222b),
     Color(0xff202832),
     Color(0xff182028),
     Color(0xff242d37),
     Color(0xff1e2730),
   ];
+  static const _lightLandColors = <Color>[
+    Color(0xffd5e0e4),
+    Color(0xffdee7ea),
+    Color(0xffd0dde2),
+    Color(0xffe4ebee),
+    Color(0xffd9e4e7),
+  ];
   // A muted lavender keeps visited regions visible without competing with
   // the flight-map markers and lime route accents.
-  static const _footprintFill = Color(0xff75688f);
+  static const _darkFootprintFill = Color(0xff75688f);
+  static const _lightFootprintFill = Color(0xffc0cdee);
+
+  List<Color> get _routeColors =>
+      lightPalette ? _lightRouteColors : _darkRouteColors;
+
+  List<Color> get _landColors =>
+      lightPalette ? _lightLandColors : _darkLandColors;
+
+  Color get _mapBackground =>
+      lightPalette ? const Color(0xfff0f3f4) : const Color(0xff0b1015);
+
+  Color get _maritimeFill =>
+      lightPalette ? const Color(0xffe4ebee) : const Color(0xff222b35);
+
+  Color get _maritimeStroke =>
+      lightPalette ? const Color(0xffc7d3d9) : const Color(0xff334250);
+
+  Color get _countryBoundary =>
+      lightPalette ? const Color(0xffa8b7c0) : const Color(0xff3a4757);
+
+  Color get _nationalBoundary =>
+      lightPalette ? const Color(0xff8496a0) : const Color(0xff66788b);
+
+  Color get _internalBoundary =>
+      lightPalette ? const Color(0xffc3d0d6) : const Color(0xff344454);
+
+  Color get _gridColor =>
+      lightPalette ? const Color(0xffd6e0e4) : const Color(0xff5a6977);
+
+  Color get _footprintFill =>
+      lightPalette ? _lightFootprintFill : _darkFootprintFill;
+
+  Color get _markerOutline =>
+      lightPalette ? const Color(0xfff7fafc) : const Color(0xff0b1015);
 
   double get _scale => visualScale.clamp(1.0, 30.0).toDouble();
 
@@ -136,9 +190,9 @@ class FlatMapPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     // The passport card supplies its own dark surface. Leave the compact map
     // canvas untouched so only the world silhouette, routes, and markers
-    // appear; dashboard maps retain their opaque map panel.
+    // appear; dashboard maps retain their themed opaque map panel.
     if (!minimalWorldStyle && !transparentBackground) {
-      canvas.drawColor(const Color(0xff0b1015), BlendMode.src);
+      canvas.drawColor(_mapBackground, BlendMode.src);
     }
     if (horizontalWrap) {
       final worldWidth = _worldPixelWidth(size);
@@ -205,14 +259,14 @@ class FlatMapPainter extends CustomPainter {
         canvas,
         size,
         data.maritimeMarks.polygons,
-        (_) => const Color(0xff222b35),
-        const Color(0xff334250),
+        (_) => _maritimeFill,
+        _maritimeStroke,
       );
       _drawPolygonOutlines(
         canvas,
         size,
         data.countries.polygons,
-        const Color(0xff3a4757),
+        _countryBoundary,
         .65,
         skipPolarShelf: excludePolarShelf,
       );
@@ -220,14 +274,14 @@ class FlatMapPainter extends CustomPainter {
         canvas,
         size,
         data.nationalBoundary.polygons,
-        const Color(0xff66788b),
+        _nationalBoundary,
         1.05,
       );
       _drawLines(
         canvas,
         size,
         data.countries.lines,
-        const Color(0xff3a4757),
+        _countryBoundary,
         .65,
         skipPolarShelf: excludePolarShelf,
       );
@@ -235,14 +289,14 @@ class FlatMapPainter extends CustomPainter {
         canvas,
         size,
         data.nationalBoundary.lines,
-        const Color(0xff66788b),
+        _nationalBoundary,
         1.05,
       );
       _drawLines(
         canvas,
         size,
         data.internalBoundaries.lines,
-        const Color(0xff344454),
+        _internalBoundary,
         .55,
       );
     }
@@ -322,7 +376,10 @@ class FlatMapPainter extends CustomPainter {
 
   void _drawMinimalWorld(Canvas canvas, Size size) {
     final paths = _polygonPaths(data.land.polygons, size);
-    final paint = Paint()..color = const Color(0xff303a45);
+    final paint = Paint()
+      ..color = lightPalette
+          ? const Color(0xffcbd5dc)
+          : const Color(0xff303a45);
     for (var index = 0; index < paths.length; index++) {
       canvas.drawPath(paths[index], paint);
     }
@@ -377,7 +434,7 @@ class FlatMapPainter extends CustomPainter {
 
   void _drawGrid(Canvas canvas, Size size) {
     final paint = Paint()
-      ..color = const Color(0xff5a6977).withValues(alpha: .15)
+      ..color = _gridColor.withValues(alpha: lightPalette ? .22 : .15)
       ..style = PaintingStyle.stroke
       ..strokeWidth = _screen(.55);
     // Keep the graticule sampled through the projection entry point. This
@@ -462,7 +519,7 @@ class FlatMapPainter extends CustomPainter {
       bounds.right,
       math.max(bounds.top + 1, fadeBottom),
     );
-    const surfaceColor = Color(0xff060b11);
+    final surfaceColor = _mapBackground;
     // Antarctica is part of the map, not another visual panel. Keeping a
     // quieter version of the land tone at the coastline lets the lower edge
     // become genuinely transparent and hand off to the card's fixed fade.
@@ -479,7 +536,7 @@ class FlatMapPainter extends CustomPainter {
         polarLandColor.withValues(alpha: .38),
         polarLandColor.withValues(alpha: .21),
         polarLandColor.withValues(alpha: .08),
-        const Color(0x00060b11),
+        surfaceColor.withValues(alpha: 0),
       ],
       stops: const [0.0, .12, .27, .43, .59, .73, .85, .95, 1.0],
     ).createShader(fadeBounds);
@@ -966,11 +1023,11 @@ class FlatMapPainter extends CustomPainter {
       // Flight-map points use the same semantic lime as the rest of the UI.
       // Route lines keep their five-color rhythm; only the airport marker
       // itself is unified so a dense itinerary reads as one clear layer.
-      final color = AppColors.lime;
+      final color = lightPalette ? _lightRouteColors.first : AppColors.lime;
       canvas.drawCircle(
         point,
         _screen(3.8 * markerScale),
-        Paint()..color = const Color(0xff0b1015),
+        Paint()..color = _markerOutline,
       );
       canvas.drawCircle(
         point,
@@ -1024,11 +1081,7 @@ class FlatMapPainter extends CustomPainter {
   }
 
   void _drawPlaceMarker(Canvas canvas, Offset point, Color color) {
-    canvas.drawCircle(
-      point,
-      _screen(4.15),
-      Paint()..color = const Color(0xff0b1015),
-    );
+    canvas.drawCircle(point, _screen(4.15), Paint()..color = _markerOutline);
     canvas.drawCircle(point, _screen(2.8), Paint()..color = color);
   }
 
@@ -1083,11 +1136,16 @@ class FlatMapPainter extends CustomPainter {
     text: TextSpan(
       text: value,
       style: TextStyle(
-        color: const Color(0xfff4f6f8),
+        color: lightPalette ? const Color(0xff30404c) : const Color(0xfff4f6f8),
         fontWeight: FontWeight.w500,
         fontSize: _screen(10),
         shadows: [
-          Shadow(color: const Color(0xff0b1015), blurRadius: _screen(2.5)),
+          Shadow(
+            color: lightPalette
+                ? const Color(0xfff7fafc)
+                : const Color(0xff0b1015),
+            blurRadius: _screen(2.5),
+          ),
         ],
       ),
     ),
@@ -1146,7 +1204,8 @@ class FlatMapPainter extends CustomPainter {
       old.visualScale != visualScale ||
       old.horizontalPadding != horizontalPadding ||
       old.verticalPadding != verticalPadding ||
-      old.horizontalWrap != horizontalWrap;
+      old.horizontalWrap != horizontalWrap ||
+      old.lightPalette != lightPalette;
 }
 
 class _MapLabelCandidate {

@@ -20,6 +20,7 @@ class StatsPage extends StatefulWidget {
 }
 
 class _StatsPageState extends State<StatsPage> {
+  static const _wideLayoutBreakpoint = 700.0;
   int? _passportYear;
 
   @override
@@ -61,8 +62,25 @@ class _StatsPageState extends State<StatsPage> {
     final passportFlightTimeMinutes = _flightTimeMinutes(passportFlights);
     final passportRouteCount = _routeKeys(passportFlights).length;
     final aircraftSummaries = _aircraftSummaries(flights);
+    final data = _StatsViewData(
+      hasAnyFlights: hasAnyFlights,
+      flights: flights,
+      passportYears: passportYears,
+      selectedPassportYear: selectedPassportYear,
+      passportFlights: passportFlights,
+      passportTotal: passportTotal,
+      countryFlags: countryFlags,
+      passportAirports: passportAirports,
+      passportRoutes: passportRoutes,
+      passportFlags: passportFlags,
+      passportFlightTimeMinutes: passportFlightTimeMinutes,
+      passportRouteCount: passportRouteCount,
+      aircraftSummaries: aircraftSummaries,
+    );
     return SafeArea(
       top: false,
+      left: false,
+      right: false,
       child: CustomScrollView(
         slivers: [
           SliverPadding(
@@ -72,82 +90,13 @@ class _StatsPageState extends State<StatsPage> {
               AppSpacing.page,
               AppSpacing.bottomBarClearance(context),
             ),
-            sliver: SliverList.list(
-              children: [
-                if (flights.isNotEmpty) ...[
-                  _PassportYearFilterBar(
-                    years: passportYears,
-                    selectedYear: selectedPassportYear,
-                    allLabel: s.t('all'),
-                    onChanged: (year) => setState(() => _passportYear = year),
-                  ),
-                  const SizedBox(height: 8),
-                  FlightPassportCard(
-                    year: selectedPassportYear ?? DateTime.now().year,
-                    yearLabel: selectedPassportYear == null ? 'ALL' : null,
-                    travellerName: widget.controller.travellerName,
-                    distanceKm: passportTotal,
-                    flightTimeMinutes: passportFlightTimeMinutes,
-                    flightCount: passportFlights.length,
-                    airportCount: passportAirports.length,
-                    routeCount: passportRouteCount,
-                    countryCodes: passportFlags,
-                    airports: passportAirports,
-                    routes: passportRoutes,
-                  ),
-                  const SizedBox(height: AppSpacing.cardGap),
-                ],
-                SizedBox(
-                  height: flights.isNotEmpty
-                      ? AppSpacing.cardGap
-                      : AppSpacing.section,
-                ),
-                if (flights.isEmpty)
-                  SurfaceCard(
-                    child: EmptyState(
-                      title: s.t(
-                        hasAnyFlights ? 'noCompletedFlights' : 'noFlights',
-                      ),
-                      message: s.t('emptyStats'),
-                    ),
-                  )
-                else ...[
-                  _aircraftCollectionCard(aircraftSummaries),
-                  const SizedBox(height: AppSpacing.cardGap),
-                  _rankingCard(
-                    'airline',
-                    s.t('airlineRanking'),
-                    _counts(flights.map((e) => e.airline)),
-                  ),
-                  const SizedBox(height: AppSpacing.cardGap),
-                  _rankingCard(
-                    'cities',
-                    s.t('cities'),
-                    _counts(
-                      flights.expand(
-                        (e) => [
-                          _cityName(e.departureIata),
-                          _cityName(e.arrivalIata),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: AppSpacing.cardGap),
-                  _rankingCard(
-                    'countries',
-                    s.t('countries'),
-                    _counts(
-                      flights.expand(
-                        (e) => [
-                          _countryName(e.departureIata),
-                          _countryName(e.arrivalIata),
-                        ],
-                      ),
-                    ),
-                    leadingIcons: countryFlags,
-                  ),
-                ],
-              ],
+            sliver: SliverLayoutBuilder(
+              builder: (context, constraints) {
+                if (constraints.crossAxisExtent >= _wideLayoutBreakpoint) {
+                  return SliverToBoxAdapter(child: _wideContent(data));
+                }
+                return SliverList.list(children: _narrowContent(data));
+              },
             ),
           ),
         ],
@@ -155,8 +104,160 @@ class _StatsPageState extends State<StatsPage> {
     );
   }
 
+  List<Widget> _narrowContent(_StatsViewData data) {
+    final s = context.strings;
+    return [
+      if (data.flights.isNotEmpty) ...[
+        _PassportYearFilterBar(
+          years: data.passportYears,
+          selectedYear: data.selectedPassportYear,
+          allLabel: s.t('all'),
+          onChanged: (year) => setState(() => _passportYear = year),
+        ),
+        const SizedBox(height: 8),
+        _shareCard(data),
+        const SizedBox(height: AppSpacing.cardGap),
+      ],
+      SizedBox(
+        height: data.flights.isNotEmpty
+            ? AppSpacing.cardGap
+            : AppSpacing.section,
+      ),
+      if (data.flights.isEmpty)
+        _emptyStats(data)
+      else ...[
+        _aircraftCollectionCard(data.aircraftSummaries),
+        const SizedBox(height: AppSpacing.cardGap),
+        _rankingCard(
+          'airline',
+          s.t('airlineRanking'),
+          _counts(data.flights.map((e) => e.airline)),
+        ),
+        const SizedBox(height: AppSpacing.cardGap),
+        _rankingCard(
+          'cities',
+          s.t('cities'),
+          _counts(
+            data.flights.expand(
+              (e) => [_cityName(e.departureIata), _cityName(e.arrivalIata)],
+            ),
+          ),
+        ),
+        const SizedBox(height: AppSpacing.cardGap),
+        _rankingCard(
+          'countries',
+          s.t('countries'),
+          _counts(
+            data.flights.expand(
+              (e) => [
+                _countryName(e.departureIata),
+                _countryName(e.arrivalIata),
+              ],
+            ),
+          ),
+          leadingIcons: data.countryFlags,
+        ),
+      ],
+    ];
+  }
+
+  Widget _wideContent(_StatsViewData data) {
+    final s = context.strings;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (data.flights.isNotEmpty) ...[
+          _PassportYearFilterBar(
+            years: data.passportYears,
+            selectedYear: data.selectedPassportYear,
+            allLabel: s.t('all'),
+            onChanged: (year) => setState(() => _passportYear = year),
+          ),
+          const SizedBox(height: 16),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(flex: 5, child: _shareCard(data)),
+                  const SizedBox(width: AppSpacing.cardGap),
+                  Expanded(flex: 5, child: _wideStatsList(data)),
+                ],
+              );
+            },
+          ),
+        ] else
+          _emptyStats(data),
+      ],
+    );
+  }
+
+  Widget _wideStatsList(_StatsViewData data) {
+    final s = context.strings;
+    return Column(
+      children: [
+        _aircraftCollectionCard(data.aircraftSummaries),
+        const SizedBox(height: AppSpacing.cardGap),
+        _rankingCard(
+          'airline',
+          s.t('airlineRanking'),
+          _counts(data.flights.map((e) => e.airline)),
+        ),
+        const SizedBox(height: AppSpacing.cardGap),
+        _rankingCard(
+          'cities',
+          s.t('cities'),
+          _counts(
+            data.flights.expand(
+              (e) => [_cityName(e.departureIata), _cityName(e.arrivalIata)],
+            ),
+          ),
+        ),
+        const SizedBox(height: AppSpacing.cardGap),
+        _rankingCard(
+          'countries',
+          s.t('countries'),
+          _counts(
+            data.flights.expand(
+              (e) => [
+                _countryName(e.departureIata),
+                _countryName(e.arrivalIata),
+              ],
+            ),
+          ),
+          leadingIcons: data.countryFlags,
+        ),
+      ],
+    );
+  }
+
+  Widget _emptyStats(_StatsViewData data) {
+    final s = context.strings;
+    return SurfaceCard(
+      child: EmptyState(
+        title: s.t(data.hasAnyFlights ? 'noCompletedFlights' : 'noFlights'),
+        message: s.t('emptyStats'),
+      ),
+    );
+  }
+
+  Widget _shareCard(_StatsViewData data) => FlightPassportCard(
+    year: data.selectedPassportYear ?? DateTime.now().year,
+    yearLabel: data.selectedPassportYear == null ? 'ALL' : null,
+    travellerName: widget.controller.travellerName,
+    distanceKm: data.passportTotal,
+    flightTimeMinutes: data.passportFlightTimeMinutes,
+    flightCount: data.passportFlights.length,
+    airportCount: data.passportAirports.length,
+    routeCount: data.passportRouteCount,
+    countryCodes: data.passportFlags,
+    airports: data.passportAirports,
+    routes: data.passportRoutes,
+  );
+
   Widget _aircraftCollectionCard(List<_AircraftSummary> items) {
     final s = context.strings;
+    final colors = context.appColors;
     final secondary = <String, String>{
       for (final item in items)
         item.type: '${_formatDistance(item.distanceKm)} ${s.t('km')}',
@@ -166,7 +267,7 @@ class _StatsPageState extends State<StatsPage> {
       label: s.t('aircraftCollection'),
       child: SurfaceCard(
         padding: const EdgeInsets.fromLTRB(20, 20, 20, 18),
-        color: _statsCardSurface(AppColors.lime),
+        color: _statsCardSurface(colors.lime),
         showBorder: false,
         boxShadow: _statsCardShadow,
         onTap: () => _openRankingDetail(
@@ -185,7 +286,7 @@ class _StatsPageState extends State<StatsPage> {
               .t('aircraftTypesCount')
               .replaceFirst('{count}', '${items.length}'),
           icon: Icons.flight_rounded,
-          accentColor: AppColors.lime,
+          accentColor: colors.lime,
         ),
       ),
     );
@@ -196,42 +297,45 @@ class _StatsPageState extends State<StatsPage> {
     required String subtitle,
     required IconData icon,
     required Color accentColor,
-  }) => Row(
-    crossAxisAlignment: CrossAxisAlignment.center,
-    children: [
-      Expanded(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: AppColors.textPrimary,
-                fontSize: 21,
-                height: 1.15,
-                fontWeight: FontWeight.w700,
-                letterSpacing: -.25,
+  }) {
+    final colors = context.appColors;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: colors.textPrimary,
+                  fontSize: 21,
+                  height: 1.15,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: -.25,
+                ),
               ),
-            ),
-            const SizedBox(height: 10),
-            _StatsCountLabel(value: subtitle, color: accentColor),
-          ],
+              const SizedBox(height: 10),
+              _StatsCountLabel(value: subtitle, color: accentColor),
+            ],
+          ),
         ),
-      ),
-      const SizedBox(width: 18),
-      Container(
-        width: 52,
-        height: 52,
-        decoration: BoxDecoration(
-          color: accentColor.withValues(alpha: .14),
-          shape: BoxShape.circle,
+        const SizedBox(width: 18),
+        Container(
+          width: 52,
+          height: 52,
+          decoration: BoxDecoration(
+            color: accentColor.withValues(alpha: .14),
+            shape: BoxShape.circle,
+          ),
+          child: Icon(icon, color: accentColor, size: 25),
         ),
-        child: Icon(icon, color: accentColor, size: 25),
-      ),
-    ],
-  );
+      ],
+    );
+  }
 
   Widget _rankingCard(
     String key,
@@ -274,14 +378,18 @@ class _StatsPageState extends State<StatsPage> {
     BoxShadow(color: Color(0x26000000), blurRadius: 18, offset: Offset(0, 8)),
   ];
 
-  static Color _statsCardSurface(Color accentColor) => Color.alphaBlend(
-    accentColor.withValues(alpha: .055),
-    AppColors.surfaceElevated,
-  );
+  Color _statsCardSurface(Color accentColor) {
+    final colors = context.appColors;
+    final isLight = Theme.of(context).brightness == Brightness.light;
+    return Color.alphaBlend(
+      accentColor.withValues(alpha: isLight ? .13 : .055),
+      isLight ? colors.surface : colors.surfaceElevated,
+    );
+  }
 
   Color _rankingAccentColor(String key) => switch (key) {
-    'airline' || 'countries' => AppColors.purple,
-    _ => AppColors.lime,
+    'airline' || 'countries' => context.appColors.purple,
+    _ => context.appColors.lime,
   };
 
   IconData _rankingIcon(String key) => switch (key) {
@@ -310,7 +418,7 @@ class _StatsPageState extends State<StatsPage> {
       child: ClipPath(
         clipper: ShapeBorderClipper(shape: AppShapes.sheet),
         child: Material(
-          color: AppColors.background,
+          color: context.appColors.background,
           shape: AppShapes.sheet,
           clipBehavior: Clip.antiAlias,
           child: SafeArea(
@@ -479,6 +587,38 @@ class _StatsPageState extends State<StatsPage> {
         ..sort((a, b) => b.compareTo(a));
 }
 
+class _StatsViewData {
+  const _StatsViewData({
+    required this.hasAnyFlights,
+    required this.flights,
+    required this.passportYears,
+    required this.selectedPassportYear,
+    required this.passportFlights,
+    required this.passportTotal,
+    required this.countryFlags,
+    required this.passportAirports,
+    required this.passportRoutes,
+    required this.passportFlags,
+    required this.passportFlightTimeMinutes,
+    required this.passportRouteCount,
+    required this.aircraftSummaries,
+  });
+
+  final bool hasAnyFlights;
+  final List<Flight> flights;
+  final List<int> passportYears;
+  final int? selectedPassportYear;
+  final List<Flight> passportFlights;
+  final double passportTotal;
+  final Map<String, String> countryFlags;
+  final List<MapAirport> passportAirports;
+  final List<MapRoute> passportRoutes;
+  final List<String> passportFlags;
+  final int passportFlightTimeMinutes;
+  final int passportRouteCount;
+  final List<_AircraftSummary> aircraftSummaries;
+}
+
 class _PassportYearFilterBar extends StatelessWidget {
   const _PassportYearFilterBar({
     required this.years,
@@ -519,13 +659,17 @@ class _PassportYearFilterBar extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 alignment: Alignment.center,
                 decoration: ShapeDecoration(
-                  color: selected ? AppColors.lime : AppColors.surface,
+                  color: selected
+                      ? context.appColors.lime
+                      : context.appColors.surface,
                   shape: AppShapes.pill,
                 ),
                 child: Text(
                   label,
                   style: TextStyle(
-                    color: selected ? Colors.black : AppColors.textSecondary,
+                    color: selected
+                        ? Colors.black
+                        : context.appColors.textSecondary,
                     fontSize: 13,
                     fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
                   ),
@@ -547,12 +691,13 @@ class _StatsCountLabel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.appColors;
     final match = RegExp(r'^(\d[\d,]*)(.*)$').firstMatch(value.trim());
     if (match == null) {
       return Text(
         value,
-        style: const TextStyle(
-          color: AppColors.textTertiary,
+        style: TextStyle(
+          color: colors.textTertiary,
           fontSize: 14,
           fontWeight: FontWeight.w600,
         ),
@@ -573,8 +718,8 @@ class _StatsCountLabel extends StatelessWidget {
           ),
           TextSpan(
             text: match.group(2),
-            style: const TextStyle(
-              color: AppColors.textTertiary,
+            style: TextStyle(
+              color: colors.textTertiary,
               fontSize: 14,
               fontWeight: FontWeight.w600,
             ),
@@ -618,6 +763,7 @@ class _RankingDetailSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.appColors;
     final maxCount = items.isEmpty ? 0 : items.first.$2;
     return Column(
       children: [
@@ -639,8 +785,8 @@ class _RankingDetailSheet extends StatelessWidget {
                   children: [
                     Text(
                       title,
-                      style: const TextStyle(
-                        color: AppColors.textPrimary,
+                      style: TextStyle(
+                        color: colors.textPrimary,
                         fontSize: 24,
                         fontWeight: FontWeight.w700,
                       ),
@@ -648,8 +794,8 @@ class _RankingDetailSheet extends StatelessWidget {
                     const SizedBox(height: 4),
                     Text(
                       subtitle,
-                      style: const TextStyle(
-                        color: AppColors.textTertiary,
+                      style: TextStyle(
+                        color: colors.textTertiary,
                         fontSize: 13,
                         fontWeight: FontWeight.w500,
                       ),
@@ -661,10 +807,10 @@ class _RankingDetailSheet extends StatelessWidget {
                 width: 42,
                 height: 42,
                 decoration: BoxDecoration(
-                  color: AppColors.lime.withValues(alpha: .12),
+                  color: colors.lime.withValues(alpha: .12),
                   shape: BoxShape.circle,
                 ),
-                child: Icon(icon, color: AppColors.lime, size: 22),
+                child: Icon(icon, color: colors.lime, size: 22),
               ),
             ],
           ),
@@ -674,7 +820,7 @@ class _RankingDetailSheet extends StatelessWidget {
               ? Center(
                   child: Text(
                     emptyMessage ?? context.strings.t('rankingEmpty'),
-                    style: const TextStyle(color: AppColors.textSecondary),
+                    style: TextStyle(color: colors.textSecondary),
                   ),
                 )
               : ListView.separated(
@@ -715,6 +861,7 @@ class _RankingProgressRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.appColors;
     final progress = maxCount <= 0 ? 0.0 : count / maxCount;
     return Semantics(
       label: '$name, $count',
@@ -734,8 +881,8 @@ class _RankingProgressRow extends StatelessWidget {
                     name,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: AppColors.textPrimary,
+                    style: TextStyle(
+                      color: colors.textPrimary,
                       fontSize: 15,
                       fontWeight: FontWeight.w600,
                     ),
@@ -747,8 +894,8 @@ class _RankingProgressRow extends StatelessWidget {
                   children: [
                     Text(
                       '$count',
-                      style: const TextStyle(
-                        color: AppColors.lime,
+                      style: TextStyle(
+                        color: colors.lime,
                         fontSize: 13,
                         fontWeight: FontWeight.w700,
                       ),
@@ -757,8 +904,8 @@ class _RankingProgressRow extends StatelessWidget {
                       const SizedBox(height: 2),
                       Text(
                         secondary!,
-                        style: const TextStyle(
-                          color: AppColors.textTertiary,
+                        style: TextStyle(
+                          color: colors.textTertiary,
                           fontSize: 11,
                           fontWeight: FontWeight.w500,
                         ),
@@ -774,8 +921,8 @@ class _RankingProgressRow extends StatelessWidget {
               child: LinearProgressIndicator(
                 value: progress.clamp(0.0, 1.0),
                 minHeight: 6,
-                backgroundColor: AppColors.border,
-                valueColor: const AlwaysStoppedAnimation<Color>(AppColors.lime),
+                backgroundColor: colors.border,
+                valueColor: AlwaysStoppedAnimation<Color>(colors.lime),
               ),
             ),
           ],

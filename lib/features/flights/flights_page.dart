@@ -17,6 +17,15 @@ class FlightsPage extends StatefulWidget {
 }
 
 class _FlightsPageState extends State<FlightsPage> {
+  // Pixel Fold reports roughly 411 logical px on the cover display and
+  // roughly 840 logical px when unfolded. Keep the cover layout comfortable
+  // as a single column and use the extra unfolded width for two full cards.
+  static const _twoColumnBreakpoint = 600.0;
+  // The card content needs 244 logical px at the narrowest two-column width.
+  // Keep only a small breathing room below it instead of the large empty band
+  // created by the previous 280px grid extent.
+  static const _twoColumnCardExtent = 248.0;
+
   int _filter = 0;
   int? _selectedYear;
 
@@ -64,6 +73,8 @@ class _FlightsPageState extends State<FlightsPage> {
     ];
     return SafeArea(
       top: false,
+      left: false,
+      right: false,
       child: CustomScrollView(
         slivers: [
           SliverToBoxAdapter(
@@ -124,17 +135,43 @@ class _FlightsPageState extends State<FlightsPage> {
                 AppSpacing.page,
                 AppSpacing.bottomBarClearance(context),
               ),
-              sliver: SliverList.separated(
-                itemCount: flights.length,
-                separatorBuilder: (_, _) =>
-                    const SizedBox(height: AppSpacing.cardGap),
-                itemBuilder: (context, index) => FlightCard(
-                  flight: flights[index],
-                  controller: widget.controller,
-                  index: index,
-                  onEdit: () => _editFlight(flights[index]),
-                  onDelete: () => _confirmDelete(flights[index]),
-                ),
+              sliver: SliverLayoutBuilder(
+                builder: (context, constraints) {
+                  if (constraints.crossAxisExtent >= _twoColumnBreakpoint) {
+                    return SliverGrid(
+                      gridDelegate:
+                          const SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: 2,
+                            crossAxisSpacing: AppSpacing.cardGap,
+                            mainAxisSpacing: AppSpacing.cardGap,
+                            mainAxisExtent: _twoColumnCardExtent,
+                          ),
+                      delegate: SliverChildBuilderDelegate(
+                        (context, index) => FlightCard(
+                          flight: flights[index],
+                          controller: widget.controller,
+                          index: index,
+                          onEdit: () => _editFlight(flights[index]),
+                          onDelete: () => _confirmDelete(flights[index]),
+                        ),
+                        childCount: flights.length,
+                      ),
+                    );
+                  }
+
+                  return SliverList.separated(
+                    itemCount: flights.length,
+                    separatorBuilder: (_, _) =>
+                        const SizedBox(height: AppSpacing.cardGap),
+                    itemBuilder: (context, index) => FlightCard(
+                      flight: flights[index],
+                      controller: widget.controller,
+                      index: index,
+                      onEdit: () => _editFlight(flights[index]),
+                      onDelete: () => _confirmDelete(flights[index]),
+                    ),
+                  );
+                },
               ),
             ),
         ],
@@ -155,7 +192,9 @@ class _FlightsPageState extends State<FlightsPage> {
             child: Text(s.t('cancel')),
           ),
           FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: AppColors.danger),
+            style: FilledButton.styleFrom(
+              backgroundColor: context.appColors.danger,
+            ),
             onPressed: () => Navigator.pop(context, true),
             child: Text(s.t('delete')),
           ),
@@ -201,6 +240,7 @@ class _YearFilterBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.appColors;
     final values = <int?>[null, ...years];
     return SizedBox(
       height: 56,
@@ -230,13 +270,13 @@ class _YearFilterBar extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(horizontal: 17),
                 alignment: Alignment.center,
                 decoration: ShapeDecoration(
-                  color: selected ? AppColors.lime : AppColors.surfaceElevated,
+                  color: selected ? colors.lime : colors.surfaceElevated,
                   shape: AppShapes.pill,
                 ),
                 child: Text(
                   value == null ? allLabel : '$value',
                   style: TextStyle(
-                    color: selected ? Colors.black : AppColors.textSecondary,
+                    color: selected ? Colors.black : colors.textSecondary,
                     fontSize: 14,
                     fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
                   ),

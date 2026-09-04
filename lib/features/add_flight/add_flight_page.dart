@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -113,11 +114,18 @@ class _AddFlightPageState extends State<AddFlightPage> {
   Widget build(BuildContext context) {
     final s = context.strings;
     final colors = context.appColors;
-    return Scaffold(
-      body: SafeArea(
+    final isLight = Theme.of(context).brightness == Brightness.light;
+    final identityCardColor = isLight
+        ? Color.alphaBlend(
+            colors.cardMint.withValues(alpha: .52),
+            colors.surface,
+          )
+        : colors.surfaceElevated;
+    return Material(
+      color: colors.background,
+      child: SafeArea(
         top: true,
-        child: ListView(
-          padding: const EdgeInsets.only(bottom: AppSpacing.xl),
+        child: _ImeAwareFlightForm(
           children: [
             PageHeader(
               title: s.t(
@@ -130,230 +138,244 @@ class _AddFlightPageState extends State<AddFlightPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Container(
-                    padding: const EdgeInsets.fromLTRB(24, 22, 24, 20),
-                    decoration: ShapeDecoration(
-                      color: colors.surface,
-                      shape: AppShapes.large,
-                      shadows: _surfaceShadow(),
-                    ),
-                    child: DefaultTextStyle(
-                      style: TextStyle(color: colors.textPrimary),
-                      child: Column(
-                        children: [
-                          Row(
-                            children: [
-                              Expanded(
-                                child: _AirportSelector(
-                                  label: s.t('departure'),
-                                  airport: _departure,
-                                  onTap: () => _pickAirport(true),
+                  RepaintBoundary(
+                    child: Container(
+                      padding: const EdgeInsets.fromLTRB(24, 22, 24, 20),
+                      decoration: ShapeDecoration(
+                        color: colors.surface,
+                        shape: AppShapes.large,
+                        shadows: _surfaceShadow(),
+                      ),
+                      child: DefaultTextStyle(
+                        style: TextStyle(color: colors.textPrimary),
+                        child: Column(
+                          children: [
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: _AirportSelector(
+                                    label: s.t('departure'),
+                                    airport: _departure,
+                                    onTap: () => _pickAirport(true),
+                                  ),
                                 ),
-                              ),
-                              Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 10,
-                                ),
-                                child: SizedBox(
-                                  width: 48,
-                                  height: 72,
-                                  child: Center(
-                                    child: Icon(
-                                      Icons.flight_takeoff_rounded,
-                                      color: colors.lime,
-                                      size: 28,
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                  ),
+                                  child: SizedBox(
+                                    width: 48,
+                                    height: 72,
+                                    child: Center(
+                                      child: Icon(
+                                        Icons.flight_takeoff_rounded,
+                                        color: colors.lime,
+                                        size: 28,
+                                      ),
                                     ),
                                   ),
                                 ),
-                              ),
-                              Expanded(
-                                child: _AirportSelector(
-                                  label: s.t('arrival'),
-                                  airport: _arrival,
-                                  alignEnd: true,
-                                  onTap: () => _pickAirport(false),
+                                Expanded(
+                                  child: _AirportSelector(
+                                    label: s.t('arrival'),
+                                    airport: _arrival,
+                                    alignEnd: true,
+                                    onTap: () => _pickAirport(false),
+                                  ),
                                 ),
-                              ),
-                            ],
+                              ],
+                            ),
+                            const SizedBox(height: 20),
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Expanded(
+                                  child: _DateTimeSelector(
+                                    label: s.t('takeoff'),
+                                    value: _date,
+                                    onDateTap: _pickDate,
+                                    onTimeTap: _pickDepartureTime,
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: _DateTimeSelector(
+                                    label: s.t('landing'),
+                                    // Older imported records may only contain a
+                                    // duration. Show its calculated arrival in
+                                    // the editor instead of an empty field; it
+                                    // remains an automatic value until touched.
+                                    value: _arrivalAt ?? _estimatedArrival,
+                                    onDateTap: _pickArrivalDate,
+                                    onTimeTap: _pickArrivalTime,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  RepaintBoundary(
+                    child: SurfaceCard(
+                      padding: const EdgeInsets.fromLTRB(20, 20, 20, 18),
+                      color: identityCardColor,
+                      borderRadius: AppRadii.large,
+                      showBorder: false,
+                      boxShadow: _surfaceShadow(),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _field(
+                            s.t('airlineFlight'),
+                            _flightIdentity,
+                            required: true,
+                            prefixIcon: Icons.confirmation_number_outlined,
+                            hintText: s.t('airlineFlightHint'),
+                            onChanged: _onFlightIdentityChanged,
+                            onSubmitted: (_) => _lookupFlight(),
                           ),
-                          const SizedBox(height: 20),
-                          Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Expanded(
-                                child: _DateTimeSelector(
-                                  label: s.t('takeoff'),
-                                  value: _date,
-                                  onDateTap: _pickDate,
-                                  onTimeTap: _pickDepartureTime,
+                          if (_lookupMessage == null) ...[
+                            const SizedBox(height: 8),
+                            Text(
+                              s.t('requiredHint'),
+                              style: AppTextStyles.label.copyWith(
+                                color: colors.textTertiary,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                          const SizedBox(height: 14),
+                          SizedBox(
+                            width: double.infinity,
+                            child: FilledButton.icon(
+                              onPressed: _lookingUp ? null : _lookupFlight,
+                              icon: _lookingUp
+                                  ? const SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    )
+                                  : const Icon(Icons.auto_awesome_rounded),
+                              label: Text(
+                                _lookingUp
+                                    ? s.t('lookingUpFlight')
+                                    : s.t('autoFillFlight'),
+                              ),
+                              style: FilledButton.styleFrom(
+                                minimumSize: const Size(44, 56),
+                                backgroundColor: colors.lime.withValues(
+                                  alpha: isLight ? .22 : .14,
+                                ),
+                                foregroundColor: isLight
+                                    ? Color.lerp(
+                                        colors.lime,
+                                        colors.textPrimary,
+                                        .10,
+                                      )
+                                    : colors.lime,
+                                disabledBackgroundColor: colors.surface,
+                                disabledForegroundColor: colors.textTertiary,
+                                shape: AppShapes.large,
+                                textStyle: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w700,
                                 ),
                               ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: _DateTimeSelector(
-                                  label: s.t('landing'),
-                                  // Older imported records may only contain a
-                                  // duration. Show its calculated arrival in
-                                  // the editor instead of an empty field; it
-                                  // remains an automatic value until touched.
-                                  value: _arrivalAt ?? _estimatedArrival,
-                                  onDateTap: _pickArrivalDate,
-                                  onTimeTap: _pickArrivalTime,
-                                ),
-                              ),
-                            ],
+                            ),
                           ),
+                          if (_lookupMessage != null) ...[
+                            const SizedBox(height: 8),
+                            Text(
+                              _lookupMessage!,
+                              style: AppTextStyles.label.copyWith(
+                                color: colors.textSecondary,
+                              ),
+                            ),
+                          ],
                         ],
                       ),
                     ),
                   ),
                   const SizedBox(height: 20),
-                  SurfaceCard(
-                    padding: const EdgeInsets.fromLTRB(20, 20, 20, 18),
-                    color: colors.surfaceElevated,
-                    borderRadius: AppRadii.large,
-                    showBorder: false,
-                    boxShadow: _surfaceShadow(),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        _field(
-                          s.t('airlineFlight'),
-                          _flightIdentity,
-                          required: true,
-                          prefixIcon: Icons.confirmation_number_outlined,
-                          hintText: s.t('airlineFlightHint'),
-                          onChanged: _onFlightIdentityChanged,
-                          onSubmitted: (_) => _lookupFlight(),
-                        ),
-                        if (_lookupMessage == null) ...[
-                          const SizedBox(height: 8),
-                          Text(
-                            s.t('requiredHint'),
-                            style: AppTextStyles.label.copyWith(
-                              color: colors.textTertiary,
-                              fontWeight: FontWeight.w500,
-                            ),
+                  RepaintBoundary(
+                    child: SurfaceCard(
+                      padding: EdgeInsets.zero,
+                      color: colors.surfaceElevated,
+                      borderRadius: AppRadii.large,
+                      showBorder: false,
+                      boxShadow: _surfaceShadow(),
+                      child: Column(
+                        children: [
+                          DisclosureRow(
+                            title: s.t('moreDetails'),
+                            subtitle: s.t('optionalInfo'),
+                            showChevron: false,
+                            value: _more ? '−' : '+',
+                            onTap: () => setState(() => _more = !_more),
                           ),
-                        ],
-                        const SizedBox(height: 14),
-                        SizedBox(
-                          width: double.infinity,
-                          child: FilledButton.icon(
-                            onPressed: _lookingUp ? null : _lookupFlight,
-                            icon: _lookingUp
-                                ? const SizedBox(
-                                    width: 16,
-                                    height: 16,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                    ),
-                                  )
-                                : const Icon(Icons.auto_awesome_rounded),
-                            label: Text(
-                              _lookingUp
-                                  ? s.t('lookingUpFlight')
-                                  : s.t('autoFillFlight'),
-                            ),
-                            style: FilledButton.styleFrom(
-                              minimumSize: const Size(44, 56),
-                              backgroundColor: colors.lime.withValues(
-                                alpha: .14,
+                          if (_more)
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+                              child: Column(
+                                children: [
+                                  _field(s.t('aircraft'), _aircraft),
+                                  const SizedBox(height: 12),
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: _field(
+                                          s.t('duration'),
+                                          _duration,
+                                          number: true,
+                                          onChanged: (_) =>
+                                              _durationTouched = true,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: _field(
+                                          s.t('distance'),
+                                          _distance,
+                                          number: true,
+                                          decimal: true,
+                                          onChanged: (_) =>
+                                              _distanceTouched = true,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 12),
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: _field(s.t('seat'), _seat),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: DropdownButtonFormField<String>(
+                                          initialValue: _cabin,
+                                          isExpanded: true,
+                                          decoration: _decoration(s.t('cabin')),
+                                          items: _cabinOptions(s),
+                                          onChanged: (value) {
+                                            setState(() => _cabin = value);
+                                          },
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 12),
+                                  _field(s.t('note'), _note, lines: 3),
+                                ],
                               ),
-                              foregroundColor: colors.lime,
-                              disabledBackgroundColor: colors.surface,
-                              disabledForegroundColor: colors.textTertiary,
-                              shape: AppShapes.large,
-                              textStyle: const TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w700,
-                              ),
                             ),
-                          ),
-                        ),
-                        if (_lookupMessage != null) ...[
-                          const SizedBox(height: 8),
-                          Text(
-                            _lookupMessage!,
-                            style: AppTextStyles.label.copyWith(
-                              color: colors.textSecondary,
-                            ),
-                          ),
                         ],
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  SurfaceCard(
-                    padding: EdgeInsets.zero,
-                    color: colors.surfaceElevated,
-                    borderRadius: AppRadii.large,
-                    showBorder: false,
-                    boxShadow: _surfaceShadow(),
-                    child: Column(
-                      children: [
-                        DisclosureRow(
-                          title: s.t('moreDetails'),
-                          subtitle: s.t('optionalInfo'),
-                          showChevron: false,
-                          value: _more ? '−' : '+',
-                          onTap: () => setState(() => _more = !_more),
-                        ),
-                        if (_more)
-                          Padding(
-                            padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-                            child: Column(
-                              children: [
-                                _field(s.t('aircraft'), _aircraft),
-                                const SizedBox(height: 12),
-                                Row(
-                                  children: [
-                                    Expanded(
-                                      child: _field(
-                                        s.t('duration'),
-                                        _duration,
-                                        number: true,
-                                        onChanged: (_) =>
-                                            _durationTouched = true,
-                                      ),
-                                    ),
-                                    const SizedBox(width: 12),
-                                    Expanded(
-                                      child: _field(
-                                        s.t('distance'),
-                                        _distance,
-                                        number: true,
-                                        decimal: true,
-                                        onChanged: (_) =>
-                                            _distanceTouched = true,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 12),
-                                Row(
-                                  children: [
-                                    Expanded(child: _field(s.t('seat'), _seat)),
-                                    const SizedBox(width: 12),
-                                    Expanded(
-                                      child: DropdownButtonFormField<String>(
-                                        initialValue: _cabin,
-                                        isExpanded: true,
-                                        decoration: _decoration(s.t('cabin')),
-                                        items: _cabinOptions(s),
-                                        onChanged: (value) {
-                                          setState(() => _cabin = value);
-                                        },
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 12),
-                                _field(s.t('note'), _note, lines: 3),
-                              ],
-                            ),
-                          ),
-                      ],
+                      ),
                     ),
                   ),
                   const SizedBox(height: 24),
@@ -640,6 +662,7 @@ class _AddFlightPageState extends State<AddFlightPage> {
     final airport = await showModalBottomSheet<Airport>(
       context: context,
       isScrollControlled: true,
+      requestFocus: false,
       backgroundColor: context.appColors.background,
       builder: (_) => _AirportPicker(controller: widget.controller),
     );
@@ -884,6 +907,28 @@ class _AddFlightPageState extends State<AddFlightPage> {
   }
 }
 
+class _ImeAwareFlightForm extends StatelessWidget {
+  const _ImeAwareFlightForm({required this.children});
+
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
+    return Padding(
+      // Keep IME relayout local to the form's viewport. The old nested
+      // Scaffold resized its whole sheet and repainted every decorated card
+      // on each Android keyboard animation frame.
+      padding: EdgeInsets.only(bottom: bottomInset),
+      child: ListView(
+        keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+        padding: const EdgeInsets.only(bottom: AppSpacing.xl),
+        children: children,
+      ),
+    );
+  }
+}
+
 class _AirportSelector extends StatelessWidget {
   const _AirportSelector({
     required this.label,
@@ -1061,6 +1106,8 @@ class _AirportPicker extends StatefulWidget {
 class _AirportPickerState extends State<_AirportPicker> {
   final _search = TextEditingController();
   final _searchFocus = FocusNode();
+  Timer? _searchDebounce;
+  var _shouldFocusSearch = true;
   List<Airport> _results = const [];
   List<AirportCountry> _countryResults = const [];
   AirportCountry? _selectedCountry;
@@ -1069,10 +1116,20 @@ class _AirportPickerState extends State<_AirportPicker> {
   void initState() {
     super.initState();
     _search.addListener(_onSearchChanged);
+    // Let the picker sheet settle before starting the IME animation. This is
+    // especially important on physical Android devices, where the sheet
+    // transition and keyboard resize otherwise jank together.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Future<void>.delayed(const Duration(milliseconds: 360), () {
+        if (!mounted || !_shouldFocusSearch || _searchFocus.hasFocus) return;
+        _searchFocus.requestFocus();
+      });
+    });
   }
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
     _search.removeListener(_onSearchChanged);
     _search.dispose();
     _searchFocus.dispose();
@@ -1080,7 +1137,23 @@ class _AirportPickerState extends State<_AirportPicker> {
   }
 
   void _onSearchChanged() {
+    _searchDebounce?.cancel();
     final query = _search.text.trim();
+    if (query.isEmpty) {
+      _applySearchResults(const [], null, const []);
+      return;
+    }
+    // Do not run the full catalogue search in the same frame as an IME
+    // keystroke. Coalescing rapid input keeps the keyboard responsive while
+    // the pre-indexed catalogue still returns results almost immediately.
+    _searchDebounce = Timer(const Duration(milliseconds: 80), () {
+      if (!mounted || query != _search.text.trim()) return;
+      _searchDebounce = null;
+      _updateSearchResults(query);
+    });
+  }
+
+  void _updateSearchResults(String query) {
     final countries = widget.controller.airports
         .searchCountries(query, limit: 8)
         .toList(growable: false);
@@ -1090,6 +1163,14 @@ class _AirportPickerState extends State<_AirportPicker> {
               ? const <Airport>[]
               : widget.controller.airports.search(query, limit: 40).toList())
         : widget.controller.airports.airportsForCountry(exactCountry.code);
+    _applySearchResults(countries, exactCountry, airports);
+  }
+
+  void _applySearchResults(
+    List<AirportCountry> countries,
+    AirportCountry? exactCountry,
+    List<Airport> airports,
+  ) {
     if (!mounted) return;
     setState(() {
       _countryResults = countries;
@@ -1099,6 +1180,7 @@ class _AirportPickerState extends State<_AirportPicker> {
   }
 
   void _selectCountry(AirportCountry country) {
+    _shouldFocusSearch = false;
     _search.value = TextEditingValue(
       text: country.name,
       selection: TextSelection.collapsed(offset: country.name.length),
@@ -1107,6 +1189,7 @@ class _AirportPickerState extends State<_AirportPicker> {
   }
 
   void _clearCountry() {
+    _shouldFocusSearch = false;
     _search.clear();
     _searchFocus.requestFocus();
   }
@@ -1240,7 +1323,7 @@ class _AirportPickerState extends State<_AirportPicker> {
               TextField(
                 controller: _search,
                 focusNode: _searchFocus,
-                autofocus: true,
+                autofocus: false,
                 textCapitalization: TextCapitalization.characters,
                 decoration: InputDecoration(
                   prefixIcon: const Icon(Icons.search_rounded),

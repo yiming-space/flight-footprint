@@ -112,30 +112,52 @@ class _FlightPassportCardState extends State<FlightPassportCard> {
   Future<void> _showActions() async {
     if (_busy) return;
     HapticFeedback.mediumImpact();
+    final colors = context.appColors;
     final action = await showModalBottomSheet<_PassportAction>(
       context: context,
-      backgroundColor: AppColors.surface,
+      // Use the active theme surface. The old static dark surface made this
+      // light-mode action sheet render as a charcoal panel with low-contrast
+      // text and icons.
+      backgroundColor: colors.surfaceElevated,
       showDragHandle: true,
       shape: AppShapes.sheet,
       builder: (context) {
         final isZh = context.strings.isZh;
+        final colors = context.appColors;
         return SafeArea(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               ListTile(
-                leading: const Icon(Icons.save_alt_rounded),
-                title: Text(isZh ? '保存图片' : 'Save image'),
+                leading: Icon(Icons.save_alt_rounded, color: colors.lime),
+                title: Text(
+                  isZh ? '保存图片' : 'Save image',
+                  style: AppTextStyles.body.copyWith(
+                    color: colors.textPrimary,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
                 onTap: () => Navigator.pop(context, _PassportAction.save),
               ),
               ListTile(
-                leading: const Icon(Icons.ios_share_rounded),
-                title: Text(isZh ? '分享图片' : 'Share image'),
+                leading: Icon(Icons.ios_share_rounded, color: colors.purple),
+                title: Text(
+                  isZh ? '分享图片' : 'Share image',
+                  style: AppTextStyles.body.copyWith(
+                    color: colors.textPrimary,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
                 onTap: () => Navigator.pop(context, _PassportAction.share),
               ),
               ListTile(
-                leading: const Icon(Icons.close_rounded),
-                title: Text(isZh ? '取消' : 'Cancel'),
+                leading: Icon(Icons.close_rounded, color: colors.textSecondary),
+                title: Text(
+                  isZh ? '取消' : 'Cancel',
+                  style: AppTextStyles.body.copyWith(
+                    color: colors.textSecondary,
+                  ),
+                ),
                 onTap: () => Navigator.pop(context),
               ),
             ],

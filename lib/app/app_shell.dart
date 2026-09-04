@@ -43,9 +43,11 @@ class _AppShellState extends State<AppShell>
     // A fold/unfold can interrupt the add-button spring while Android is
     // resizing the window. Reset it before the next frame so the fixed
     // circular button is never left in a stale transform state.
-    _addAnimation
-      ..stop()
-      ..value = 1;
+    if (_addAnimation.isAnimating || (_addAnimation.value - 1).abs() > .001) {
+      _addAnimation
+        ..stop()
+        ..value = 1;
+    }
   }
 
   @override
@@ -61,13 +63,18 @@ class _AppShellState extends State<AppShell>
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
+      // The form should only open the IME after the user taps a field. This
+      // avoids competing with the bottom-sheet entrance animation.
+      requestFocus: false,
       backgroundColor: Colors.transparent,
       barrierColor: Colors.black.withValues(alpha: .68),
       builder: (_) => FractionallySizedBox(
         heightFactor: .94,
         child: ClipPath(
           clipper: ShapeBorderClipper(shape: AppShapes.sheet),
-          child: AddFlightPage(controller: widget.controller),
+          child: RepaintBoundary(
+            child: AddFlightPage(controller: widget.controller),
+          ),
         ),
       ),
     );
@@ -99,12 +106,19 @@ class _AppShellState extends State<AppShell>
   @override
   Widget build(BuildContext context) {
     final strings = context.strings;
-    final media = MediaQuery.of(context);
+    // Do not subscribe the whole app shell to viewInsets. Android reports
+    // the IME animation as a stream of inset changes; using MediaQuery.of
+    // here would rebuild the IndexedStack on every keyboard frame. The
+    // bottom bar only needs real window changes, and viewPadding deliberately
+    // excludes the keyboard inset while retaining system-bar safe areas.
+    final size = MediaQuery.sizeOf(context);
+    final viewPadding = MediaQuery.viewPaddingOf(context);
+    final devicePixelRatio = MediaQuery.devicePixelRatioOf(context);
     final bottomBarKey = ValueKey(
-      '${media.size.width}:${media.size.height}:'
-      '${media.padding.left}:${media.padding.right}:'
-      '${media.padding.top}:${media.padding.bottom}:'
-      '${media.devicePixelRatio}',
+      '${size.width}:${size.height}:'
+      '${viewPadding.left}:${viewPadding.right}:'
+      '${viewPadding.top}:${viewPadding.bottom}:'
+      '$devicePixelRatio',
     );
     final pages = [
       HomePage(
@@ -122,6 +136,10 @@ class _AppShellState extends State<AppShell>
         if (!didPop && _index != 0) setState(() => _index = 0);
       },
       child: Scaffold(
+        // The modal sheet owns IME avoidance through its viewInsets-aware
+        // padding. Keeping the underlying shell fixed prevents the entire
+        // page stack and its map from relayouting during the keyboard slide.
+        resizeToAvoidBottomInset: false,
         // The navigation material floats in the same stack as the pages.
         // Using Scaffold.bottomNavigationBar would still create a rectangular
         // footer region around the rounded glass, preventing page content from
@@ -140,18 +158,20 @@ class _AppShellState extends State<AppShell>
               left: 0,
               right: 0,
               bottom: 0,
-              child: _BottomBar(
-                key: bottomBarKey,
-                index: _index,
-                labels: [
-                  strings.t('home'),
-                  strings.t('flights'),
-                  strings.t('stats'),
-                  strings.t('profile'),
-                ],
-                addAnimation: _addAnimation,
-                onChanged: (value) => setState(() => _index = value),
-                onAdd: _openAdd,
+              child: RepaintBoundary(
+                child: _BottomBar(
+                  key: bottomBarKey,
+                  index: _index,
+                  labels: [
+                    strings.t('home'),
+                    strings.t('flights'),
+                    strings.t('stats'),
+                    strings.t('profile'),
+                  ],
+                  addAnimation: _addAnimation,
+                  onChanged: (value) => setState(() => _index = value),
+                  onAdd: _openAdd,
+                ),
               ),
             ),
           ],
@@ -238,12 +258,12 @@ class _BottomBarState extends State<_BottomBar>
     final colors = context.appColors;
     final isLight = Theme.of(context).brightness == Brightness.light;
     final glassBorder = isLight
-        ? Colors.white.withValues(alpha: .22)
+        ? colors.border.withValues(alpha: .58)
         : Colors.white.withValues(alpha: .16);
     final glassColor = isLight
-        ? const Color(0xff171b20).withValues(alpha: .86)
+        ? Colors.white.withValues(alpha: .66)
         : colors.surface.withValues(alpha: .46);
-    final glassShadow = Colors.black.withValues(alpha: isLight ? .14 : .28);
+    final glassShadow = Colors.black.withValues(alpha: isLight ? .12 : .28);
     const icons = [
       Icons.home_rounded,
       Icons.flight_rounded,
@@ -258,6 +278,7 @@ class _BottomBarState extends State<_BottomBar>
       top: false,
       left: false,
       right: false,
+      maintainBottomViewPadding: true,
       minimum: const EdgeInsets.fromLTRB(
         AppSpacing.page,
         AppSpacing.sm,
@@ -298,10 +319,10 @@ class _BottomBarState extends State<_BottomBar>
                             end: Alignment.bottomCenter,
                             colors: [
                               Colors.white.withValues(
-                                alpha: isLight ? .14 : .10,
+                                alpha: isLight ? .28 : .10,
                               ),
                               Colors.white.withValues(
-                                alpha: isLight ? .035 : .025,
+                                alpha: isLight ? .07 : .025,
                               ),
                               Colors.transparent,
                             ],
@@ -456,12 +477,15 @@ class _BottomBarState extends State<_BottomBar>
     final selected = value == widget.index;
     final reduceMotion = MediaQuery.disableAnimationsOf(context);
     final inactiveColor = isLight
-        ? Colors.white.withValues(alpha: .68)
+        ? colors.textSecondary.withValues(alpha: .82)
         : colors.textTertiary;
+    final selectedColor = isLight
+        ? Color.lerp(colors.lime, colors.textPrimary, .12)!
+        : colors.lime;
     final style = TextStyle(
       fontSize: 11,
       fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-      color: selected ? colors.lime : inactiveColor,
+      color: selected ? selectedColor : inactiveColor,
     );
     return Expanded(
       child: InkWell(
@@ -495,7 +519,7 @@ class _BottomBarState extends State<_BottomBar>
                     dimension: 25,
                     child: Icon(
                       icon,
-                      color: selected ? colors.lime : inactiveColor,
+                      color: selected ? selectedColor : inactiveColor,
                       size: 25,
                     ),
                   ),

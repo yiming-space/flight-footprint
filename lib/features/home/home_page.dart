@@ -174,36 +174,38 @@ class _HomePageState extends State<HomePage> {
                   child: Stack(
                     fit: StackFit.expand,
                     children: [
-                      LayoutBuilder(
-                        builder: (context, constraints) => OfflineMap(
-                          mode: _mode,
-                          airports: mapAirports.values.toList(),
-                          routes: routes,
-                          places: mapPlaces,
-                          fitPoints: mapFitPoints,
-                          fitToData: true,
-                          fitZoomMultiplier: 1,
-                          coverViewport: true,
-                          // Keep the cartographic artwork dark even when the
-                          // surrounding home surface follows the light theme.
-                          useLightPalette: false,
-                          // The dashboard preview should use the same visual
-                          // cover treatment as the full-screen map: the whole
-                          // card is occupied, while the camera remains centred
-                          // on the recorded flight region. The projection is
-                          // still uniformly scaled, so filling the portrait
-                          // card never stretches the world silhouette.
-                          fillViewportHeight: true,
-                          // An expanded foldable can be wider than one
-                          // complete world at the preview's fixed height. A
-                          // neighbouring world copy keeps that wide canvas
-                          // continuous instead of exposing a black date-line
-                          // gutter on the right. Phones retain the single-copy
-                          // composition so the preview stays calm.
-                          horizontalWrap: constraints.maxWidth >= 600,
-                          horizontalPadding: 0,
-                          verticalPadding: 0,
-                          onPlaceLongPress: _handlePlaceLongPress,
+                      RepaintBoundary(
+                        child: LayoutBuilder(
+                          builder: (context, constraints) => OfflineMap(
+                            mode: _mode,
+                            airports: mapAirports.values.toList(),
+                            routes: routes,
+                            places: mapPlaces,
+                            fitPoints: mapFitPoints,
+                            fitToData: true,
+                            fitZoomMultiplier: 1,
+                            coverViewport: true,
+                            // Keep the cartographic artwork dark even when the
+                            // surrounding home surface follows the light theme.
+                            useLightPalette: false,
+                            // The dashboard preview should use the same visual
+                            // cover treatment as the full-screen map: the whole
+                            // card is occupied, while the camera remains centred
+                            // on the recorded flight region. The projection is
+                            // still uniformly scaled, so filling the portrait
+                            // card never stretches the world silhouette.
+                            fillViewportHeight: true,
+                            // An expanded foldable can be wider than one
+                            // complete world at the preview's fixed height. A
+                            // neighbouring world copy keeps that wide canvas
+                            // continuous instead of exposing a black date-line
+                            // gutter on the right. Phones retain the single-copy
+                            // composition so the preview stays calm.
+                            horizontalWrap: constraints.maxWidth >= 600,
+                            horizontalPadding: 0,
+                            verticalPadding: 0,
+                            onPlaceLongPress: _handlePlaceLongPress,
+                          ),
                         ),
                       ),
                       Positioned(
@@ -443,15 +445,19 @@ class _HomePageState extends State<HomePage> {
             : chinaPlaces.map((place) => place.name.trim()).toSet().length;
         final worldProgress = (countryCount / 195).clamp(0.0, 1.0).toDouble();
         final chinaProgress = (chinaCount / 34).clamp(0.0, 1.0).toDouble();
+        final explorationCardColor = isLight
+            ? Color.alphaBlend(
+                colors.cardMint.withValues(alpha: .50),
+                colors.surface,
+              )
+            : colors.surfaceElevated;
         return Container(
           padding: const EdgeInsets.fromLTRB(22, 22, 22, 20),
           decoration: ShapeDecoration(
-            color: isLight ? colors.surface : colors.surfaceElevated,
+            color: explorationCardColor,
             shape: RoundedSuperellipseBorder(
               borderRadius: AppRadii.large,
-              side: isLight
-                  ? BorderSide(color: colors.border.withValues(alpha: .72))
-                  : BorderSide.none,
+              side: BorderSide.none,
             ),
             shadows: _cardShadow(),
           ),
@@ -791,13 +797,19 @@ class _HomePageState extends State<HomePage> {
       context: hostContext ?? context,
       isScrollControlled: true,
       useSafeArea: true,
+      // The city search field requests focus after the sheet entrance settles;
+      // opening the IME from the route itself causes a visible hitch on real
+      // Android hardware.
+      requestFocus: false,
       backgroundColor: Colors.transparent,
       barrierColor: Colors.black.withValues(alpha: .68),
       builder: (_) => FractionallySizedBox(
         heightFactor: .9,
         child: ClipPath(
           clipper: ShapeBorderClipper(shape: AppShapes.sheet),
-          child: AddVisitedPlaceSheet(controller: widget.controller),
+          child: RepaintBoundary(
+            child: AddVisitedPlaceSheet(controller: widget.controller),
+          ),
         ),
       ),
     );
@@ -856,12 +868,10 @@ class _MapFullscreenTransition extends AnimatedWidget {
       child: Transform(
         alignment: Alignment.topLeft,
         transform: transform,
-        child: FadeTransition(
-          // A small amount of opacity easing prevents the destination map's
-          // first loaded frame from flashing over the preview underneath.
-          opacity: Tween<double>(begin: .9, end: 1).animate(animation),
-          child: child,
-        ),
+        // Cache the complete destination page as one layer. During this
+        // transition only the outer transform and clip should animate; the
+        // expensive map painter must not repaint for every route frame.
+        child: RepaintBoundary(child: child),
       ),
     );
   }

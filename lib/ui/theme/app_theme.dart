@@ -62,27 +62,29 @@ class AppThemeColors extends ThemeExtension<AppThemeColors> {
   );
 
   static const light = AppThemeColors(
-    // A near-white warm neutral keeps the light mode comfortable without
-    // reading as a beige filter; the pastel cards and dark map still carry
-    // the color.
-    background: Color(0xFFFAF9F6),
+    // Cool white with a quiet sage undertone keeps the canvas bright without
+    // turning the light mode into a beige filter. Color lives in the cards
+    // and controls, while the map remains deliberately dark.
+    background: Color(0xFFF6F8F5),
     surface: Color(0xFFFFFEFC),
-    surfaceElevated: Color(0xFFF1F0EC),
-    border: Color(0xFFE0DDD5),
-    textPrimary: Color(0xFF181A1D),
-    textSecondary: Color(0xFF5E646C),
-    textTertiary: Color(0xFF858C95),
-    // A softer sage-lime keeps the light home surface calm; the map retains
-    // its own dark cartographic lime for route legibility.
-    lime: Color(0xFFA4C969),
-    purple: Color(0xFF9876E8),
-    danger: Color(0xFFD96E84),
-    cardLavender: Color(0xFFCAB8F2),
-    cardBlue: Color(0xFFAEC9E8),
-    cardMint: Color(0xFFB8D795),
-    cardCoral: Color(0xFFE8A6D0),
-    cardYellow: Color(0xFFF5DC70),
-    cardText: Color(0xFF181A1D),
+    surfaceElevated: Color(0xFFEDF1EC),
+    border: Color(0xFFD9E2DB),
+    textPrimary: Color(0xFF17221B),
+    textSecondary: Color(0xFF68766D),
+    textTertiary: Color(0xFF929C95),
+    // A muted sage is the light-mode signature: calm enough for chrome,
+    // distinct enough to keep selected states and progress easy to scan.
+    lime: Color(0xFF9BCB78),
+    purple: Color(0xFF9A84D8),
+    danger: Color(0xFFD78991),
+    // Pastels borrow the reference's mint, lilac, powder blue, blush, and
+    // butter notes, but keep enough value contrast for dark flight data.
+    cardLavender: Color(0xFFD6CBEE),
+    cardBlue: Color(0xFFC2DDE8),
+    cardMint: Color(0xFFC6E2CF),
+    cardCoral: Color(0xFFE9C3D5),
+    cardYellow: Color(0xFFF1E4A6),
+    cardText: Color(0xFF17221B),
   );
 
   @override

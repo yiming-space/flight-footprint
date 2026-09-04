@@ -196,6 +196,10 @@ class AppSegmentedControl extends StatelessWidget {
       side: pill ? BorderSide.none : BorderSide(color: colors.border),
     );
     final itemShape = RoundedSuperellipseBorder(borderRadius: itemRadius);
+    final inactiveSegmentColor = Color.alphaBlend(
+      colors.border.withValues(alpha: pill ? .16 : .24),
+      pill ? colors.surfaceElevated : colors.surface,
+    );
     return Semantics(
       container: true,
       label: '筛选选项',
@@ -215,6 +219,28 @@ class AppSegmentedControl extends StatelessWidget {
                 fit: StackFit.expand,
                 clipBehavior: Clip.hardEdge,
                 children: [
+                  // Keep inactive fills below the moving highlight. If these
+                  // lived in the label layer, they would cover the highlight
+                  // while it travels between segments.
+                  Row(
+                    children: [
+                      for (var i = 0; i < labels.length; i++)
+                        Expanded(
+                          child: IgnorePointer(
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 180),
+                              curve: Curves.easeOut,
+                              decoration: ShapeDecoration(
+                                color: i == safeIndex
+                                    ? Colors.transparent
+                                    : inactiveSegmentColor,
+                                shape: itemShape,
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
                   // Translate the highlight on the compositor instead of
                   // relaying out the whole control every frame. This keeps the
                   // green pill fluid while the map below remains untouched.
@@ -225,8 +251,8 @@ class AppSegmentedControl extends StatelessWidget {
                       height: constraints.maxHeight,
                       child: TweenAnimationBuilder<double>(
                         tween: Tween<double>(end: itemWidth * safeIndex),
-                        duration: const Duration(milliseconds: 300),
-                        curve: Curves.easeInOutCubic,
+                        duration: const Duration(milliseconds: 260),
+                        curve: const Cubic(0.77, 0, 0.175, 1),
                         builder: (context, offset, child) =>
                             Transform.translate(
                               offset: Offset(offset, 0),

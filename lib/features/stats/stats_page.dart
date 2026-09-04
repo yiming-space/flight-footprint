@@ -382,7 +382,7 @@ class _StatsPageState extends State<StatsPage> {
     final colors = context.appColors;
     final isLight = Theme.of(context).brightness == Brightness.light;
     return Color.alphaBlend(
-      accentColor.withValues(alpha: isLight ? .13 : .055),
+      accentColor.withValues(alpha: isLight ? .16 : .055),
       isLight ? colors.surface : colors.surfaceElevated,
     );
   }
@@ -661,14 +661,14 @@ class _PassportYearFilterBar extends StatelessWidget {
                 decoration: ShapeDecoration(
                   color: selected
                       ? context.appColors.lime
-                      : context.appColors.surface,
+                      : context.appColors.surfaceElevated,
                   shape: AppShapes.pill,
                 ),
                 child: Text(
                   label,
                   style: TextStyle(
                     color: selected
-                        ? Colors.black
+                        ? context.appColors.cardText
                         : context.appColors.textSecondary,
                     fontSize: 13,
                     fontWeight: selected ? FontWeight.w700 : FontWeight.w600,

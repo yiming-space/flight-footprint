@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
@@ -22,11 +24,11 @@ class AddVisitedPlaceSheet extends StatefulWidget {
 class _AddVisitedPlaceSheetState extends State<AddVisitedPlaceSheet> {
   final _search = TextEditingController();
   final _searchFocus = FocusNode();
+  Timer? _searchDebounce;
   Future<CityCatalog>? _catalog;
   CityCenter? _selected;
   DateTime _visitedAt = DateTime.now();
   bool _saving = false;
-  bool _searchAutofocus = true;
 
   @override
   void initState() {
@@ -36,6 +38,7 @@ class _AddVisitedPlaceSheetState extends State<AddVisitedPlaceSheet> {
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
     _search.removeListener(_onSearchChanged);
     _search.dispose();
     _searchFocus.dispose();
@@ -43,17 +46,22 @@ class _AddVisitedPlaceSheetState extends State<AddVisitedPlaceSheet> {
   }
 
   void _onSearchChanged() {
-    if (_catalog == null && _search.text.trim().isNotEmpty) {
-      // Defer the relatively large worldwide index parse until the user
-      // actually searches. The sheet can then finish its entrance animation
-      // without competing with JSON decoding on the UI isolate.
-      _catalog = CityCatalog.load();
-    }
-    if (_selected != null && _search.text.trim() != _selected!.name) {
+    _searchDebounce?.cancel();
+    final query = _search.text.trim();
+    if (_selected != null && query != _selected!.name) {
       setState(() => _selected = null);
     } else {
       setState(() {});
     }
+    if (_catalog != null || query.isEmpty) return;
+    // Start the catalogue only after the user pauses briefly. The sheet opens
+    // without requesting the IME, so the route entrance and keyboard never
+    // compete for the same first frames, and rapid typing does not queue
+    // repeated catalogue work.
+    _searchDebounce = Timer(const Duration(milliseconds: 100), () {
+      if (!mounted || _search.text.trim().isEmpty || _catalog != null) return;
+      setState(() => _catalog = CityCatalog.load());
+    });
   }
 
   @override
@@ -65,13 +73,7 @@ class _AddVisitedPlaceSheetState extends State<AddVisitedPlaceSheet> {
       child: SafeArea(
         top: true,
         bottom: true,
-        child: Padding(
-          padding: EdgeInsets.fromLTRB(
-            20,
-            20,
-            20,
-            MediaQuery.viewInsetsOf(context).bottom + 16,
-          ),
+        child: _ImeAwareVisitedPlaceContent(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -108,7 +110,10 @@ class _AddVisitedPlaceSheetState extends State<AddVisitedPlaceSheet> {
               TextField(
                 controller: _search,
                 focusNode: _searchFocus,
-                autofocus: _searchAutofocus,
+                // Focus is requested after the route settles in initState;
+                // autofocus here would animate the IME at the same time as
+                // the modal sheet.
+                autofocus: false,
                 readOnly: _selected != null,
                 decoration: InputDecoration(
                   prefixIcon: const Icon(Icons.search_rounded),
@@ -195,7 +200,6 @@ class _AddVisitedPlaceSheetState extends State<AddVisitedPlaceSheet> {
                                   // with a tight height and produced Flutter's
                                   // BOTTOM OVERFLOWED warning on smaller
                                   // devices.
-                                  _searchAutofocus = false;
                                   _searchFocus.unfocus();
                                   setState(() {
                                     _selected = city;
@@ -414,5 +418,22 @@ class _AddVisitedPlaceSheetState extends State<AddVisitedPlaceSheet> {
       );
       setState(() => _saving = false);
     }
+  }
+}
+
+class _ImeAwareVisitedPlaceContent extends StatelessWidget {
+  const _ImeAwareVisitedPlaceContent({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
+    return Padding(
+      // Only this sheet content follows the IME. The stateful sheet and the
+      // route behind it stay out of the per-frame inset rebuild path.
+      padding: EdgeInsets.fromLTRB(20, 20, 20, bottomInset + 16),
+      child: child,
+    );
   }
 }

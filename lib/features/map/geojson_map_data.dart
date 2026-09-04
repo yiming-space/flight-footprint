@@ -92,6 +92,11 @@ class GeoJsonMapBundle {
 class GeoJsonMapLoader {
   const GeoJsonMapLoader();
 
+  // The home map and the fullscreen map use the same bundled world data.
+  // Reusing the in-flight/completed future prevents a second JSON decode from
+  // landing on the exact frames in which the fullscreen transition starts.
+  static Future<GeoJsonMapBundle>? _bundleCache;
+
   Future<GeoJsonMapData> load(String assetPath) async {
     final source = await rootBundle.loadString(assetPath);
     final decoded = jsonDecode(source);
@@ -102,7 +107,11 @@ class GeoJsonMapLoader {
     return GeoJsonMapData.fromJson(decoded);
   }
 
-  Future<GeoJsonMapBundle> loadBundle() async {
+  Future<GeoJsonMapBundle> loadBundle() {
+    return _bundleCache ??= _loadBundle();
+  }
+
+  Future<GeoJsonMapBundle> _loadBundle() async {
     final entries = await Future.wait([
       load('assets/data/world-land-50m.geo.json'),
       load('assets/data/world-countries-50m.geo.json'),

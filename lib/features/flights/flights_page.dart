@@ -276,7 +276,7 @@ class _YearFilterBar extends StatelessWidget {
                 child: Text(
                   value == null ? allLabel : '$value',
                   style: TextStyle(
-                    color: selected ? Colors.black : colors.textSecondary,
+                    color: selected ? colors.cardText : colors.textSecondary,
                     fontSize: 14,
                     fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
                   ),

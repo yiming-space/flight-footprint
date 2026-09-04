@@ -376,7 +376,9 @@ class _ProfilePageState extends State<ProfilePage> {
               ? s.t('travellerNameEmpty')
               : controller.travellerName,
           icon: Icons.badge_outlined,
-          color: isLight ? colors.cardMint : colors.cardText,
+          color: isLight
+              ? _profileIconColor(context, colors.cardMint)
+              : colors.cardText,
           backgroundColor: _profileSurfaceTint(context, colors.cardMint),
           textColor: textColor,
           secondaryTextColor: secondaryColor,
@@ -390,7 +392,9 @@ class _ProfilePageState extends State<ProfilePage> {
               ? s.t('chinese')
               : s.t('english'),
           icon: Icons.translate_rounded,
-          color: isLight ? colors.cardBlue : colors.cardText,
+          color: isLight
+              ? _profileIconColor(context, colors.cardBlue)
+              : colors.cardText,
           backgroundColor: _profileSurfaceTint(context, colors.cardBlue),
           textColor: textColor,
           secondaryTextColor: secondaryColor,
@@ -406,7 +410,9 @@ class _ProfilePageState extends State<ProfilePage> {
             ThemeMode.dark => s.t('themeDark'),
           },
           icon: Icons.brightness_6_rounded,
-          color: isLight ? colors.cardCoral : colors.cardText,
+          color: isLight
+              ? _profileIconColor(context, colors.cardCoral)
+              : colors.cardText,
           backgroundColor: _profileSurfaceTint(context, colors.cardCoral),
           textColor: textColor,
           secondaryTextColor: secondaryColor,
@@ -422,6 +428,12 @@ class _ProfilePageState extends State<ProfilePage> {
     final colors = context.appColors;
     final isLight = Theme.of(context).brightness == Brightness.light;
     final textColor = _profileTextColor(context);
+    final aboutCardColor = isLight
+        ? _profileCardColor(context, colors.cardMint, lightOpacity: .52)
+        : colors.surfaceElevated;
+    final aboutIconColor = isLight
+        ? _profileIconColor(context, colors.cardMint)
+        : colors.lime;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -432,9 +444,9 @@ class _ProfilePageState extends State<ProfilePage> {
         const SizedBox(height: 12),
         SurfaceCard(
           padding: EdgeInsets.zero,
-          color: isLight ? colors.surface : colors.surfaceElevated,
+          color: aboutCardColor,
           borderRadius: AppRadii.large,
-          showBorder: isLight,
+          showBorder: false,
           boxShadow: _cardShadow(),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -447,13 +459,14 @@ class _ProfilePageState extends State<ProfilePage> {
                       width: 48,
                       height: 48,
                       decoration: BoxDecoration(
-                        color: (isLight ? colors.cardMint : colors.lime)
-                            .withValues(alpha: isLight ? .24 : .14),
+                        color: aboutIconColor.withValues(
+                          alpha: isLight ? .16 : .14,
+                        ),
                         shape: BoxShape.circle,
                       ),
                       child: Icon(
                         Icons.flight_takeoff_rounded,
-                        color: isLight ? colors.cardMint : colors.lime,
+                        color: aboutIconColor,
                       ),
                     ),
                     const SizedBox(width: 14),
@@ -594,13 +607,22 @@ class _ProfilePageState extends State<ProfilePage> {
   Color _profileSurfaceTint(
     BuildContext context,
     Color accent, {
-    double lightOpacity = .26,
+    // Keep preference tiles visibly tinted against the near-white canvas;
+    // the lower opacity made the pastel colors disappear on light mode.
+    double lightOpacity = .40,
   }) {
     if (!_isLight(context)) return accent;
     return Color.alphaBlend(
       accent.withValues(alpha: lightOpacity),
       context.appColors.surface,
     );
+  }
+
+  Color _profileIconColor(BuildContext context, Color accent) {
+    final colors = context.appColors;
+    // Keep each tile's hue, but pull the icon toward the ink color so the
+    // small mark stays legible against the pastel icon bubble.
+    return Color.lerp(accent, colors.textPrimary, .34)!;
   }
 
   List<BoxShadow> _cardShadow() {

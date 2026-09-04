@@ -25,11 +25,13 @@ class AirportCountry {
 
 class AirportCatalog {
   AirportCatalog(this._airports)
-    : _airportsByCountry = _buildCountryIndex(_airports);
+    : _airportsByCountry = _buildCountryIndex(_airports),
+      _searchIndex = _buildSearchIndex(_airports.values);
 
   static const assetPath = 'assets/data/airport-coordinates.json';
   final Map<String, Airport> _airports;
   final Map<String, List<Airport>> _airportsByCountry;
+  final List<_AirportSearchEntry> _searchIndex;
 
   late final List<AirportCountry> _countries =
       [
@@ -142,26 +144,10 @@ class AirportCatalog {
     final normalized = _normalizeSearchText(query);
     if (normalized.isEmpty || limit <= 0) return const [];
     final matches = <_ScoredAirport>[];
-    for (final airport in _airports.values) {
-      final localizedCity = localizedAirportCity(airport);
-      final localizedName = localizedAirportName(airport);
-      final score = _bestScore(normalized, <String, int>{
-        airport.iataCode: 0,
-        localizedCity: 10,
-        '$localizedCity机场': 11,
-        localizedName: 12,
-        for (final alias in localizedAirportSearchAliases(airport)) alias: 11,
-        ...{for (final keyword in airport.keywords) keyword: 14},
-        localizedCountryName(airport.countryCode): 4,
-        localizedCountryEnglishName(airport.countryCode): 5,
-        airport.countryCode: 6,
-        airport.city: 20,
-        airport.name: 24,
-        airport.icaoCode: 26,
-        airport.isoRegion: 30,
-      });
+    for (final entry in _searchIndex) {
+      final score = _bestNormalizedScore(normalized, entry.fields);
       if (score != null) {
-        matches.add(_ScoredAirport(airport, score));
+        matches.add(_ScoredAirport(entry.airport, score));
       }
     }
     matches.sort((left, right) {
@@ -219,6 +205,61 @@ class AirportCatalog {
         entry.key: List<Airport>.unmodifiable(entry.value),
     };
     return Map.unmodifiable(indexed);
+  }
+
+  static List<_AirportSearchEntry> _buildSearchIndex(
+    Iterable<Airport> airports,
+  ) => [
+    for (final airport in airports)
+      _AirportSearchEntry(airport, _searchFields(airport)),
+  ];
+
+  static List<_AirportSearchField> _searchFields(Airport airport) {
+    final localizedCity = localizedAirportCity(airport);
+    final localizedName = localizedAirportName(airport);
+    final fields = <String, int>{
+      airport.iataCode: 0,
+      localizedCity: 10,
+      '$localizedCity机场': 11,
+      localizedName: 12,
+      for (final alias in localizedAirportSearchAliases(airport)) alias: 11,
+      ...{for (final keyword in airport.keywords) keyword: 14},
+      localizedCountryName(airport.countryCode): 4,
+      localizedCountryEnglishName(airport.countryCode): 5,
+      airport.countryCode: 6,
+      airport.city: 20,
+      airport.name: 24,
+      airport.icaoCode: 26,
+      airport.isoRegion: 30,
+    };
+    return [
+      for (final entry in fields.entries)
+        if (_normalizeSearchText(entry.key).isNotEmpty)
+          _AirportSearchField(_normalizeSearchText(entry.key), entry.value),
+    ];
+  }
+
+  static int? _bestNormalizedScore(
+    String query,
+    List<_AirportSearchField> fields,
+  ) {
+    int? best;
+    for (final field in fields) {
+      final value = field.value;
+      final offset = value == query
+          ? 0
+          : value.startsWith(query)
+          ? 1
+          : value.contains(query)
+          ? 2
+          : query.contains(value)
+          ? 3
+          : null;
+      if (offset == null) continue;
+      final score = field.weight + offset;
+      if (best == null || score < best) best = score;
+    }
+    return best;
   }
 
   static int _compareAirports(Airport left, Airport right) {
@@ -319,6 +360,20 @@ class _ScoredAirport {
 
   final Airport airport;
   final int score;
+}
+
+class _AirportSearchEntry {
+  const _AirportSearchEntry(this.airport, this.fields);
+
+  final Airport airport;
+  final List<_AirportSearchField> fields;
+}
+
+class _AirportSearchField {
+  const _AirportSearchField(this.value, this.weight);
+
+  final String value;
+  final int weight;
 }
 
 class _ScoredCountry {

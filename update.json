@@ -1,7 +1,7 @@
 {
-  "version": "1.1.2",
-  "build": 9,
-  "releaseUrl": "https://github.com/yiming-space/flight-footprint/releases/tag/v1.1.2",
-  "apkUrl": "https://github.com/yiming-space/flight-footprint/releases/download/v1.1.2/flight-footprint-1.1.2.apk",
-  "notes": "优化折叠屏展开与双列布局、浅色主题和液态玻璃菜单；改进地图填充、洲际航线渐变与切换动画；修复卡片溢出和布局变形问题。"
+  "version": "1.1.3",
+  "build": 10,
+  "releaseUrl": "https://github.com/yiming-space/flight-footprint/releases/tag/v1.1.3",
+  "apkUrl": "https://github.com/yiming-space/flight-footprint/releases/download/v1.1.3/app-release.apk",
+  "notes": "优化浅色主题视觉层级、液态玻璃菜单和卡片配色；修复长按保存菜单、筛选切换动画、折叠屏布局与输入法重排问题。"
 }

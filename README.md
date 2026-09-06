@@ -4,24 +4,49 @@
 
 <img width="4500" height="2000" alt="app00" src="https://github.com/user-attachments/assets/6dfe0337-5632-4911-b3c7-10347d550a13" />
 
-## 1.1 功能
+## 1.1.5 功能
 
-- 飞行地图 / 旅行足迹离线切换
+- 飞行地图 / 旅行足迹离线切换，支持平面地图与可旋转、缩放的地球模式
+- 平面地图和地球模式支持航线动画、机场点选、地名显示、国界线与星空背景
+- 航线动画按飞行时间顺序播放，飞机跟随航线移动，动画结束后保留目的地信息
+- 旅行足迹按国家 / 地区与行政区统计，点亮已到访板块并支持香港、澳门、台湾等地区规则
 - 航班快速记录、年份筛选与长按删除
-- 总里程、机场、机型、航司、城市与国家统计
+- 总里程、机场、机型、航司、城市与国家 / 地区统计
 - SQLite 本地数据存储
 - JSON 备份导出与恢复导入（兼容网页版导出记录）
 - 中文 / English 全局切换
-- 关于页自动检查 GitHub 最新发布，发现新版本时提示；Android 可下载 APK，macOS 可下载并打开 DMG
+- 关于页自动检查 GitHub 最新发布，发现新版本时提示；Android 下载 APK，macOS 下载并打开 DMG
 - 航空公司与航班号必填，可选通过 ADSBdb / FlightBoard 兼容路线源自动补全
 - 可选连接自建 Cloudflare Worker + D1，支持本地覆盖云端与云端恢复到本地
-- Android 返回逻辑与沉浸式深色界面
+- macOS 桌面端采用侧栏 + 工作区布局，适配大屏窗口
+- 深色 / 浅色主题、中文 / English 与本地优先数据策略
 
 ## 下载
 
-- [GitHub Releases](https://github.com/yiming-space/flight-footprint/releases)
-- [Android APK · v1.1.5](https://github.com/yiming-space/flight-footprint/releases/download/v1.1.5/app-release.apk)
-- [macOS DMG · v1.1.5](https://github.com/yiming-space/flight-footprint/releases/download/v1.1.5/flight_footprint-macos-v1.1.5.dmg)
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <h3>Android</h3>
+      <p>APK · v1.1.5 · 本地优先，免登录</p>
+      <a href="https://github.com/yiming-space/flight-footprint/releases/download/v1.1.5/app-release.apk">
+        <img alt="下载 Android APK" src="https://img.shields.io/badge/下载_Android_APK-9BEA3D?style=for-the-badge&logo=android&logoColor=0B1017&labelColor=0B1017" />
+      </a>
+    </td>
+    <td width="50%" valign="top">
+      <h3>macOS</h3>
+      <p>DMG · v1.1.5 · 桌面端双栏布局</p>
+      <a href="https://github.com/yiming-space/flight-footprint/releases/download/v1.1.5/flight_footprint-macos-v1.1.5.dmg">
+        <img alt="下载 macOS DMG" src="https://img.shields.io/badge/下载_macOS_DMG-9BEA3D?style=for-the-badge&logo=apple&logoColor=0B1017&labelColor=0B1017" />
+      </a>
+    </td>
+  </tr>
+</table>
+
+<p>
+  <a href="https://github.com/yiming-space/flight-footprint/releases">
+    <img alt="查看所有版本" src="https://img.shields.io/badge/查看所有版本-202833?style=for-the-badge&logo=github&logoColor=FFFFFF" />
+  </a>
+</p>
 
 macOS 安装包为当前开发分发版，未进行 Apple Developer 签名与公证。首次打开若被 Gatekeeper 拦截，请在 Finder 中右键 App 选择「打开」，或到「系统设置 → 隐私与安全性」允许打开。App 内检查更新会根据平台选择 APK 或 DMG；macOS 下载完成后会打开 DMG，由用户将 App 拖入「应用程序」完成替换。
 
@@ -39,7 +64,7 @@ flutter run
 - 地图、机场坐标和行政区数据均随安装包离线提供。
 - 机场索引由 [OurAirports 公共机场数据](https://ourairports.com/data/) 生成，保留 IATA、ICAO、正式名、行政城市、机场类型、定期航班标记和别名；生成脚本为 `tool/generate_airport_index.py`。
 - 索引保留上一个版本中已移除的 IATA 别名，避免历史记录因数据源更新而失去坐标。
-- 1.1 的核心记录功能不要求账号、配对码或网络；更新检查仅在进入关于页或用户主动点击时联网。
+- 1.1.5 的核心记录功能不要求账号、配对码或网络；更新检查仅在进入关于页或用户主动点击时联网。
 - 未连接云端时完全离线可用；连接云端也不会改变 SQLite 本地数据源。
 
 ## 可选云端同步

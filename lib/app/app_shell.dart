@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
@@ -40,7 +41,9 @@ class _AppShellState extends State<AppShell>
     // Let Android report the real posture window. A portrait lock makes an
     // unfolded Pixel Fold letterbox the entire Flutter view, so page-level
     // wide-layout breakpoints never receive the expanded width.
-    unawaited(SystemChrome.setPreferredOrientations(const []));
+    if (Platform.isAndroid || Platform.isIOS) {
+      unawaited(SystemChrome.setPreferredOrientations(const []));
+    }
   }
 
   @override
@@ -64,6 +67,27 @@ class _AppShellState extends State<AppShell>
 
   void _openAdd() {
     unawaited(_playAddAnimation());
+    if (_isDesktopWindow(context)) {
+      showDialog<void>(
+        context: context,
+        barrierColor: Colors.black.withValues(alpha: .62),
+        builder: (_) => Dialog(
+          backgroundColor: Colors.transparent,
+          insetPadding: const EdgeInsets.symmetric(
+            horizontal: 72,
+            vertical: 32,
+          ),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 760, maxHeight: 820),
+            child: ClipRRect(
+              borderRadius: AppRadii.large,
+              child: AddFlightPage(controller: widget.controller),
+            ),
+          ),
+        ),
+      );
+      return;
+    }
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -124,6 +148,7 @@ class _AppShellState extends State<AppShell>
       '${viewPadding.top}:${viewPadding.bottom}:'
       '$devicePixelRatio',
     );
+    final isDesktop = _isDesktopWindow(context);
     final pages = [
       HomePage(
         controller: widget.controller,
@@ -139,47 +164,412 @@ class _AppShellState extends State<AppShell>
       onPopInvokedWithResult: (didPop, result) {
         if (!didPop && _index != 0) setState(() => _index = 0);
       },
-      child: Scaffold(
-        // The modal sheet owns IME avoidance through its viewInsets-aware
-        // padding. Keeping the underlying shell fixed prevents the entire
-        // page stack and its map from relayouting during the keyboard slide.
-        resizeToAvoidBottomInset: false,
-        // The navigation material floats in the same stack as the pages.
-        // Using Scaffold.bottomNavigationBar would still create a rectangular
-        // footer region around the rounded glass, preventing page content from
-        // showing through its outer margins.
-        body: Stack(
-          fit: StackFit.expand,
-          children: [
-            SafeArea(
-              top: true,
-              bottom: false,
-              left: false,
-              right: false,
-              child: IndexedStack(index: _index, children: pages),
+      child: isDesktop
+          ? _DesktopWorkspace(
+              index: _index,
+              pages: pages,
+              labels: [
+                strings.t('home'),
+                strings.t('flights'),
+                strings.t('stats'),
+                strings.t('profile'),
+              ],
+              addAnimation: _addAnimation,
+              onChanged: (value) => setState(() => _index = value),
+              onAdd: _openAdd,
+            )
+          : Scaffold(
+              // The modal sheet owns IME avoidance through its viewInsets-aware
+              // padding. Keeping the underlying shell fixed prevents the entire
+              // page stack and its map from relayouting during the keyboard slide.
+              resizeToAvoidBottomInset: false,
+              // The navigation material floats in the same stack as the pages.
+              // Using Scaffold.bottomNavigationBar would still create a rectangular
+              // footer region around the rounded glass, preventing page content from
+              // showing through its outer margins.
+              body: Stack(
+                fit: StackFit.expand,
+                children: [
+                  SafeArea(
+                    top: true,
+                    bottom: false,
+                    left: false,
+                    right: false,
+                    child: IndexedStack(index: _index, children: pages),
+                  ),
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    child: RepaintBoundary(
+                      child: _BottomBar(
+                        key: bottomBarKey,
+                        index: _index,
+                        labels: [
+                          strings.t('home'),
+                          strings.t('flights'),
+                          strings.t('stats'),
+                          strings.t('profile'),
+                        ],
+                        addAnimation: _addAnimation,
+                        onChanged: (value) => setState(() => _index = value),
+                        onAdd: _openAdd,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: 0,
-              child: RepaintBoundary(
-                child: _BottomBar(
-                  key: bottomBarKey,
-                  index: _index,
-                  labels: [
-                    strings.t('home'),
-                    strings.t('flights'),
-                    strings.t('stats'),
-                    strings.t('profile'),
+    );
+  }
+
+  bool _isDesktopWindow(BuildContext context) {
+    if (!(Platform.isMacOS || Platform.isWindows || Platform.isLinux)) {
+      return false;
+    }
+    return MediaQuery.sizeOf(context).width >= 840;
+  }
+}
+
+class _DesktopWorkspace extends StatelessWidget {
+  const _DesktopWorkspace({
+    required this.index,
+    required this.pages,
+    required this.labels,
+    required this.addAnimation,
+    required this.onChanged,
+    required this.onAdd,
+  });
+
+  final int index;
+  final List<Widget> pages;
+  final List<String> labels;
+  final Animation<double> addAnimation;
+  final ValueChanged<int> onChanged;
+  final VoidCallback onAdd;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    return Scaffold(
+      resizeToAvoidBottomInset: false,
+      body: SafeArea(
+        minimum: const EdgeInsets.all(16),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _DesktopSidebar(
+              index: index,
+              labels: labels,
+              addAnimation: addAnimation,
+              onChanged: onChanged,
+              onAdd: onAdd,
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: DecoratedBox(
+                decoration: ShapeDecoration(
+                  color: colors.background,
+                  shape: RoundedSuperellipseBorder(
+                    borderRadius: AppRadii.large,
+                    side: BorderSide(
+                      color: colors.border.withValues(alpha: .35),
+                    ),
+                  ),
+                ),
+                child: Column(
+                  children: [
+                    _DesktopHeader(title: labels[index]),
+                    Expanded(
+                      child: ClipRRect(
+                        borderRadius: AppRadii.large,
+                        child: IndexedStack(index: index, children: pages),
+                      ),
+                    ),
                   ],
-                  addAnimation: _addAnimation,
-                  onChanged: (value) => setState(() => _index = value),
-                  onAdd: _openAdd,
                 ),
               ),
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _DesktopSidebar extends StatelessWidget {
+  const _DesktopSidebar({
+    required this.index,
+    required this.labels,
+    required this.addAnimation,
+    required this.onChanged,
+    required this.onAdd,
+  });
+
+  final int index;
+  final List<String> labels;
+  final Animation<double> addAnimation;
+  final ValueChanged<int> onChanged;
+  final VoidCallback onAdd;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    final s = context.strings;
+    const icons = [
+      Icons.home_rounded,
+      Icons.flight_rounded,
+      Icons.bar_chart_rounded,
+      Icons.person_rounded,
+    ];
+    return SizedBox(
+      width: 224,
+      child: DecoratedBox(
+        decoration: ShapeDecoration(
+          color: colors.surface,
+          shape: RoundedSuperellipseBorder(
+            borderRadius: AppRadii.large,
+            side: BorderSide(color: colors.border.withValues(alpha: .5)),
+          ),
+          shadows: [
+            BoxShadow(
+              color: Colors.black.withValues(
+                alpha: Theme.of(context).brightness == Brightness.dark
+                    ? .18
+                    : .06,
+              ),
+              blurRadius: 24,
+              offset: const Offset(0, 8),
+            ),
+          ],
+        ),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(14, 18, 14, 16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 38,
+                      height: 38,
+                      decoration: BoxDecoration(
+                        color: colors.lime,
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(
+                        Icons.flight_takeoff_rounded,
+                        color: colors.cardText,
+                        size: 21,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'Flight Footprint',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: colors.textPrimary,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: -.3,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 28),
+              for (var i = 0; i < labels.length; i++) ...[
+                _DesktopNavItem(
+                  label: labels[i],
+                  icon: icons[i],
+                  selected: i == index,
+                  onTap: () => onChanged(i),
+                ),
+                const SizedBox(height: 6),
+              ],
+              const Spacer(),
+              _DesktopLocalStatus(),
+              const SizedBox(height: 12),
+              ScaleTransition(
+                scale: addAnimation,
+                child: _DesktopAddButton(label: s.t('addFlight'), onTap: onAdd),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DesktopNavItem extends StatelessWidget {
+  const _DesktopNavItem({
+    required this.label,
+    required this.icon,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final IconData icon;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    final foreground = selected ? colors.lime : colors.textSecondary;
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: label,
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        child: AnimatedContainer(
+          duration: MediaQuery.disableAnimationsOf(context)
+              ? Duration.zero
+              : AppMotion.control,
+          decoration: ShapeDecoration(
+            color: selected
+                ? colors.lime.withValues(alpha: .14)
+                : Colors.transparent,
+            shape: AppShapes.small,
+          ),
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: onTap,
+              customBorder: AppShapes.small,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 12,
+                ),
+                child: Row(
+                  children: [
+                    Icon(icon, color: foreground, size: 22),
+                    const SizedBox(width: 12),
+                    Text(
+                      label,
+                      style: TextStyle(
+                        color: foreground,
+                        fontSize: 15,
+                        fontWeight: selected
+                            ? FontWeight.w700
+                            : FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DesktopAddButton extends StatelessWidget {
+  const _DesktopAddButton({required this.label, required this.onTap});
+
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: Material(
+        color: colors.lime,
+        shape: AppShapes.medium,
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          customBorder: AppShapes.medium,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 14),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.add_rounded, color: colors.cardText, size: 22),
+                const SizedBox(width: 8),
+                Text(
+                  label,
+                  style: TextStyle(
+                    color: colors.cardText,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DesktopLocalStatus extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: ShapeDecoration(
+        color: colors.surfaceElevated,
+        shape: AppShapes.small,
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.shield_outlined, size: 18, color: colors.textTertiary),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              '本地优先',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: colors.textSecondary,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DesktopHeader extends StatelessWidget {
+  const _DesktopHeader({required this.title});
+
+  final String title;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(28, 22, 28, 12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          Text(
+            title,
+            style: AppTextStyles.sectionTitle.copyWith(
+              color: colors.textPrimary,
+              fontSize: 24,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
       ),
     );
   }

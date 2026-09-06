@@ -127,11 +127,19 @@ class _ProfilePageState extends State<ProfilePage> {
             sliver: SliverLayoutBuilder(
               builder: (context, constraints) {
                 final localData = _localDataCard(context);
-                final dataManagement = _dataManagementSection(context);
                 final settings = _settingsSection(context);
                 final about = _aboutSection(context);
                 final isWide =
                     constraints.crossAxisExtent >= _wideLayoutBreakpoint;
+                final isDesktop =
+                    isWide &&
+                    (Platform.isMacOS ||
+                        Platform.isWindows ||
+                        Platform.isLinux);
+                final dataManagement = _dataManagementSection(
+                  context,
+                  desktop: isDesktop,
+                );
 
                 if (isWide) {
                   return SliverToBoxAdapter(
@@ -244,11 +252,113 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
-  Widget _dataManagementSection(BuildContext context) {
+  Widget _dataManagementSection(BuildContext context, {bool desktop = false}) {
     final s = context.strings;
     final colors = context.appColors;
     final textColor = _profileTextColor(context);
     final secondaryTextColor = _profileSecondaryTextColor(context);
+    if (desktop) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            s.t('dataManagement'),
+            style: AppTextStyles.sectionTitle.copyWith(
+              color: colors.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: ShapeDecoration(
+              color: colors.surfaceElevated,
+              shape: AppShapes.large,
+              shadows: _cardShadow(),
+            ),
+            child: Column(
+              children: [
+                _ProfileActionTile(
+                  title: s.t('exportBackup'),
+                  subtitle: 'JSON',
+                  icon: Icons.ios_share_rounded,
+                  color: textColor,
+                  backgroundColor: _profileCardColor(
+                    context,
+                    colors.cardLavender,
+                    lightOpacity: .82,
+                  ),
+                  textColor: textColor,
+                  secondaryTextColor: secondaryTextColor,
+                  wide: true,
+                  showChevron: true,
+                  onTap: () => _export(context),
+                ),
+                const SizedBox(height: 8),
+                _ProfileActionTile(
+                  title: s.t('importWebData'),
+                  subtitle: 'JSON',
+                  icon: Icons.file_download_outlined,
+                  color: textColor,
+                  backgroundColor: _profileCardColor(
+                    context,
+                    colors.cardBlue,
+                    lightOpacity: .82,
+                  ),
+                  textColor: textColor,
+                  secondaryTextColor: secondaryTextColor,
+                  wide: true,
+                  showChevron: true,
+                  onTap: () => _import(context),
+                ),
+                const SizedBox(height: 8),
+                _ProfileActionTile(
+                  title: s.t('importExcel'),
+                  subtitle: '.xlsx / .xls / .csv',
+                  icon: Icons.table_view_rounded,
+                  color: textColor,
+                  backgroundColor: _profileCardColor(
+                    context,
+                    colors.cardMint,
+                    lightOpacity: .82,
+                  ),
+                  textColor: textColor,
+                  secondaryTextColor: secondaryTextColor,
+                  wide: true,
+                  showChevron: true,
+                  onTap: () => _importSpreadsheet(context),
+                ),
+                const SizedBox(height: 8),
+                _ProfileActionTile(
+                  title: s.t('importCalendar'),
+                  subtitle: '系统日历',
+                  icon: Icons.calendar_month_rounded,
+                  color: textColor,
+                  backgroundColor: _profileCardColor(
+                    context,
+                    colors.cardCoral,
+                    lightOpacity: .82,
+                  ),
+                  textColor: textColor,
+                  secondaryTextColor: secondaryTextColor,
+                  wide: true,
+                  showChevron: true,
+                  onTap: () => _importCalendar(context),
+                ),
+                const SizedBox(height: 8),
+                _cloudSyncTile(
+                  context,
+                  title: s.t('cloudSync'),
+                  textColor: textColor,
+                  secondaryTextColor: secondaryTextColor,
+                  showChevron: true,
+                ),
+              ],
+            ),
+          ),
+        ],
+      );
+    }
+
     return Column(
       children: [
         Row(
@@ -314,45 +424,61 @@ class _ProfilePageState extends State<ProfilePage> {
           ],
         ),
         const SizedBox(height: 12),
-        ListenableBuilder(
-          listenable: controller.cloudSync,
-          builder: (context, _) {
-            final cloud = controller.cloudSync.state;
-            final value = switch (cloud.status) {
-              CloudSyncStatus.syncing => s.t('cloudSyncing'),
-              CloudSyncStatus.synced => s.t('cloudSynced'),
-              CloudSyncStatus.error => s.t('cloudSyncFailed'),
-              CloudSyncStatus.ready => s.t('cloudReady'),
-              CloudSyncStatus.disconnected => s.t('notConfigured'),
-            };
-            final isConfigured = cloud.isConfigured;
-            final isLight = Theme.of(context).brightness == Brightness.light;
-            return _ProfileActionTile(
-              title: s.t('cloudSync'),
-              value: value,
-              icon: isConfigured
-                  ? Icons.cloud_done_outlined
-                  : Icons.cloud_outlined,
-              color: isConfigured ? textColor : colors.textTertiary,
-              backgroundColor: isConfigured
-                  ? (isLight
-                        ? _profileCardColor(
-                            context,
-                            colors.cardMint,
-                            lightOpacity: .82,
-                          )
-                        : colors.lime)
-                  : colors.surfaceElevated,
-              textColor: isConfigured ? textColor : colors.textPrimary,
-              secondaryTextColor: isConfigured
-                  ? secondaryTextColor
-                  : colors.textSecondary,
-              wide: true,
-              onTap: () => _openCloudSync(context),
-            );
-          },
+        _cloudSyncTile(
+          context,
+          title: s.t('cloudSync'),
+          textColor: textColor,
+          secondaryTextColor: secondaryTextColor,
         ),
       ],
+    );
+  }
+
+  Widget _cloudSyncTile(
+    BuildContext context, {
+    required String title,
+    required Color textColor,
+    required Color secondaryTextColor,
+    bool showChevron = false,
+  }) {
+    final s = context.strings;
+    final colors = context.appColors;
+    return ListenableBuilder(
+      listenable: controller.cloudSync,
+      builder: (context, _) {
+        final cloud = controller.cloudSync.state;
+        final value = switch (cloud.status) {
+          CloudSyncStatus.syncing => s.t('cloudSyncing'),
+          CloudSyncStatus.synced => s.t('cloudSynced'),
+          CloudSyncStatus.error => s.t('cloudSyncFailed'),
+          CloudSyncStatus.ready => s.t('cloudReady'),
+          CloudSyncStatus.disconnected => s.t('notConfigured'),
+        };
+        final isConfigured = cloud.isConfigured;
+        final isLight = Theme.of(context).brightness == Brightness.light;
+        return _ProfileActionTile(
+          title: title,
+          value: value,
+          icon: isConfigured ? Icons.cloud_done_outlined : Icons.cloud_outlined,
+          color: isConfigured ? textColor : colors.textTertiary,
+          backgroundColor: isConfigured
+              ? (isLight
+                    ? _profileCardColor(
+                        context,
+                        colors.cardMint,
+                        lightOpacity: .82,
+                      )
+                    : colors.lime)
+              : colors.surfaceElevated,
+          textColor: isConfigured ? textColor : colors.textPrimary,
+          secondaryTextColor: isConfigured
+              ? secondaryTextColor
+              : colors.textSecondary,
+          wide: true,
+          showChevron: showChevron,
+          onTap: () => _openCloudSync(context),
+        );
+      },
     );
   }
 
@@ -905,7 +1031,7 @@ class _ProfilePageState extends State<ProfilePage> {
     final strings = context.strings;
     final progress = ValueNotifier<double?>(0);
     var dialogVisible = true;
-    var apkDownloaded = false;
+    var installerDownloaded = false;
     final dialogFuture = showDialog<void>(
       context: context,
       barrierDismissible: false,
@@ -916,7 +1042,7 @@ class _ProfilePageState extends State<ProfilePage> {
     try {
       // Give the progress surface one frame to appear before network I/O.
       await WidgetsBinding.instance.endOfFrame;
-      final apk = await _updateService.downloadApk(
+      final installer = await _updateService.downloadArtifact(
         result,
         onProgress: (received, total) {
           progress.value = total == null || total <= 0
@@ -924,14 +1050,14 @@ class _ProfilePageState extends State<ProfilePage> {
               : (received / total).clamp(0.0, 1.0).toDouble();
         },
       );
-      apkDownloaded = true;
+      installerDownloaded = true;
       if (context.mounted && dialogVisible) {
         Navigator.of(context, rootNavigator: true).pop();
         dialogVisible = false;
       }
       if (context.mounted) await dialogFuture;
       if (!context.mounted) return;
-      await AppUpdateInstaller.install(apk);
+      await AppUpdateInstaller.install(installer);
     } catch (error) {
       if (context.mounted && dialogVisible) {
         Navigator.of(context, rootNavigator: true).pop();
@@ -939,7 +1065,7 @@ class _ProfilePageState extends State<ProfilePage> {
         await dialogFuture;
       }
       if (context.mounted) {
-        final message = apkDownloaded
+        final message = installerDownloaded
             ? strings.t('installUpdateFailed')
             : strings.t('downloadUpdateFailed');
         _message(context, '$message: $error');
@@ -1787,12 +1913,29 @@ class _ProfileActionTile extends StatelessWidget {
               _IconTile(icon: icon, color: color),
               const SizedBox(width: 14),
               Expanded(
-                child: Text(
-                  title,
-                  style: AppTextStyles.body.copyWith(
-                    color: resolvedTextColor,
-                    fontWeight: FontWeight.w700,
-                  ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: AppTextStyles.body.copyWith(
+                        color: resolvedTextColor,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    if (subtitle != null) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        subtitle!,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTextStyles.label.copyWith(
+                          color: resolvedSecondaryTextColor,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
               ),
               if (value != null)

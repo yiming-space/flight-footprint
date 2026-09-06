@@ -70,15 +70,14 @@ class MapExplorerControls extends StatelessWidget {
         icon: Icons.center_focus_strong_rounded,
         onPressed: onReset,
       ),
-      MapExplorerButton(
-        label: strings.t(
-          landscape ? 'exitLandscape' : 'landscapeFullscreen',
+      if (onOrientation != null)
+        MapExplorerButton(
+          label: strings.t(landscape ? 'exitLandscape' : 'landscapeFullscreen'),
+          icon: landscape
+              ? Icons.stay_current_portrait_rounded
+              : Icons.screen_rotation_alt_rounded,
+          onPressed: onOrientation,
         ),
-        icon: landscape
-            ? Icons.stay_current_portrait_rounded
-            : Icons.screen_rotation_alt_rounded,
-        onPressed: onOrientation,
-      ),
     ];
     return SafeArea(
       top: false,
@@ -119,9 +118,7 @@ class MapExplorerControls extends StatelessWidget {
                             borderRadius: BorderRadius.circular(2),
                             color: const Color(0xffd5e5f4),
                             backgroundColor: Colors.white12,
-                            semanticsLabel: zh
-                                ? '航线播放进度'
-                                : 'Route progress',
+                            semanticsLabel: zh ? '航线播放进度' : 'Route progress',
                           ),
                         ],
                       ),

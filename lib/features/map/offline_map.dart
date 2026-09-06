@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -255,6 +256,7 @@ class _MapFullscreenPageState extends State<MapFullscreenPage>
 
   @override
   void didChangeMetrics() {
+    if (!Platform.isAndroid && !Platform.isIOS) return;
     if (!_landscape || _orientationChanging) return;
     // Android can briefly reveal the system bars during a rotation. Reapply
     // immersive mode after the new layout has committed so no black status
@@ -380,6 +382,7 @@ class _MapFullscreenPageState extends State<MapFullscreenPage>
   }
 
   Future<void> _setLandscape(bool target) async {
+    if (!Platform.isAndroid && !Platform.isIOS) return;
     if (_orientationChanging) return;
     if (mounted) setState(() => _orientationChanging = true);
 
@@ -454,6 +457,7 @@ class _MapFullscreenPageState extends State<MapFullscreenPage>
   }
 
   Future<void> _restorePortraitWindow() async {
+    if (!Platform.isAndroid && !Platform.isIOS) return;
     await SystemChrome.setPreferredOrientations(const [
       DeviceOrientation.portraitUp,
     ]);
@@ -564,7 +568,9 @@ class _MapFullscreenPageState extends State<MapFullscreenPage>
                         setState(() => _globeMode = globe);
                       }
                     },
-                    onOrientation: _orientationChanging
+                    onOrientation:
+                        _orientationChanging ||
+                            (!Platform.isAndroid && !Platform.isIOS)
                         ? null
                         : _toggleLandscape,
                     onReset: () => setState(() => _viewReset++),

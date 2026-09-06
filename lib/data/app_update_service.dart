@@ -105,9 +105,9 @@ class AppUpdateService {
           if (result != null) {
             if (!result.hasUpdate || result.canDownloadInApp) return result;
             // Older manifests only carried the release page. Enrich them with
-            // the APK asset exposed by GitHub so existing installations can
-            // still use the in-app updater without a manifest migration.
-            final asset = await _latestApkAsset(repository);
+            // the platform asset exposed by GitHub so existing installations
+            // can still use the in-app updater without a manifest migration.
+            final asset = await _latestPlatformAsset(repository);
             if (asset != null) {
               return AppUpdateResult.available(
                 currentVersion: result.currentVersion!,
@@ -131,23 +131,25 @@ class AppUpdateService {
     }
   }
 
-  /// Downloads the APK into the app cache and reports byte progress. The
-  /// returned file is handed to Android's package installer by the UI layer;
-  /// no browser or external download page is involved.
-  Future<File> downloadApk(
+  /// Downloads the platform installer into the app cache and reports byte
+  /// progress. Android receives an APK; macOS receives a DMG which is opened
+  /// by Finder after the download completes.
+  Future<File> downloadArtifact(
     AppUpdateResult update, {
     void Function(int received, int? total)? onProgress,
   }) async {
     final uri = update.downloadUrl;
     if (uri == null) {
-      throw StateError('This release does not provide an APK asset.');
+      throw StateError('This release does not provide a platform installer.');
     }
     if (uri.scheme != 'https') {
-      throw StateError('APK download must use HTTPS.');
+      throw StateError('Installer download must use HTTPS.');
     }
 
     final request = http.Request('GET', uri)
-      ..headers['Accept'] = 'application/vnd.android.package-archive';
+      ..headers['Accept'] = Platform.isMacOS
+          ? 'application/x-apple-diskimage'
+          : 'application/vnd.android.package-archive';
     final response = await _client
         .send(request)
         .timeout(const Duration(seconds: 12));
@@ -159,7 +161,8 @@ class AppUpdateService {
     final directory = Directory('${cache.path}/flight-footprint-updates');
     await directory.create(recursive: true);
     final version = _safeFilePart(update.latestVersion ?? 'latest');
-    final file = File('${directory.path}/flight-footprint-$version.apk');
+    final extension = Platform.isMacOS ? 'dmg' : 'apk';
+    final file = File('${directory.path}/flight-footprint-$version.$extension');
     if (await file.exists()) await file.delete();
 
     var received = 0;
@@ -182,10 +185,17 @@ class AppUpdateService {
 
     if (received == 0 || !await file.exists()) {
       if (await file.exists()) await file.delete();
-      throw StateError('Downloaded APK is empty.');
+      throw StateError('Downloaded installer is empty.');
     }
     return file;
   }
+
+  /// Backward-compatible alias for callers that still use the old Android
+  /// terminology.
+  Future<File> downloadApk(
+    AppUpdateResult update, {
+    void Function(int received, int? total)? onProgress,
+  }) => downloadArtifact(update, onProgress: onProgress);
 
   Future<http.Response> _get(Uri endpoint) => _client
       .get(
@@ -221,7 +231,7 @@ class AppUpdateService {
       );
     }
 
-    final asset = _apkAsset(payload?['assets']);
+    final asset = _platformAsset(payload?['assets']);
     final notes = _text(payload?['body']);
     if (_compareVersions(version, currentVersion) > 0) {
       return AppUpdateResult.available(
@@ -240,7 +250,7 @@ class AppUpdateService {
     );
   }
 
-  Future<({Uri uri, int? size})?> _latestApkAsset(
+  Future<({Uri uri, int? size})?> _latestPlatformAsset(
     ({String owner, String repository}) repository,
   ) async {
     final endpoint = Uri.https(
@@ -250,17 +260,18 @@ class AppUpdateService {
     final response = await _get(endpoint);
     if (response.statusCode != 200) return null;
     final payload = _decodeMap(response.body);
-    return _apkAsset(payload?['assets']);
+    return _platformAsset(payload?['assets']);
   }
 
-  static ({Uri uri, int? size})? _apkAsset(Object? rawAssets) {
+  static ({Uri uri, int? size})? _platformAsset(Object? rawAssets) {
     if (rawAssets is! List) return null;
     final candidates = <({Uri uri, int? size, String name})>[];
+    final extension = Platform.isMacOS ? '.dmg' : '.apk';
     for (final raw in rawAssets) {
       if (raw is! Map) continue;
       final name = _text(raw['name'])?.toLowerCase();
       final uri = _safeDownloadUrl(_text(raw['browser_download_url']));
-      if (name == null || !name.endsWith('.apk') || uri == null) continue;
+      if (name == null || !name.endsWith(extension) || uri == null) continue;
       final size = int.tryParse(_text(raw['size']) ?? '');
       candidates.add((uri: uri, size: size, name: name));
     }
@@ -322,9 +333,18 @@ class AppUpdateService {
     }
     final build = int.tryParse(_text(manifest['build']) ?? '');
     final downloadUrl = _safeDownloadUrl(
-      _text(manifest['apkUrl']) ?? _text(manifest['downloadUrl']),
+      Platform.isMacOS
+          ? _text(manifest['macosUrl']) ?? _text(manifest['dmgUrl'])
+          : _text(manifest['apkUrl']) ?? _text(manifest['downloadUrl']),
     );
-    final downloadSize = int.tryParse(_text(manifest['apkSize']) ?? '');
+    final downloadSize = int.tryParse(
+      _text(
+            Platform.isMacOS
+                ? manifest['macosSize'] ?? manifest['dmgSize']
+                : manifest['apkSize'],
+          ) ??
+          '',
+    );
     final currentBuild = int.tryParse(currentVersion.split('+').last) ?? 0;
     final isNewer =
         _compareVersions(version, currentVersion) > 0 ||

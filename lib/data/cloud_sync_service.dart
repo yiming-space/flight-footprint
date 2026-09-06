@@ -64,7 +64,15 @@ abstract interface class CloudCredentialStore {
 
 class SecureCloudCredentialStore implements CloudCredentialStore {
   SecureCloudCredentialStore({FlutterSecureStorage? storage})
-    : _storage = storage ?? const FlutterSecureStorage();
+    : _storage =
+          storage ??
+          const FlutterSecureStorage(
+            // The development macOS build is ad-hoc signed and cannot use
+            // the data-protection keychain without an Apple Development
+            // certificate. The login keychain remains protected by
+            // flutter_secure_storage and works for local desktop builds.
+            mOptions: MacOsOptions(usesDataProtectionKeychain: false),
+          );
 
   final FlutterSecureStorage _storage;
 

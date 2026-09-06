@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -641,7 +642,9 @@ class _HomePageState extends State<HomePage> {
     _openingMapFullscreen = true;
     final reduceMotion = MediaQuery.disableAnimationsOf(context);
     try {
-      await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+      if (Platform.isAndroid || Platform.isIOS) {
+        await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+      }
       if (!mounted) return;
 
       final viewport = Offset.zero & MediaQuery.sizeOf(context);
@@ -696,8 +699,10 @@ class _HomePageState extends State<HomePage> {
       // Return to the shell's responsive orientation policy. This matters on
       // a foldable when the fullscreen map was opened from the unfolded page:
       // restoring a hard portrait lock would letterbox the dashboard again.
-      await SystemChrome.setPreferredOrientations(const []);
-      await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+      if (Platform.isAndroid || Platform.isIOS) {
+        await SystemChrome.setPreferredOrientations(const []);
+        await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+      }
       _openingMapFullscreen = false;
     }
   }

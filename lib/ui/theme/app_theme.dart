@@ -183,6 +183,14 @@ abstract final class AppSpacing {
   /// bar. The shell extends the body behind the bar so the bar can float over
   /// content; the scroll view therefore needs to reserve that overlap itself.
   static double bottomBarClearance(BuildContext context) {
+    final platform = Theme.of(context).platform;
+    final isDesktop =
+        MediaQuery.sizeOf(context).width >= 840 &&
+        (platform == TargetPlatform.macOS ||
+            platform == TargetPlatform.windows ||
+            platform == TargetPlatform.linux);
+    if (isDesktop) return lg;
+
     final systemBottom = MediaQuery.paddingOf(context).bottom;
     final safeBottom = systemBottom > bottomBarBottomMinimum
         ? systemBottom

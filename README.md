@@ -1,6 +1,6 @@
 # 航迹 · Flight Footprint
 
-一个独立、离线、本地优先的 Flutter 飞行记录应用。1.1 支持 Android，数据无需登录即可记录在设备内；云同步和版本检查都是可选的自建能力。
+一个独立、离线、本地优先的 Flutter 飞行记录应用。当前 `1.1.5` 支持 Android 与 macOS，数据无需登录即可记录在设备内；云同步和版本检查都是可选的自建能力。
 
 <img width="4500" height="2000" alt="app00" src="https://github.com/user-attachments/assets/6dfe0337-5632-4911-b3c7-10347d550a13" />
 
@@ -12,10 +12,18 @@
 - SQLite 本地数据存储
 - JSON 备份导出与恢复导入（兼容网页版导出记录）
 - 中文 / English 全局切换
-- 关于页自动检查 GitHub 最新发布，发现新版本时提示，并提供项目源码入口
+- 关于页自动检查 GitHub 最新发布，发现新版本时提示；Android 可下载 APK，macOS 可下载并打开 DMG
 - 航空公司与航班号必填，可选通过 ADSBdb / FlightBoard 兼容路线源自动补全
 - 可选连接自建 Cloudflare Worker + D1，支持本地覆盖云端与云端恢复到本地
 - Android 返回逻辑与沉浸式深色界面
+
+## 下载
+
+- [GitHub Releases](https://github.com/yiming-space/flight-footprint/releases)
+- [Android APK · v1.1.5](https://github.com/yiming-space/flight-footprint/releases/download/v1.1.5/app-release.apk)
+- [macOS DMG · v1.1.5](https://github.com/yiming-space/flight-footprint/releases/download/v1.1.5/flight_footprint-macos-v1.1.5.dmg)
+
+macOS 安装包为当前开发分发版，未进行 Apple Developer 签名与公证。首次打开若被 Gatekeeper 拦截，请在 Finder 中右键 App 选择「打开」，或到「系统设置 → 隐私与安全性」允许打开。App 内检查更新会根据平台选择 APK 或 DMG；macOS 下载完成后会打开 DMG，由用户将 App 拖入「应用程序」完成替换。
 
 ## 本地运行
 

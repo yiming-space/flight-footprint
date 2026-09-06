@@ -423,11 +423,6 @@ class _HomePageState extends State<HomePage> {
         .where((code) => code.isNotEmpty)
         .toSet()
         .length;
-    final regionCount = visited
-        .map((place) => place.countryCode?.trim().toUpperCase() ?? '')
-        .where((code) => code.isNotEmpty)
-        .toSet()
-        .length;
     final chinaPlaces = visited
         .where((place) => place.countryCode?.trim().toUpperCase() == 'CN')
         .toList(growable: false);
@@ -495,8 +490,7 @@ class _HomePageState extends State<HomePage> {
                 total: 195,
                 progress: worldProgress,
                 color: worldAccent,
-                detail:
-                    '${s.t('visitedCountries')} · $regionCount ${s.t('visitedRegionsInline')}',
+                detail: s.t('visitedCountriesAndRegions'),
               ),
               const SizedBox(height: 20),
               _progressSection(

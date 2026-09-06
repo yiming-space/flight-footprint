@@ -62,10 +62,9 @@ class AppThemeColors extends ThemeExtension<AppThemeColors> {
   );
 
   static const light = AppThemeColors(
-    // Light mode follows the reference world: white content planes, near-black
-    // ink, dusty lilac, and a restrained chartreuse accent. It is intentionally
-    // composed independently from the dark theme; the map remains dark.
-    background: Color(0xFFF5F5F2),
+    // Light mode uses a quiet cool gray canvas so white surfaces and the soft
+    // colour cards have room to breathe without the page feeling glaring.
+    background: Color(0xFFE1E4E3),
     surface: Color(0xFFFFFFFF),
     surfaceElevated: Color(0xFFF0F0EE),
     border: Color(0xFFDCDCD7),
@@ -80,7 +79,7 @@ class AppThemeColors extends ThemeExtension<AppThemeColors> {
     // A tight reference-led card family: lilac, mist, chartreuse, blush,
     // and butter. Each remains readable with the same near-black card ink.
     cardLavender: Color(0xFFB0A6D2),
-    cardBlue: Color(0xFFDFEAE7),
+    cardBlue: Color(0xFFC8E3E0),
     cardMint: Color(0xFFD9E88D),
     cardCoral: Color(0xFFF0D9E4),
     cardYellow: Color(0xFFF0ECCA),

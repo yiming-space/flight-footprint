@@ -132,10 +132,10 @@ class FlatMapPainter extends CustomPainter {
     Color(0xffe4ebee),
     Color(0xffd9e4e7),
   ];
-  // A muted lavender keeps visited regions visible without competing with
-  // the flight-map markers and lime route accents.
-  static const _darkFootprintFill = Color(0xff75688f);
-  static const _lightFootprintFill = Color(0xffc0cdee);
+  // A muted mist blue keeps visited regions tied to the globe's ocean palette
+  // without competing with the flight-map markers and lime route accents.
+  static const _darkFootprintFill = Color(0xff78b2c8);
+  static const _lightFootprintFill = Color(0xffc6e0e5);
 
   List<Color> get _routeColors =>
       lightPalette ? _lightRouteColors : _darkRouteColors;
@@ -611,7 +611,7 @@ class FlatMapPainter extends CustomPainter {
       if (!visited) continue;
       canvas.drawPath(
         paths[index],
-        Paint()..color = _footprintFill.withValues(alpha: china ? .86 : .74),
+        Paint()..color = _footprintFill.withValues(alpha: china ? .40 : .36),
       );
     }
   }

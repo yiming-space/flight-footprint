@@ -41,14 +41,6 @@ class _HomePageState extends State<HomePage> {
   @override
   void initState() {
     super.initState();
-    // The app shell is portrait-first. Fullscreen map rotation is explicit
-    // from the map toolbar, so a stale orientation request from an older
-    // fullscreen session cannot leave the home screen sideways.
-    unawaited(
-      SystemChrome.setPreferredOrientations(const [
-        DeviceOrientation.portraitUp,
-      ]),
-    );
     // Resolve legacy pinyin/province labels as soon as the bundled world
     // index is ready. The first frame still renders immediately, then the map
     // quietly refreshes with canonical Chinese names and deduplicated dots.
@@ -647,7 +639,6 @@ class _HomePageState extends State<HomePage> {
   }) async {
     if (_openingMapFullscreen) return;
     _openingMapFullscreen = true;
-    final previousOrientations = const [DeviceOrientation.portraitUp];
     final reduceMotion = MediaQuery.disableAnimationsOf(context);
     try {
       await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
@@ -702,7 +693,10 @@ class _HomePageState extends State<HomePage> {
       // the entry guard until then so an old route cannot rotate a new one.
       await route.completed;
     } finally {
-      await SystemChrome.setPreferredOrientations(previousOrientations);
+      // Return to the shell's responsive orientation policy. This matters on
+      // a foldable when the fullscreen map was opened from the unfolded page:
+      // restoring a hard portrait lock would letterbox the dashboard again.
+      await SystemChrome.setPreferredOrientations(const []);
       await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
       _openingMapFullscreen = false;
     }

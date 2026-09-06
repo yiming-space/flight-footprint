@@ -15,19 +15,21 @@ class GlobeSurface {
 
   static Future<GlobeSurface> load(
     GeoJsonMapData land, {
+    required GeoJsonMapData countries,
     List<MapPlace> places = const [],
   }) {
-    // A travel-footprint globe has a data-dependent glow mask, so keep that
-    // surface local to the current fullscreen scene instead of caching a
-    // stale set of visited regions.
+    // A travel-footprint globe has a data-dependent visited-country mask, so
+    // keep that surface local to the current fullscreen scene instead of
+    // caching a stale set of visited regions.
     if (places.any((place) => place.isVisited)) {
-      return _load(land, places);
+      return _load(land, countries, places);
     }
-    return _cache[land] ??= _load(land, places);
+    return _cache[land] ??= _load(land, countries, places);
   }
 
   static Future<GlobeSurface> _load(
     GeoJsonMapData land,
+    GeoJsonMapData countries,
     List<MapPlace> places,
   ) async {
     final program = await ui.FragmentProgram.fromAsset(
@@ -45,7 +47,12 @@ class GlobeSurface {
     final coast = ui.Paint()
       ..color = const ui.Color(0xff7e9fba)
       ..style = ui.PaintingStyle.stroke
-      ..strokeWidth = .65;
+      // Keep coastlines and country boundaries subordinate to the routes.
+      ..strokeWidth = .45;
+    final countryBoundary = ui.Paint()
+      ..color = const ui.Color(0x996d8da4)
+      ..style = ui.PaintingStyle.stroke
+      ..strokeWidth = .35;
     // The bundled Natural Earth land is already split at the date line.
     // Keep those geographic rings intact, including holes and polar edges.
     for (final polygon in land.polygons) {
@@ -64,12 +71,54 @@ class GlobeSurface {
         path.close();
       }
       canvas.drawPath(path, fill);
+    }
+    // Country polygons are rendered into the same equirectangular atlas as
+    // the land fill, so the shader applies the globe projection to both
+    // layers together. Draw coastlines afterwards to keep the outer edge
+    // crisp where a country boundary meets the ocean.
+    for (final polygon in countries.polygons) {
+      final path = ui.Path()..fillType = ui.PathFillType.evenOdd;
+      for (final ring in polygon.rings) {
+        if (ring.length < 3) continue;
+        for (var i = 0; i < ring.length; i++) {
+          final x = (ring[i][0] + 180) / 360 * width;
+          final y = (90 - ring[i][1]) / 180 * height;
+          if (i == 0) {
+            path.moveTo(x, y);
+          } else {
+            path.lineTo(x, y);
+          }
+        }
+        path.close();
+      }
+      canvas.drawPath(path, countryBoundary);
+    }
+    for (final polygon in land.polygons) {
+      final path = ui.Path()..fillType = ui.PathFillType.evenOdd;
+      for (final ring in polygon.rings) {
+        if (ring.length < 3) continue;
+        for (var i = 0; i < ring.length; i++) {
+          final x = (ring[i][0] + 180) / 360 * width;
+          final y = (90 - ring[i][1]) / 180 * height;
+          if (i == 0) {
+            path.moveTo(x, y);
+          } else {
+            path.lineTo(x, y);
+          }
+        }
+        path.close();
+      }
       canvas.drawPath(path, coast);
     }
     final picture = recorder.endRecording();
     try {
       final atlas = await picture.toImage(width.toInt(), height.toInt());
-      final visitMask = await _buildVisitMask(places, width, height);
+      final visitMask = await _buildVisitMask(
+        countries,
+        places,
+        width,
+        height,
+      );
       return GlobeSurface._(atlas, visitMask, program);
     } finally {
       picture.dispose();
@@ -77,6 +126,7 @@ class GlobeSurface {
   }
 
   static Future<ui.Image> _buildVisitMask(
+    GeoJsonMapData countries,
     List<MapPlace> places,
     double width,
     double height,
@@ -84,25 +134,10 @@ class GlobeSurface {
     final recorder = ui.PictureRecorder();
     final canvas = ui.Canvas(recorder);
     canvas.drawColor(const ui.Color(0x00000000), ui.BlendMode.src);
-    for (final place in places) {
-      if (!place.isVisited) continue;
-      final x = (place.longitude + 180) / 360 * width;
-      final y = (90 - place.latitude) / 180 * height;
-      final radius = 28 + place.visits.clamp(1, 8) * 3.0;
-      final paint = ui.Paint()
-        ..shader = ui.Gradient.radial(
-          ui.Offset(x, y),
-          radius,
-          const [
-            ui.Color(0xd8ffffff),
-            ui.Color(0x60ffffff),
-            ui.Color(0x00ffffff),
-          ],
-          const [0.0, .22, 1.0],
-        );
-      for (final shiftedX in [x - width, x, x + width]) {
-        canvas.drawCircle(ui.Offset(shiftedX, y), radius, paint);
-      }
+    final visitedPaint = ui.Paint()..color = const ui.Color(0xffffffff);
+    for (final polygon in countries.polygons) {
+      if (!_containsVisitedPlace(polygon, places)) continue;
+      canvas.drawPath(_atlasPath(polygon, width, height), visitedPaint);
     }
     final picture = recorder.endRecording();
     try {
@@ -110,6 +145,68 @@ class GlobeSurface {
     } finally {
       picture.dispose();
     }
+  }
+
+  static ui.Path _atlasPath(
+    MapPolygon polygon,
+    double width,
+    double height,
+  ) {
+    final path = ui.Path()..fillType = ui.PathFillType.evenOdd;
+    for (final ring in polygon.rings) {
+      if (ring.length < 3) continue;
+      for (var i = 0; i < ring.length; i++) {
+        final x = (ring[i][0] + 180) / 360 * width;
+        final y = (90 - ring[i][1]) / 180 * height;
+        if (i == 0) {
+          path.moveTo(x, y);
+        } else {
+          path.lineTo(x, y);
+        }
+      }
+      path.close();
+    }
+    return path;
+  }
+
+  static bool _containsVisitedPlace(
+    MapPolygon polygon,
+    List<MapPlace> places,
+  ) => places.any(
+    (place) =>
+        place.isVisited &&
+        _containsPolygonPoint(polygon, place.longitude, place.latitude),
+  );
+
+  static bool _containsPolygonPoint(
+    MapPolygon polygon,
+    double longitude,
+    double latitude,
+  ) {
+    var inside = false;
+    for (final ring in polygon.rings) {
+      for (var index = 0, previous = ring.length - 1;
+          index < ring.length;
+          previous = index++) {
+        final currentPoint = ring[index];
+        final previousPoint = ring[previous];
+        final currentLongitude = currentPoint[0];
+        final currentLatitude = currentPoint[1];
+        final previousLongitude = previousPoint[0];
+        final previousLatitude = previousPoint[1];
+        final crossesLatitude =
+            (currentLatitude > latitude) !=
+            (previousLatitude > latitude);
+        if (!crossesLatitude) continue;
+        final crossingLongitude =
+            (previousLongitude - currentLongitude) *
+                (latitude - currentLatitude) /
+                (previousLatitude - currentLatitude) +
+            currentLongitude;
+        if (longitude < crossingLongitude) inside = !inside;
+      }
+    }
+    return inside;
   }
 
   ui.FragmentShader createShader() => program.fragmentShader()

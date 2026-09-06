@@ -30,12 +30,18 @@ void main() {
   float light = 0.55 + 0.53 * max(0.0, dot(normal, normalize(vec3(-0.45, 0.6, 1.0))));
   float rim = pow(1.0 - normal.z, 4.0);
   // The atlas uses a lifted blue-slate ocean so the globe remains distinct
-  // from the near-black fullscreen background. Lavender remains the same
-  // footprint role as the flat map.
+  // from the near-black fullscreen background. The mist-blue footprint fill is
+  // the same role and tone used by the flat map.
   float visited = texture(uVisitMask, uv).a;
-  vec3 footprint = vec3(0.459, 0.408, 0.561);
-  float footprintGlow = smoothstep(0.015, 0.62, visited);
-  vec3 color = mix(surface * light, footprint * (0.88 + light * 0.28), footprintGlow);
+  vec3 footprint = vec3(0.471, 0.698, 0.784);
+  // The mask is a solid visited-country fill, not a radial point glow.
+  float footprintMask = smoothstep(0.25, 0.75, visited);
+  float footprintMix = footprintMask * 0.40;
+  vec3 color = mix(
+    surface * light,
+    footprint * (0.88 + light * 0.28),
+    footprintMix
+  );
   color += vec3(0.025, 0.075, 0.16) * rim * 0.28;
   // Only the subpixel silhouette is antialiased; the entire interior is opaque.
   float coverage = clamp((1.0 - sqrt(r2)) * uRadius, 0.0, 1.0);

@@ -4,6 +4,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/physics.dart';
+import 'package:flutter/services.dart';
 
 import '../core/localization/app_strings.dart';
 import '../features/add_flight/add_flight_page.dart';
@@ -36,6 +37,10 @@ class _AppShellState extends State<AppShell>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    // Let Android report the real posture window. A portrait lock makes an
+    // unfolded Pixel Fold letterbox the entire Flutter view, so page-level
+    // wide-layout breakpoints never receive the expanded width.
+    unawaited(SystemChrome.setPreferredOrientations(const []));
   }
 
   @override

@@ -64,6 +64,7 @@ class _GlobeMapState extends State<GlobeMap>
   double _followPitchOffset = 0;
   double _startFollowYawOffset = 0;
   double _startFollowPitchOffset = 0;
+  bool _showLabels = false;
   String? _selectedLabel;
   MapCoordinate? _selectedCoordinate;
 
@@ -79,7 +80,7 @@ class _GlobeMapState extends State<GlobeMap>
           final travel = (1 - math.exp(-6 * _momentum.value)) / 6;
           setState(() {
             _yaw = _releaseYaw + _releaseVelocity.dx * travel;
-            _pitch = (_releasePitch - _releaseVelocity.dy * travel)
+            _pitch = (_releasePitch + _releaseVelocity.dy * travel)
                 .clamp(-math.pi / 2, math.pi / 2)
                 .toDouble();
           });
@@ -90,6 +91,7 @@ class _GlobeMapState extends State<GlobeMap>
     final data = await widget.loader.loadBundle();
     final surface = await GlobeSurface.load(
       data.land,
+      countries: data.countries,
       places: widget.mode == MapMode.travelFootprint ? widget.places : const [],
     );
     return (data: data, surface: surface);
@@ -124,6 +126,7 @@ class _GlobeMapState extends State<GlobeMap>
       _scale = 1;
       _followYawOffset = 0;
       _followPitchOffset = 0;
+      _showLabels = false;
       _selectedLabel = null;
       _selectedCoordinate = null;
     }
@@ -154,16 +157,16 @@ class _GlobeMapState extends State<GlobeMap>
         _followYawOffset = (_startFollowYawOffset + delta.dx / 240)
             .clamp(-.62, .62)
             .toDouble();
-        _followPitchOffset = (_startFollowPitchOffset - delta.dy / 240)
+        _followPitchOffset = (_startFollowPitchOffset + delta.dy / 240)
             .clamp(-.48, .48)
             .toDouble();
       } else {
         _yaw = _startYaw + delta.dx / 240;
-        _pitch = (_startPitch - delta.dy / 240)
+        _pitch = (_startPitch + delta.dy / 240)
             .clamp(-math.pi / 2, math.pi / 2)
             .toDouble();
       }
-      _scale = (_startScale * details.scale).clamp(.82, 1.65).toDouble();
+      _scale = (_startScale * details.scale).clamp(.82, 2.05).toDouble();
     });
   }
 
@@ -243,6 +246,7 @@ class _GlobeMapState extends State<GlobeMap>
             scale: _scale,
             routeAnimationProgress: widget.routeAnimationProgress,
             showRouteAnimationPlane: widget.showRouteAnimationPlane,
+            showLabels: _showLabels,
             selectedLabel: _selectedLabel,
             selectedCoordinate: _selectedCoordinate,
           );
@@ -254,12 +258,11 @@ class _GlobeMapState extends State<GlobeMap>
                 size,
               );
               if (selection == null) {
-                if (_selectedLabel != null && mounted) {
-                  setState(() {
-                    _selectedLabel = null;
-                    _selectedCoordinate = null;
-                  });
-                }
+                setState(() {
+                  _showLabels = !_showLabels;
+                  _selectedLabel = null;
+                  _selectedCoordinate = null;
+                });
                 return;
               }
               if (!mounted) {
@@ -287,7 +290,6 @@ class _GlobeMapState extends State<GlobeMap>
 
 class GlobePainter extends CustomPainter {
   static const _routeTravelShare = .86;
-  static const _routeArrivalShare = .14;
 
   GlobePainter({
     required this.data,
@@ -301,6 +303,7 @@ class GlobePainter extends CustomPainter {
     this.scale = 1,
     this.routeAnimationProgress = 1,
     this.showRouteAnimationPlane = false,
+    this.showLabels = false,
     this.selectedLabel,
     this.selectedCoordinate,
   });
@@ -316,6 +319,7 @@ class GlobePainter extends CustomPainter {
   final double scale;
   final double routeAnimationProgress;
   final bool showRouteAnimationPlane;
+  final bool showLabels;
   final String? selectedLabel;
   final MapCoordinate? selectedCoordinate;
 
@@ -447,9 +451,6 @@ class GlobePainter extends CustomPainter {
     canvas.save();
     canvas.clipPath(sphere);
     _drawGrid(canvas, projection);
-    if (mode == MapMode.travelFootprint) {
-      _drawTravelFootprintGlow(canvas, projection);
-    }
     canvas.restore();
 
     // Routes are raised above the sphere, so they need to be painted outside
@@ -461,6 +462,7 @@ class GlobePainter extends CustomPainter {
     canvas.clipPath(sphere);
     _drawAirports(canvas, projection);
     _drawPlaces(canvas, projection);
+    if (showLabels) _drawAllLabels(canvas, projection);
     canvas.restore();
 
     if (showRouteAnimationPlane) {
@@ -518,9 +520,9 @@ class GlobePainter extends CustomPainter {
           )
           ..style = PaintingStyle.stroke
           // The globe already gives routes extra visual weight through
-          // elevation and perspective. Keep the stroke delicate so the
-          // continent texture and destination labels remain legible.
-          ..strokeWidth = route.isHighlight ? 1.65 : 1.15
+          // elevation and perspective. Keep every route at the same delicate
+          // weight so long and highlighted routes do not overpower the globe.
+          ..strokeWidth = .9
           ..strokeCap = StrokeCap.round
           ..strokeJoin = StrokeJoin.round,
       );
@@ -533,52 +535,31 @@ class GlobePainter extends CustomPainter {
       final point = projection.project(airport.latitude, airport.longitude);
       if (point == null) continue;
       final color = _routeColors[index % _routeColors.length];
-      var revealProgress = 0.0;
-      var arrivalProgress = 0.0;
-      var arrivalColor = color;
-      if (showRouteAnimationPlane && routes.isNotEmpty) {
-        for (var routeIndex = 0; routeIndex < routes.length; routeIndex++) {
-          if (routes[routeIndex].to.code != airport.code) continue;
-          revealProgress = math.max(
-            revealProgress,
-            _routeProgressForIndex(routeIndex, routes.length),
-          );
-          final pulse = _routeArrivalProgressForIndex(
-            routeIndex,
-            routes.length,
-          );
-          if (pulse >= arrivalProgress) {
-            arrivalProgress = pulse;
-            arrivalColor = _routeColors[routeIndex % _routeColors.length];
-          }
-        }
-      }
-      if (showRouteAnimationPlane && routes.isNotEmpty) {
-        final hasIncomingRoute = routes.any(
-          (route) => route.to.code == airport.code,
-        );
-        if (!hasIncomingRoute && routeAnimationProgress < .999) continue;
-        if (hasIncomingRoute && revealProgress < .999) continue;
-      }
+      if (!_isAirportVisibleForPlayback(airport)) continue;
       final markerColor = color;
-      if (arrivalProgress > 0 && arrivalProgress < 1) {
-        final wave = Curves.easeOut.transform(arrivalProgress);
-        canvas.drawCircle(
-          point,
-          5 + 18 * wave,
-          Paint()
-            ..color = arrivalColor.withValues(alpha: .5 * (1 - wave))
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = 1.4,
-        );
-      }
       canvas.drawCircle(
         point,
-        4.6,
+        3.8,
         Paint()..color = const Color(0xff0b1015).withValues(alpha: .8),
       );
-      canvas.drawCircle(point, 2.7, Paint()..color = markerColor);
+      canvas.drawCircle(point, 2.5, Paint()..color = markerColor);
     }
+  }
+
+  bool _isAirportVisibleForPlayback(MapAirport airport) {
+    if (!showRouteAnimationPlane || routes.isEmpty) return true;
+    var revealProgress = 0.0;
+    var hasIncomingRoute = false;
+    for (var routeIndex = 0; routeIndex < routes.length; routeIndex++) {
+      if (routes[routeIndex].to.code != airport.code) continue;
+      hasIncomingRoute = true;
+      revealProgress = math.max(
+        revealProgress,
+        _routeProgressForIndex(routeIndex, routes.length),
+      );
+    }
+    if (!hasIncomingRoute && routeAnimationProgress < .999) return false;
+    return !hasIncomingRoute || revealProgress >= .999;
   }
 
   void _drawPlaces(Canvas canvas, _GlobeProjection projection) {
@@ -590,39 +571,65 @@ class GlobePainter extends CustomPainter {
       final color = _travelColors[index % _travelColors.length];
       canvas.drawCircle(
         point,
-        10,
-        Paint()..color = color.withValues(alpha: .12),
+        3.8,
+        Paint()..color = const Color(0xff0b1015).withValues(alpha: .8),
       );
-      canvas.drawCircle(
-        point,
-        5,
-        Paint()..color = const Color(0xff06131d).withValues(alpha: .9),
-      );
-      canvas.drawCircle(point, 3, Paint()..color = color);
+      canvas.drawCircle(point, 2.5, Paint()..color = color);
     }
   }
 
-  void _drawTravelFootprintGlow(Canvas canvas, _GlobeProjection projection) {
-    for (var index = 0; index < places.length; index++) {
-      final place = places[index];
-      if (!place.isVisited) continue;
-      final point = projection.project(place.latitude, place.longitude);
-      if (point == null) continue;
-      final color = _travelColors[index % _travelColors.length];
-      final radius = (13 + place.visits.clamp(1, 8) * 2).toDouble();
-      canvas.drawCircle(
-        point,
-        radius,
-        Paint()
-          ..shader = RadialGradient(
-            colors: [
-              color.withValues(alpha: .16),
-              color.withValues(alpha: .045),
-              color.withValues(alpha: 0),
-            ],
-          ).createShader(Rect.fromCircle(center: point, radius: radius)),
-      );
+  void _drawAllLabels(Canvas canvas, _GlobeProjection projection) {
+    if (mode == MapMode.travelFootprint) {
+      for (final place in places) {
+        if (!place.isVisited) continue;
+        final name = normalizedMapLabel(place.name);
+        final point = projection.project(place.latitude, place.longitude);
+        if (name.isEmpty || isProvinceMapLabel(name) || point == null) {
+          continue;
+        }
+        _drawGlobeLabel(canvas, projection, point, name);
+      }
+      return;
     }
+    for (final airport in airports) {
+      if (!_isAirportVisibleForPlayback(airport)) continue;
+      final name = normalizedMapLabel(airport.name);
+      final point = projection.project(airport.latitude, airport.longitude);
+      if (name.isEmpty || isProvinceMapLabel(name) || point == null) continue;
+      _drawGlobeLabel(canvas, projection, point, name);
+    }
+  }
+
+  void _drawGlobeLabel(
+    Canvas canvas,
+    _GlobeProjection projection,
+    Offset point,
+    String name,
+  ) {
+    final painter = TextPainter(
+      text: TextSpan(
+        text: name,
+        style: const TextStyle(
+          color: Color(0xfff4f6f8),
+          fontSize: 11,
+          fontWeight: FontWeight.w600,
+          shadows: [Shadow(color: Color(0xff0b1015), blurRadius: 3)],
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+      maxLines: 1,
+      ellipsis: '…',
+    )..layout(maxWidth: 132);
+    final bounds = projection.bounds;
+    final left = (point.dx + 7).clamp(
+      bounds.left + 4,
+      bounds.right - painter.width - 4,
+    );
+    final top = (point.dy - painter.height / 2).clamp(
+      bounds.top + 4,
+      bounds.bottom - painter.height - 4,
+    );
+    painter.paint(canvas, Offset(left.toDouble(), top.toDouble()));
   }
 
   void _drawArrivalLabels(Canvas canvas, _GlobeProjection projection) {
@@ -891,13 +898,6 @@ class GlobePainter extends CustomPainter {
     if (count <= 1) return progress;
     final start = index / count;
     return ((progress - start) * count).clamp(0.0, 1.0).toDouble();
-  }
-
-  double _routeArrivalProgressForIndex(int index, int count) {
-    final windowProgress = _routeWindowProgressForIndex(index, count);
-    return ((windowProgress - _routeTravelShare) / _routeArrivalShare)
-        .clamp(0.0, 1.0)
-        .toDouble();
   }
 
   List<_GlobeRoutePoint> _partialRoute(
@@ -1257,6 +1257,7 @@ class GlobePainter extends CustomPainter {
       old.scale != scale ||
       old.routeAnimationProgress != routeAnimationProgress ||
       old.showRouteAnimationPlane != showRouteAnimationPlane ||
+      old.showLabels != showLabels ||
       old.selectedLabel != selectedLabel ||
       old.selectedCoordinate != selectedCoordinate;
 }

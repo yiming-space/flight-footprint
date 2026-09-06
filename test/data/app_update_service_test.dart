@@ -39,6 +39,7 @@ void main() {
         'https://github.com/example/flight-footprint/releases/download/v1.0.1/app-release.apk';
     final service = AppUpdateService(
       repositoryUrl: Uri.parse(repository),
+      platform: AppUpdatePlatform.android,
       client: _FakeClient((request) {
         expect(request.url.path, '/example/flight-footprint/main/update.json');
         return http.Response(
@@ -70,6 +71,7 @@ void main() {
         'https://github.com/example/flight-footprint/releases/download/v1.0.1/app-release.apk';
     final service = AppUpdateService(
       repositoryUrl: Uri.parse(repository),
+      platform: AppUpdatePlatform.android,
       client: _FakeClient((request) {
         if (request.url.host == 'raw.githubusercontent.com') {
           return http.Response('{}', 404);
@@ -101,9 +103,40 @@ void main() {
     expect(result.downloadSize, 123456);
   });
 
+  test('uses the macOS DMG from the update manifest', () async {
+    const dmg =
+        'https://github.com/example/flight-footprint/releases/download/v1.0.1/flight_footprint-macos-v1.0.1.dmg';
+    final service = AppUpdateService(
+      repositoryUrl: Uri.parse(repository),
+      platform: AppUpdatePlatform.macos,
+      client: _FakeClient((request) {
+        expect(request.url.path, '/example/flight-footprint/main/update.json');
+        return http.Response(
+          jsonEncode({
+            'version': '1.0.1',
+            'build': 7,
+            'releaseUrl': '$repository/releases/tag/v1.0.1',
+            'macosUrl': dmg,
+            'macosSize': 987654,
+          }),
+          200,
+        );
+      }),
+      packageInfo: () async => _package('1.0.0'),
+    );
+
+    final result = await service.checkForUpdates();
+    service.dispose();
+
+    expect(result.status, UpdateCheckStatus.available);
+    expect(result.downloadUrl, Uri.parse(dmg));
+    expect(result.downloadSize, 987654);
+  });
+
   test('reports up to date when the release is not newer', () async {
     final service = AppUpdateService(
       repositoryUrl: Uri.parse(repository),
+      platform: AppUpdatePlatform.android,
       client: _FakeClient(
         (_) => http.Response(
           jsonEncode({
@@ -132,6 +165,7 @@ void main() {
       var requests = 0;
       final service = AppUpdateService(
         repositoryUrl: Uri.parse('https://example.com/not-a-github-repository'),
+        platform: AppUpdatePlatform.android,
         client: _FakeClient((_) {
           requests += 1;
           return http.Response('{}', 200);

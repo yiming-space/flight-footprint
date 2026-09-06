@@ -9,6 +9,8 @@ import '../app/app_links.dart';
 
 enum UpdateCheckStatus { available, upToDate, notConfigured, unavailable }
 
+enum AppUpdatePlatform { android, macos }
+
 class AppUpdateResult {
   const AppUpdateResult._({
     required this.status,
@@ -78,12 +80,21 @@ class AppUpdateService {
     http.Client? client,
     PackageInfoProvider? packageInfo,
     this.repositoryUrl,
+    AppUpdatePlatform? platform,
   }) : _client = client ?? http.Client(),
-       _packageInfo = packageInfo ?? _platformPackageInfo;
+       _packageInfo = packageInfo ?? _platformPackageInfo,
+       _platform =
+           platform ??
+           (Platform.isMacOS
+               ? AppUpdatePlatform.macos
+               : AppUpdatePlatform.android);
 
   final http.Client _client;
   final PackageInfoProvider _packageInfo;
   final Uri? repositoryUrl;
+  final AppUpdatePlatform _platform;
+
+  bool get _isMacOS => _platform == AppUpdatePlatform.macos;
 
   void dispose() => _client.close();
 
@@ -147,7 +158,7 @@ class AppUpdateService {
     }
 
     final request = http.Request('GET', uri)
-      ..headers['Accept'] = Platform.isMacOS
+      ..headers['Accept'] = _isMacOS
           ? 'application/x-apple-diskimage'
           : 'application/vnd.android.package-archive';
     final response = await _client
@@ -161,7 +172,7 @@ class AppUpdateService {
     final directory = Directory('${cache.path}/flight-footprint-updates');
     await directory.create(recursive: true);
     final version = _safeFilePart(update.latestVersion ?? 'latest');
-    final extension = Platform.isMacOS ? 'dmg' : 'apk';
+    final extension = _isMacOS ? 'dmg' : 'apk';
     final file = File('${directory.path}/flight-footprint-$version.$extension');
     if (await file.exists()) await file.delete();
 
@@ -263,10 +274,10 @@ class AppUpdateService {
     return _platformAsset(payload?['assets']);
   }
 
-  static ({Uri uri, int? size})? _platformAsset(Object? rawAssets) {
+  ({Uri uri, int? size})? _platformAsset(Object? rawAssets) {
     if (rawAssets is! List) return null;
     final candidates = <({Uri uri, int? size, String name})>[];
-    final extension = Platform.isMacOS ? '.dmg' : '.apk';
+    final extension = _isMacOS ? '.dmg' : '.apk';
     for (final raw in rawAssets) {
       if (raw is! Map) continue;
       final name = _text(raw['name'])?.toLowerCase();
@@ -321,7 +332,7 @@ class AppUpdateService {
     }
   }
 
-  static AppUpdateResult? _resultFromManifest(
+  AppUpdateResult? _resultFromManifest(
     Map<String, dynamic>? manifest,
     String currentVersion,
   ) {
@@ -333,13 +344,13 @@ class AppUpdateService {
     }
     final build = int.tryParse(_text(manifest['build']) ?? '');
     final downloadUrl = _safeDownloadUrl(
-      Platform.isMacOS
+      _isMacOS
           ? _text(manifest['macosUrl']) ?? _text(manifest['dmgUrl'])
           : _text(manifest['apkUrl']) ?? _text(manifest['downloadUrl']),
     );
     final downloadSize = int.tryParse(
       _text(
-            Platform.isMacOS
+            _isMacOS
                 ? manifest['macosSize'] ?? manifest['dmgSize']
                 : manifest['apkSize'],
           ) ??

@@ -379,7 +379,7 @@ class _ProfilePageState extends State<ProfilePage> {
           color: isLight
               ? _profileIconColor(context, colors.cardMint)
               : colors.cardText,
-          backgroundColor: _profileSurfaceTint(context, colors.cardMint),
+          backgroundColor: _profileSurfaceTint(colors.cardMint),
           textColor: textColor,
           secondaryTextColor: secondaryColor,
           wide: true,
@@ -395,7 +395,7 @@ class _ProfilePageState extends State<ProfilePage> {
           color: isLight
               ? _profileIconColor(context, colors.cardBlue)
               : colors.cardText,
-          backgroundColor: _profileSurfaceTint(context, colors.cardBlue),
+          backgroundColor: _profileSurfaceTint(colors.cardBlue),
           textColor: textColor,
           secondaryTextColor: secondaryColor,
           wide: true,
@@ -413,7 +413,7 @@ class _ProfilePageState extends State<ProfilePage> {
           color: isLight
               ? _profileIconColor(context, colors.cardCoral)
               : colors.cardText,
-          backgroundColor: _profileSurfaceTint(context, colors.cardCoral),
+          backgroundColor: _profileSurfaceTint(colors.cardCoral),
           textColor: textColor,
           secondaryTextColor: secondaryColor,
           wide: true,
@@ -428,11 +428,9 @@ class _ProfilePageState extends State<ProfilePage> {
     final colors = context.appColors;
     final isLight = Theme.of(context).brightness == Brightness.light;
     final textColor = _profileTextColor(context);
-    final aboutCardColor = isLight
-        ? _profileCardColor(context, colors.cardMint, lightOpacity: .52)
-        : colors.surfaceElevated;
+    final aboutCardColor = isLight ? colors.cardBlue : colors.surfaceElevated;
     final aboutIconColor = isLight
-        ? _profileIconColor(context, colors.cardMint)
+        ? Color.lerp(colors.cardText, colors.cardMint, .34)!
         : colors.lime;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -511,8 +509,8 @@ class _ProfilePageState extends State<ProfilePage> {
                         icon: Icons.system_update_alt_rounded,
                         backgroundColor: _profileCardColor(
                           context,
-                          colors.cardMint,
-                          lightOpacity: .78,
+                          colors.cardLavender,
+                          lightOpacity: .9,
                         ),
                         foregroundColor: textColor,
                         onPressed: () => _checkForUpdates(context),
@@ -525,8 +523,8 @@ class _ProfilePageState extends State<ProfilePage> {
                         icon: Icons.code_rounded,
                         backgroundColor: _profileCardColor(
                           context,
-                          colors.cardLavender,
-                          lightOpacity: .78,
+                          colors.cardCoral,
+                          lightOpacity: .9,
                         ),
                         foregroundColor: textColor,
                         onPressed: AppLinks.githubRepository == null
@@ -604,37 +602,18 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
-  Color _profileSurfaceTint(
-    BuildContext context,
-    Color accent, {
-    // Keep preference tiles visibly tinted against the near-white canvas;
-    // the lower opacity made the pastel colors disappear on light mode.
-    double lightOpacity = .40,
-  }) {
-    if (!_isLight(context)) return accent;
-    return Color.alphaBlend(
-      accent.withValues(alpha: lightOpacity),
-      context.appColors.surface,
-    );
-  }
+  // Preference tiles use the same direct card colors as flight cards. The
+  // fill itself carries the hierarchy, so no outline or white wash is needed.
+  Color _profileSurfaceTint(Color accent) => accent;
 
   Color _profileIconColor(BuildContext context, Color accent) {
     final colors = context.appColors;
     // Keep each tile's hue, but pull the icon toward the ink color so the
     // small mark stays legible against the pastel icon bubble.
-    return Color.lerp(accent, colors.textPrimary, .34)!;
+    return Color.lerp(accent, colors.textPrimary, .48)!;
   }
 
-  List<BoxShadow> _cardShadow() {
-    final isLight = Theme.of(context).brightness == Brightness.light;
-    return [
-      BoxShadow(
-        color: Colors.black.withValues(alpha: isLight ? .10 : .22),
-        blurRadius: isLight ? 22 : 24,
-        offset: const Offset(0, 12),
-      ),
-    ];
-  }
+  List<BoxShadow> _cardShadow() => AppShadows.card(context);
 
   String _updateSubtitle(BuildContext context) {
     final strings = context.strings;
@@ -693,9 +672,9 @@ class _ProfilePageState extends State<ProfilePage> {
 
     switch (result.status) {
       case UpdateCheckStatus.available:
-        await _showUpdatePrompt(context, result);
+        await _showUpdatePrompt(context, result, force: true);
       case UpdateCheckStatus.upToDate:
-        _message(context, strings.t('upToDate'));
+        await _showReleaseNotes(context, result);
       case UpdateCheckStatus.notConfigured:
         _message(context, strings.t('githubProjectNotConfigured'));
       case UpdateCheckStatus.unavailable:
@@ -705,17 +684,20 @@ class _ProfilePageState extends State<ProfilePage> {
 
   Future<void> _showUpdatePrompt(
     BuildContext context,
-    AppUpdateResult result,
-  ) async {
+    AppUpdateResult result, {
+    bool force = false,
+  }) async {
     final latestVersion = result.latestVersion;
-    if (latestVersion == null || _promptedUpdateVersion == latestVersion) {
+    if (latestVersion == null ||
+        (!force && _promptedUpdateVersion == latestVersion)) {
       return;
     }
-    _promptedUpdateVersion = latestVersion;
+    if (!force) _promptedUpdateVersion = latestVersion;
 
     final strings = context.strings;
     final colors = context.appColors;
     final currentVersion = result.currentVersion ?? '—';
+    final releaseNotes = result.releaseNotes?.trim();
     final canInstallInApp =
         result.canDownloadInApp && AppUpdateInstaller.isSupported;
     final shouldOpen = await showDialog<bool>(
@@ -767,6 +749,17 @@ class _ProfilePageState extends State<ProfilePage> {
                   fontWeight: FontWeight.w700,
                 ),
               ),
+              if (releaseNotes != null && releaseNotes.isNotEmpty) ...[
+                const SizedBox(height: 18),
+                Text(
+                  strings.t('releaseNotes'),
+                  style: AppTextStyles.label.copyWith(
+                    color: colors.textSecondary,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                _ReleaseNotesPanel(notes: releaseNotes),
+              ],
               const SizedBox(height: 20),
               Row(
                 mainAxisAlignment: MainAxisAlignment.end,
@@ -807,6 +800,100 @@ class _ProfilePageState extends State<ProfilePage> {
     if (canInstallInApp) {
       await _downloadAndInstallUpdate(context, result);
     } else if (result.releaseUrl != null) {
+      await _openExternalUrl(context, result.releaseUrl!);
+    }
+  }
+
+  Future<void> _showReleaseNotes(
+    BuildContext context,
+    AppUpdateResult result,
+  ) async {
+    final strings = context.strings;
+    final colors = context.appColors;
+    final releaseNotes = result.releaseNotes?.trim();
+    final shouldOpenRelease = await showDialog<bool>(
+      context: context,
+      barrierColor: Colors.black.withValues(alpha: .72),
+      builder: (dialogContext) => Dialog(
+        backgroundColor: colors.surfaceElevated,
+        surfaceTintColor: Colors.transparent,
+        insetPadding: const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
+        shape: AppShapes.large,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 24, 24, 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 46,
+                    height: 46,
+                    decoration: BoxDecoration(
+                      color: colors.purple.withValues(alpha: .18),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(Icons.history_rounded, color: colors.purple),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Text(
+                      strings.t('releaseNotes'),
+                      style: AppTextStyles.sectionTitle.copyWith(
+                        color: colors.textPrimary,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              Text(
+                '${strings.t('version')}  v${result.latestVersion ?? result.currentVersion ?? '—'} · ${strings.t('upToDate')}',
+                style: AppTextStyles.bodySecondary.copyWith(
+                  color: colors.textSecondary,
+                ),
+              ),
+              const SizedBox(height: 16),
+              if (releaseNotes != null && releaseNotes.isNotEmpty)
+                _ReleaseNotesPanel(notes: releaseNotes)
+              else
+                Text(
+                  strings.t('noReleaseNotes'),
+                  style: AppTextStyles.bodySecondary.copyWith(
+                    color: colors.textSecondary,
+                  ),
+                ),
+              const SizedBox(height: 18),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(dialogContext, false),
+                    child: Text(strings.t('close')),
+                  ),
+                  if (result.releaseUrl != null) ...[
+                    const SizedBox(width: 8),
+                    FilledButton(
+                      onPressed: () => Navigator.pop(dialogContext, true),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: colors.purple,
+                        foregroundColor: colors.cardText,
+                        shape: AppShapes.pill,
+                      ),
+                      child: Text(strings.t('openRelease')),
+                    ),
+                  ],
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (shouldOpenRelease == true &&
+        result.releaseUrl != null &&
+        context.mounted) {
       await _openExternalUrl(context, result.releaseUrl!);
     }
   }
@@ -1400,6 +1487,13 @@ class _TravellerNameSheetState extends State<_TravellerNameSheet> {
   Widget build(BuildContext context) {
     final s = context.strings;
     final colors = context.appColors;
+    final isLight = Theme.of(context).brightness == Brightness.light;
+    final inputFill = isLight
+        ? Color.alphaBlend(
+            colors.cardBlue.withValues(alpha: .78),
+            colors.surface,
+          )
+        : colors.surfaceElevated;
     final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
     return SafeArea(
       child: Padding(
@@ -1431,15 +1525,12 @@ class _TravellerNameSheetState extends State<_TravellerNameSheet> {
                 hintText: s.t('travellerName'),
                 prefixIcon: const Icon(Icons.badge_outlined),
                 filled: true,
-                fillColor: colors.surfaceElevated,
-                border: ShapedInputBorder(
-                  shape: AppShapes.small,
-                  borderSide: BorderSide(color: colors.border),
-                ),
-                enabledBorder: ShapedInputBorder(
-                  shape: AppShapes.small,
-                  borderSide: BorderSide(color: colors.border),
-                ),
+                fillColor: inputFill,
+                prefixIconColor: colors.textSecondary,
+                border: InputBorder.none,
+                enabledBorder: InputBorder.none,
+                focusedBorder: InputBorder.none,
+                counterStyle: TextStyle(color: colors.textSecondary),
               ),
               onSubmitted: (_) => _submit(),
             ),
@@ -1447,8 +1538,17 @@ class _TravellerNameSheetState extends State<_TravellerNameSheet> {
             Row(
               children: [
                 Expanded(
-                  child: OutlinedButton(
+                  child: FilledButton(
                     onPressed: _cancel,
+                    style: FilledButton.styleFrom(
+                      minimumSize: const Size.fromHeight(52),
+                      backgroundColor: isLight
+                          ? colors.cardLavender
+                          : colors.surfaceElevated,
+                      foregroundColor: colors.cardText,
+                      shape: AppShapes.large,
+                      side: BorderSide.none,
+                    ),
                     child: Text(s.t('cancel')),
                   ),
                 ),
@@ -1456,6 +1556,13 @@ class _TravellerNameSheetState extends State<_TravellerNameSheet> {
                 Expanded(
                   child: FilledButton(
                     onPressed: _submit,
+                    style: FilledButton.styleFrom(
+                      minimumSize: const Size.fromHeight(52),
+                      backgroundColor: colors.lime,
+                      foregroundColor: colors.cardText,
+                      shape: AppShapes.large,
+                      side: BorderSide.none,
+                    ),
                     child: Text(s.t('saveChanges')),
                   ),
                 ),
@@ -1608,6 +1715,38 @@ class _UpdateDownloadDialog extends StatelessWidget {
   }
 }
 
+class _ReleaseNotesPanel extends StatelessWidget {
+  const _ReleaseNotesPanel({required this.notes});
+
+  final String notes;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxHeight: 150),
+      child: SingleChildScrollView(
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(12),
+          decoration: ShapeDecoration(
+            color: colors.background.withValues(alpha: .58),
+            shape: AppShapes.small,
+          ),
+          child: Text(
+            notes,
+            style: AppTextStyles.bodySecondary.copyWith(
+              color: colors.textSecondary,
+              fontSize: 14,
+              height: 1.45,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _ProfileActionTile extends StatelessWidget {
   const _ProfileActionTile({
     required this.title,
@@ -1716,7 +1855,7 @@ class _ProfileActionTile extends StatelessWidget {
       button: onTap != null,
       label: label,
       child: Container(
-        constraints: BoxConstraints(minHeight: wide ? 80 : 132),
+        constraints: BoxConstraints(minHeight: wide ? 72 : 116),
         decoration: ShapeDecoration(
           color: backgroundColor,
           shape: AppShapes.medium,
@@ -1724,7 +1863,7 @@ class _ProfileActionTile extends StatelessWidget {
         child: InkWell(
           onTap: onTap,
           customBorder: AppShapes.medium,
-          child: Padding(padding: const EdgeInsets.all(18), child: content),
+          child: Padding(padding: const EdgeInsets.all(14), child: content),
         ),
       ),
     );
@@ -3379,6 +3518,7 @@ class _CloudSyncSheetState extends State<_CloudSyncSheet> {
 
   Future<void> _changeEndpoint() async {
     final s = context.strings;
+    final colors = context.appColors;
     final endpointController = TextEditingController();
     final endpoint = await showDialog<String>(
       context: context,
@@ -3402,6 +3542,39 @@ class _CloudSyncSheetState extends State<_CloudSyncSheet> {
               decoration: InputDecoration(
                 labelText: s.t('cloudEndpoint'),
                 hintText: 'https://flight-footprint-sync-pages.pages.dev',
+                floatingLabelBehavior: FloatingLabelBehavior.always,
+                filled: true,
+                fillColor: colors.surfaceElevated,
+                contentPadding: const EdgeInsets.fromLTRB(16, 22, 16, 16),
+                labelStyle: AppTextStyles.label.copyWith(
+                  color: colors.textSecondary,
+                ),
+                floatingLabelStyle: TextStyle(
+                  color: colors.lime,
+                  backgroundColor: colors.surfaceElevated,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  height: 1,
+                ),
+                hintStyle: AppTextStyles.bodySecondary.copyWith(
+                  color: colors.textTertiary,
+                  fontSize: 13,
+                ),
+                border: OutlineInputBorder(
+                  borderRadius: AppRadii.medium,
+                  gapPadding: 8,
+                  borderSide: BorderSide.none,
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: AppRadii.medium,
+                  gapPadding: 8,
+                  borderSide: BorderSide.none,
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: AppRadii.medium,
+                  gapPadding: 8,
+                  borderSide: BorderSide(color: colors.lime, width: 1.5),
+                ),
               ),
             ),
           ],
@@ -3669,29 +3842,33 @@ class _CloudTextField extends StatelessWidget {
         prefixIcon: prefixIcon == null
             ? null
             : Icon(prefixIcon, color: colors.textTertiary),
-        contentPadding: const EdgeInsets.symmetric(
-          horizontal: 16,
-          vertical: 18,
-        ),
+        floatingLabelBehavior: FloatingLabelBehavior.always,
+        contentPadding: const EdgeInsets.fromLTRB(16, 22, 16, 16),
         labelStyle: AppTextStyles.label.copyWith(color: colors.textSecondary),
         floatingLabelStyle: TextStyle(
           color: colors.lime,
-          fontWeight: FontWeight.w600,
+          backgroundColor: colors.surfaceElevated,
+          fontSize: 12,
+          fontWeight: FontWeight.w700,
+          height: 1,
         ),
         hintStyle: AppTextStyles.bodySecondary.copyWith(
           color: colors.textTertiary,
           fontSize: 13,
         ),
-        border: ShapedInputBorder(
-          shape: AppShapes.medium,
+        border: OutlineInputBorder(
+          borderRadius: AppRadii.medium,
+          gapPadding: 8,
           borderSide: BorderSide.none,
         ),
-        enabledBorder: ShapedInputBorder(
-          shape: AppShapes.medium,
+        enabledBorder: OutlineInputBorder(
+          borderRadius: AppRadii.medium,
+          gapPadding: 8,
           borderSide: BorderSide.none,
         ),
-        focusedBorder: ShapedInputBorder(
-          shape: AppShapes.medium,
+        focusedBorder: OutlineInputBorder(
+          borderRadius: AppRadii.medium,
+          gapPadding: 8,
           borderSide: BorderSide(color: colors.lime, width: 1.5),
         ),
       ),

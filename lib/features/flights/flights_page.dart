@@ -1,33 +1,132 @@
+import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
 
 import '../../app/app_controller.dart';
 import '../../core/localization/app_strings.dart';
+import '../../data/airport_localization.dart';
 import '../../domain/flight.dart';
-import '../add_flight/add_flight_page.dart';
+import '../../domain/flight_query.dart';
 import '../../ui/theme/app_theme.dart';
 import '../../ui/widgets/widgets.dart';
+import '../add_flight/add_flight_page.dart';
 import 'flight_card.dart';
 
 class FlightsPage extends StatefulWidget {
   const FlightsPage({super.key, required this.controller, required this.onAdd});
   final AppController controller;
   final VoidCallback onAdd;
+
   @override
   State<FlightsPage> createState() => _FlightsPageState();
 }
 
 class _FlightsPageState extends State<FlightsPage> {
-  // Pixel Fold reports roughly 411 logical px on the cover display and
-  // roughly 840 logical px when unfolded. Keep the cover layout comfortable
-  // as a single column and use the extra unfolded width for two full cards.
   static const _twoColumnBreakpoint = 600.0;
-  // The card content needs 244 logical px at the narrowest two-column width.
-  // Keep only a small breathing room below it instead of the large empty band
-  // created by the previous 280px grid extent.
-  static const _twoColumnCardExtent = 248.0;
 
+  late final TextEditingController _searchController;
+  ScrollController? _scrollController;
   int _filter = 0;
   int? _selectedYear;
+  FlightQuery _query = const FlightQuery();
+  bool _showBackToTop = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _searchController = TextEditingController();
+    _ensureScrollController();
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    _scrollController
+      ?..removeListener(_handleScroll)
+      ..dispose();
+    super.dispose();
+  }
+
+  ScrollController _ensureScrollController() {
+    return _scrollController ??= ScrollController()..addListener(_handleScroll);
+  }
+
+  void _handleScroll() {
+    final controller = _scrollController;
+    final shouldShow =
+        controller != null && controller.hasClients && controller.offset > 520;
+    if (shouldShow == _showBackToTop || !mounted) return;
+    setState(() => _showBackToTop = shouldShow);
+  }
+
+  void _scrollToTop() {
+    final controller = _scrollController;
+    if (controller == null || !controller.hasClients) return;
+    controller.animateTo(
+      0,
+      duration: MediaQuery.disableAnimationsOf(context)
+          ? Duration.zero
+          : const Duration(milliseconds: 420),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  String _airportSearchText(String iata) {
+    final airport = widget.controller.airports.findByIata(iata);
+    if (airport == null) return iata;
+    return [
+      iata,
+      airport.city,
+      localizedAirportCity(airport),
+      airport.name,
+      localizedAirportName(airport),
+      ...airport.keywords,
+    ].join(' ');
+  }
+
+  List<Flight> _filteredFlights() {
+    final status = _filter == 0
+        ? FlightStatus.upcoming
+        : FlightStatus.completed;
+    final source = widget.controller.flights
+        .where((flight) => flight.status == status)
+        .toList();
+    final flights = source.where((flight) {
+      return (_selectedYear == null ||
+              flight.departedAt.toLocal().year == _selectedYear) &&
+          _query.matches(flight, airportText: _airportSearchText);
+    }).toList();
+    flights.sort(
+      (a, b) => status == FlightStatus.upcoming
+          ? a.departedAt.compareTo(b.departedAt)
+          : b.departedAt.compareTo(a.departedAt),
+    );
+    return flights;
+  }
+
+  List<int> _availableYears() {
+    final status = _filter == 0
+        ? FlightStatus.upcoming
+        : FlightStatus.completed;
+    return widget.controller.flights
+        .where((flight) => flight.status == status)
+        .map((flight) => flight.departedAt.toLocal().year)
+        .toSet()
+        .toList()
+      ..sort((a, b) => b.compareTo(a));
+  }
+
+  bool get _hasQueryFilters => !_query.isEmpty || _selectedYear != null;
+
+  void _setQuery(FlightQuery query) => setState(() => _query = query);
+
+  void _clearFilters() {
+    _searchController.clear();
+    setState(() {
+      _query = const FlightQuery();
+      _selectedYear = null;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -36,148 +135,184 @@ class _FlightsPageState extends State<FlightsPage> {
     final upcomingCount = allFlights
         .where((flight) => flight.isUpcoming)
         .length;
-    final completedFlights = allFlights
+    final completedCount = allFlights
         .where((flight) => flight.isCompleted)
-        .toList();
+        .length;
     final status = _filter == 0
         ? FlightStatus.upcoming
         : FlightStatus.completed;
-    final sourceFlights = status == FlightStatus.upcoming
-        ? allFlights.where((flight) => flight.isUpcoming).toList()
-        : completedFlights;
-    final availableYears =
-        sourceFlights
-            .map((flight) => flight.departedAt.toLocal().year)
-            .toSet()
-            .toList()
-          ..sort((a, b) => b.compareTo(a));
-    final selectedYear = availableYears.contains(_selectedYear)
-        ? _selectedYear
-        : null;
-    final flights =
-        sourceFlights
-            .where(
-              (flight) =>
-                  selectedYear == null ||
-                  flight.departedAt.toLocal().year == selectedYear,
-            )
-            .toList()
-          ..sort(
-            (a, b) => status == FlightStatus.upcoming
-                ? a.departedAt.compareTo(b.departedAt)
-                : b.departedAt.compareTo(a.departedAt),
-          );
-    final filters = [
-      '${s.t('upcoming')} $upcomingCount',
-      '${s.t('completed')} ${completedFlights.length}',
-    ];
+    final flights = _filteredFlights();
+    final years = _availableYears();
     return SafeArea(
       top: false,
       left: false,
       right: false,
-      child: CustomScrollView(
-        slivers: [
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(
-                AppSpacing.page,
-                AppSpacing.lg,
-                AppSpacing.page,
-                AppSpacing.md,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          CustomScrollView(
+            controller: _ensureScrollController(),
+            slivers: [
+              SliverToBoxAdapter(child: _buildToolbar(s)),
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(
+                    AppSpacing.page,
+                    AppSpacing.md,
+                    AppSpacing.page,
+                    0,
+                  ),
+                  child: AppSegmentedControl(
+                    labels: [
+                      '${s.t('upcoming')} $upcomingCount',
+                      '${s.t('completed')} $completedCount',
+                    ],
+                    selectedIndex: _filter,
+                    pill: true,
+                    height: 52,
+                    onChanged: (index) => setState(() {
+                      _filter = index;
+                      _selectedYear = null;
+                    }),
+                  ),
+                ),
               ),
-              child: AppSegmentedControl(
-                labels: filters,
-                selectedIndex: _filter,
-                pill: true,
-                height: 52,
-                onChanged: (index) => setState(() {
-                  _filter = index;
-                  _selectedYear = null;
-                }),
-              ),
+              if (years.isNotEmpty)
+                SliverToBoxAdapter(
+                  child: _YearFilterBar(
+                    years: years,
+                    selectedYear: _selectedYear,
+                    onChanged: (year) => setState(() => _selectedYear = year),
+                    allLabel: s.t('all'),
+                  ),
+                ),
+              if (flights.isEmpty)
+                SliverFillRemaining(
+                  hasScrollBody: false,
+                  child: EmptyState(
+                    title: _hasQueryFilters
+                        ? _local('没有匹配的航班', 'No matching flights')
+                        : s.t(
+                            status == FlightStatus.upcoming
+                                ? 'noUpcomingFlights'
+                                : 'noCompletedFlights',
+                          ),
+                    message: _hasQueryFilters
+                        ? _local(
+                            '试试清除搜索或筛选条件。',
+                            'Try clearing your search or filters.',
+                          )
+                        : s.t(
+                            status == FlightStatus.upcoming
+                                ? 'noUpcomingFlightsHint'
+                                : 'noCompletedFlightsHint',
+                          ),
+                    action: _hasQueryFilters
+                        ? PrimaryButton(
+                            label: s.t('clear'),
+                            onPressed: _clearFilters,
+                            expand: false,
+                          )
+                        : PrimaryButton(
+                            label: s.t('startRecord'),
+                            onPressed: widget.onAdd,
+                            expand: false,
+                          ),
+                  ),
+                )
+              else
+                SliverPadding(
+                  padding: EdgeInsets.fromLTRB(
+                    AppSpacing.page,
+                    20,
+                    AppSpacing.page,
+                    AppSpacing.bottomBarClearance(context),
+                  ),
+                  sliver: SliverLayoutBuilder(
+                    builder: (context, constraints) =>
+                        constraints.crossAxisExtent >= _twoColumnBreakpoint
+                        ? _TwoColumnFlightSliver(
+                            flights: flights,
+                            cardBuilder: _flightCard,
+                          )
+                        : SliverList.separated(
+                            itemCount: flights.length,
+                            separatorBuilder: (_, _) =>
+                                const SizedBox(height: AppSpacing.cardGap),
+                            itemBuilder: (context, index) =>
+                                _flightCard(flights[index]),
+                          ),
+                  ),
+                ),
+            ],
+          ),
+          Positioned(
+            right: AppSpacing.page,
+            bottom: AppSpacing.bottomBarClearance(context) - AppSpacing.sm,
+            child: _BackToTopButton(
+              visible: _showBackToTop,
+              onPressed: _scrollToTop,
             ),
           ),
-          if (availableYears.isNotEmpty)
-            SliverToBoxAdapter(
-              child: _YearFilterBar(
-                years: availableYears,
-                selectedYear: selectedYear,
-                onChanged: (year) => setState(() => _selectedYear = year),
-                allLabel: s.t('all'),
-              ),
-            ),
-          if (flights.isEmpty)
-            SliverFillRemaining(
-              hasScrollBody: false,
-              child: EmptyState(
-                title: s.t(
-                  status == FlightStatus.upcoming
-                      ? 'noUpcomingFlights'
-                      : 'noCompletedFlights',
-                ),
-                message: s.t(
-                  status == FlightStatus.upcoming
-                      ? 'noUpcomingFlightsHint'
-                      : 'noCompletedFlightsHint',
-                ),
-                action: PrimaryButton(
-                  label: s.t('startRecord'),
-                  onPressed: widget.onAdd,
-                  expand: false,
-                ),
-              ),
-            )
-          else
-            SliverPadding(
-              padding: EdgeInsets.fromLTRB(
-                AppSpacing.page,
-                20,
-                AppSpacing.page,
-                AppSpacing.bottomBarClearance(context),
-              ),
-              sliver: SliverLayoutBuilder(
-                builder: (context, constraints) {
-                  if (constraints.crossAxisExtent >= _twoColumnBreakpoint) {
-                    return SliverGrid(
-                      gridDelegate:
-                          const SliverGridDelegateWithFixedCrossAxisCount(
-                            crossAxisCount: 2,
-                            crossAxisSpacing: AppSpacing.cardGap,
-                            mainAxisSpacing: AppSpacing.cardGap,
-                            mainAxisExtent: _twoColumnCardExtent,
-                          ),
-                      delegate: SliverChildBuilderDelegate(
-                        (context, index) => FlightCard(
-                          flight: flights[index],
-                          controller: widget.controller,
-                          index: index,
-                          onEdit: () => _editFlight(flights[index]),
-                          onDelete: () => _confirmDelete(flights[index]),
-                        ),
-                        childCount: flights.length,
-                      ),
-                    );
-                  }
-
-                  return SliverList.separated(
-                    itemCount: flights.length,
-                    separatorBuilder: (_, _) =>
-                        const SizedBox(height: AppSpacing.cardGap),
-                    itemBuilder: (context, index) => FlightCard(
-                      flight: flights[index],
-                      controller: widget.controller,
-                      index: index,
-                      onEdit: () => _editFlight(flights[index]),
-                      onDelete: () => _confirmDelete(flights[index]),
-                    ),
-                  );
-                },
-              ),
-            ),
         ],
       ),
     );
   }
+
+  Widget _buildToolbar(AppStrings s) {
+    final colors = context.appColors;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.page,
+        AppSpacing.lg,
+        AppSpacing.page,
+        0,
+      ),
+      child: Column(
+        children: [
+          TextField(
+            controller: _searchController,
+            onChanged: (value) => _setQuery(_query.copyWith(text: value)),
+            decoration: InputDecoration(
+              hintText: _local(
+                '搜索城市、机场、航司、机型或航班号',
+                'Search city, airport, airline, aircraft or flight',
+              ),
+              prefixIcon: const Icon(Icons.search),
+              suffixIcon: _query.text.trim().isEmpty
+                  ? null
+                  : IconButton(
+                      tooltip: s.t('clear'),
+                      onPressed: () {
+                        _searchController.clear();
+                        _setQuery(_query.copyWith(text: ''));
+                      },
+                      icon: const Icon(Icons.close),
+                    ),
+              filled: true,
+              fillColor: colors.surfaceElevated,
+              border: OutlineInputBorder(
+                borderRadius: AppRadii.pill,
+                borderSide: BorderSide.none,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _flightCard(Flight flight) {
+    return FlightCard(
+      flight: flight,
+      controller: widget.controller,
+      index: widget.controller.flights.indexOf(flight),
+      onEdit: () => _editFlight(flight),
+      onDelete: () => _confirmDelete(flight),
+    );
+  }
+
+  String _local(String zh, String en) => context.strings.isZh ? zh : en;
 
   Future<void> _confirmDelete(Flight flight) async {
     final s = context.strings;
@@ -221,6 +356,116 @@ class _FlightsPageState extends State<FlightsPage> {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _BackToTopButton extends StatelessWidget {
+  const _BackToTopButton({required this.visible, required this.onPressed});
+
+  final bool visible;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    final isLight = Theme.of(context).brightness == Brightness.light;
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
+    final glassShape = const CircleBorder();
+    return IgnorePointer(
+      ignoring: !visible,
+      child: AnimatedOpacity(
+        opacity: visible ? 1 : 0,
+        duration: reduceMotion
+            ? Duration.zero
+            : const Duration(milliseconds: 180),
+        curve: Curves.easeOutCubic,
+        child: AnimatedScale(
+          scale: visible ? 1 : .82,
+          duration: reduceMotion
+              ? Duration.zero
+              : const Duration(milliseconds: 220),
+          curve: Curves.easeOutBack,
+          child: RepaintBoundary(
+            child: ClipPath(
+              clipper: ShapeBorderClipper(shape: glassShape),
+              child: BackdropFilter(
+                filter: ui.ImageFilter.blur(sigmaX: 14, sigmaY: 14),
+                child: DecoratedBox(
+                  decoration: ShapeDecoration(
+                    // Match the bottom navigation's material: the light
+                    // theme uses a dark glass anchor rather than a white
+                    // floating bubble over the flight cards.
+                    color: isLight
+                        ? Colors.black.withValues(alpha: .82)
+                        : colors.surface.withValues(alpha: .58),
+                    shape: glassShape,
+                    shadows: [
+                      BoxShadow(
+                        color: Colors.black.withValues(
+                          alpha: isLight ? .10 : .25,
+                        ),
+                        blurRadius: 18,
+                        offset: const Offset(0, 8),
+                      ),
+                    ],
+                  ),
+                  child: IconButton(
+                    onPressed: onPressed,
+                    tooltip: context.strings.isZh ? '回到顶部' : 'Back to top',
+                    icon: Icon(
+                      Icons.keyboard_arrow_up_rounded,
+                      color: isLight ? Colors.white : colors.textSecondary,
+                    ),
+                    iconSize: 26,
+                    constraints: const BoxConstraints.tightFor(
+                      width: 48,
+                      height: 48,
+                    ),
+                    padding: EdgeInsets.zero,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _TwoColumnFlightSliver extends StatelessWidget {
+  const _TwoColumnFlightSliver({
+    required this.flights,
+    required this.cardBuilder,
+  });
+
+  final List<Flight> flights;
+  final Widget Function(Flight flight) cardBuilder;
+
+  @override
+  Widget build(BuildContext context) {
+    final rowCount = (flights.length + 1) ~/ 2;
+    return SliverList.separated(
+      itemCount: rowCount,
+      separatorBuilder: (_, _) => const SizedBox(height: AppSpacing.cardGap),
+      itemBuilder: (context, row) {
+        final first = row * 2;
+        return IntrinsicHeight(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(child: cardBuilder(flights[first])),
+              const SizedBox(width: AppSpacing.cardGap),
+              Expanded(
+                child: first + 1 < flights.length
+                    ? cardBuilder(flights[first + 1])
+                    : const SizedBox.shrink(),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }

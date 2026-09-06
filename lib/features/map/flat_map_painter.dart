@@ -1,5 +1,6 @@
 import 'dart:collection';
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 
@@ -16,6 +17,9 @@ import '../../ui/theme/app_theme.dart';
 /// deterministic on a phone and remains useful when the device is offline.
 class FlatMapPainter extends CustomPainter {
   static final Expando<_ProjectedGeometryCache> _geometryCaches = Expando();
+  static final Expando<_RouteGeometryCache> _routeGeometryCaches = Expando();
+  static const _routeTravelShare = .86;
+  static const _routeArrivalShare = .14;
 
   FlatMapPainter({
     required this.data,
@@ -30,6 +34,7 @@ class FlatMapPainter extends CustomPainter {
     this.bottomFade = false,
     this.excludePolarShelf = false,
     this.routeRevealProgress = 1,
+    this.showRouteAnimationPlane = false,
     this.showPassportTexture = false,
     this.compactWorldViewport = false,
     this.visualScale = 1,
@@ -66,6 +71,10 @@ class FlatMapPainter extends CustomPainter {
   /// default keeps dashboard maps static; passport cards drive this value
   /// during a year change.
   final double routeRevealProgress;
+
+  /// Draws a small aircraft at the head of the route currently being
+  /// revealed. Fullscreen owns the timeline; the painter only renders it.
+  final bool showRouteAnimationPlane;
 
   /// Paints a restrained engraved texture for the passport artwork. The
   /// texture is drawn before routes and markers so those remain crisp.
@@ -304,38 +313,68 @@ class FlatMapPainter extends CustomPainter {
     if (mode == MapMode.flight) {
       for (var index = 0; index < routes.length; index++) {
         final route = routes[index];
-        final reverseIndex = routes.indexWhere(
-          (other) =>
-              other.from.code == route.to.code &&
-              other.to.code == route.from.code &&
-              !identical(other, route),
-        );
-        final offset = reverseIndex >= 0
-            ? (index < reverseIndex ? -2.4 : 2.4)
-            : 0.0;
         _drawRoute(
           canvas,
           size,
           route,
           index,
-          offset: _screen(offset),
+          offset: _screen(_routeOffsetForIndex(index)),
           routeProgress: _routeProgressForIndex(index, routes.length),
         );
       }
       _drawAirports(canvas, size);
+      if (showRouteAnimationPlane) _drawRouteAnimationPlane(canvas, size);
     } else {
       _drawPlaces(canvas, size);
     }
   }
 
   double _routeProgressForIndex(int index, int count) {
+    final windowProgress = _routeWindowProgressForIndex(index, count);
+    if (!showRouteAnimationPlane) return windowProgress;
+    // Reserve the last part of each route window for the arrival moment. The
+    // aircraft reaches the destination first, then holds there while the
+    // destination marker lights up before the next leg starts.
+    return Curves.easeInOutCubic.transform(
+      (windowProgress / _routeTravelShare).clamp(0.0, 1.0).toDouble(),
+    );
+  }
+
+  double _routeWindowProgressForIndex(int index, int count) {
     final progress = routeRevealProgress.clamp(0.0, 1.0).toDouble();
-    if (count < 2) return progress;
-    // A small stagger gives the network a readable rhythm without making a
-    // dense year feel slow. The paths still overlap heavily and settle with
-    // the camera in one continuous transition.
-    final start = index / (count - 1) * .24;
-    return ((progress - start) / .78).clamp(0.0, 1.0).toDouble();
+    if (!showRouteAnimationPlane) {
+      // Passport and dashboard cards use the original soft stagger: all
+      // routes become legible together instead of waiting for one flight to
+      // finish before the next starts. Fullscreen playback opts into the
+      // strict one-leg-at-a-time timeline above.
+      if (count < 2) return progress;
+      final start = index / (count - 1) * .24;
+      return ((progress - start) / .78).clamp(0.0, 1.0).toDouble();
+    }
+    if (count <= 1) return progress;
+    final start = index / count;
+    final window = 1 / count;
+    return ((progress - start) / window).clamp(0.0, 1.0).toDouble();
+  }
+
+  double _routeArrivalProgressForIndex(int index, int count) {
+    if (!showRouteAnimationPlane) return 0;
+    final windowProgress = _routeWindowProgressForIndex(index, count);
+    return ((windowProgress - _routeTravelShare) / _routeArrivalShare)
+        .clamp(0.0, 1.0)
+        .toDouble();
+  }
+
+  double _routeOffsetForIndex(int index) {
+    final route = routes[index];
+    final reverseIndex = routes.indexWhere(
+      (other) =>
+          other.from.code == route.to.code &&
+          other.to.code == route.from.code &&
+          !identical(other, route),
+    );
+    if (reverseIndex < 0) return 0;
+    return index < reverseIndex ? -2.4 : 2.4;
   }
 
   _ProjectedGeometry _geometryFor(Size size) {
@@ -662,22 +701,8 @@ class FlatMapPainter extends CustomPainter {
     double offset = 0,
     double routeProgress = 1,
   }) {
-    // Use one consistent spherical interpolation for every flight. Besides
-    // keeping the map visually coherent, this prevents imported sampled
-    // tracks from turning into harsh straight segments at this zoom level.
-    final angularDistance = _greatCircleAngularDistance(route.from, route.to);
-    final coordinates = _greatCircleRoute(route.from, route.to);
-    if (coordinates.length < 2) return;
-    final normalized = _unwrap(coordinates);
-    final projectedPoints = [
-      for (final point in normalized)
-        project(point.latitude, point.longitude, size),
-    ];
-    final offsetPoints = _archedProjectedRoute(
-      _offsetProjectedRoute(projectedPoints, offset),
-      angularDistance,
-      size: size,
-    );
+    final geometry = _routeGeometryFor(route, size, offset);
+    if (geometry == null) return;
     final color = _routeColors[index % _routeColors.length];
     final paint = Paint()
       ..color = color.withValues(alpha: route.isHighlight ? .94 : .72)
@@ -688,30 +713,12 @@ class FlatMapPainter extends CustomPainter {
       // opacity rather than a distracting change in line weight.
       ..strokeWidth = _screen(1.1);
 
-    // Always split at the canonical world seam. In the full-screen wrapped
-    // mode the already-canonical segments are then repeated with the world
-    // copies, so a route never leaks through a neighbouring tile or leaves
-    // its endpoint in a different copy.
-    final routeSegments = _splitRouteAtWorldSeam(offsetPoints, size);
-    final segmentPaths = <Path>[];
-    var routeLength = 0.0;
-    for (final segment in routeSegments) {
-      if (segment.length < 2) continue;
-      final path = Path()..moveTo(segment.first.dx, segment.first.dy);
-      for (final projected in segment.skip(1)) {
-        path.lineTo(projected.dx, projected.dy);
-      }
-      segmentPaths.add(path);
-      for (final metric in path.computeMetrics()) {
-        routeLength += metric.length;
-      }
-    }
-    if (routeLength <= 0) return;
-    final revealLength = routeLength * routeProgress.clamp(0.0, 1.0).toDouble();
+    final revealLength =
+        geometry.routeLength * routeProgress.clamp(0.0, 1.0).toDouble();
     var remaining = revealLength;
     outer:
-    for (final path in segmentPaths) {
-      for (final metric in path.computeMetrics()) {
+    for (final metrics in geometry.segmentMetrics) {
+      for (final metric in metrics) {
         final visibleLength = math.min(remaining, metric.length).toDouble();
         if (visibleLength > 0) {
           canvas.drawPath(metric.extractPath(0, visibleLength), paint);
@@ -721,42 +728,195 @@ class FlatMapPainter extends CustomPainter {
       }
     }
 
-    // The arrow appears exactly when the stroke reaches the route midpoint,
-    // so it feels discovered by the drawing rather than popping in globally.
-    if (routeProgress >= .5) {
-      final arrowIndex = (((offsetPoints.length - 1) / 2).round())
-          .clamp(1, offsetPoints.length - 1)
-          .toInt();
-      final rawArrowEnd = offsetPoints[arrowIndex];
-      final rawArrowBefore = offsetPoints[arrowIndex - 1];
-      final arrowEnd = _canonicalWorldPoint(rawArrowEnd, size);
-      var arrowDirection =
-          _canonicalWorldPoint(rawArrowEnd, size) -
-          _canonicalWorldPoint(rawArrowBefore, size);
-      final worldWidth = _worldPixelWidth(size);
-      if (arrowDirection.dx > worldWidth / 2) {
-        arrowDirection = Offset(
-          arrowDirection.dx - worldWidth,
-          arrowDirection.dy,
-        );
-      } else if (arrowDirection.dx < -worldWidth / 2) {
-        arrowDirection = Offset(
-          arrowDirection.dx + worldWidth,
-          arrowDirection.dy,
-        );
-      }
-      final arrowBefore = arrowEnd - arrowDirection;
-      _drawArrowhead(canvas, arrowBefore, arrowEnd, color);
+    // During the flight the aircraft is the only directional cue. Keep the
+    // route clean until the aircraft reaches the end, then leave the arrow as
+    // part of the completed, readable itinerary.
+    if (routeProgress >= 1 ||
+        (!showRouteAnimationPlane && routeProgress >= .5)) {
+      _drawArrowhead(canvas, geometry.arrowBefore, geometry.arrowEnd, color);
     }
     final endpointRadius = showPassportTexture ? 1.92 : 3.2;
     if (routeProgress > 0) {
-      final start = _canonicalWorldPoint(offsetPoints.first, size);
-      canvas.drawCircle(start, _screen(endpointRadius), Paint()..color = color);
+      canvas.drawCircle(
+        geometry.start,
+        _screen(endpointRadius),
+        Paint()..color = color,
+      );
     }
     if (routeProgress >= 1) {
-      final end = _canonicalWorldPoint(offsetPoints.last, size);
-      canvas.drawCircle(end, _screen(endpointRadius), Paint()..color = color);
+      canvas.drawCircle(
+        geometry.end,
+        _screen(endpointRadius),
+        Paint()..color = color,
+      );
     }
+  }
+
+  void _drawRouteAnimationPlane(Canvas canvas, Size size) {
+    if (routes.isEmpty) return;
+    final progress = routeRevealProgress.clamp(0.0, 1.0).toDouble();
+    // The completed map keeps the routes and destination markers, but the
+    // moving aircraft belongs only to the active reveal sequence.
+    if (progress >= .999) return;
+    final scaled = progress * routes.length;
+    final index = math.min(math.max(scaled.floor(), 0), routes.length - 1);
+    final localWindowProgress = progress >= 1
+        ? 1.0
+        : (scaled - index).clamp(0.0, 1.0).toDouble();
+    final localProgress = Curves.easeInOutCubic.transform(
+      (localWindowProgress / _routeTravelShare).clamp(0.0, 1.0).toDouble(),
+    );
+    final geometry = _routeGeometryFor(
+      routes[index],
+      size,
+      _screen(_routeOffsetForIndex(index)),
+    );
+    if (geometry == null) return;
+    final pose = _routePoseForProgress(geometry, localProgress);
+    if (pose == null) return;
+
+    final color = _routeColors[index % _routeColors.length];
+    final textPainter = TextPainter(
+      text: TextSpan(
+        text: String.fromCharCode(Icons.flight_rounded.codePoint),
+        style: TextStyle(
+          color: color,
+          fontFamily: Icons.flight_rounded.fontFamily,
+          package: Icons.flight_rounded.fontPackage,
+          fontSize: _screen(23),
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    // The Material flight glyph points upward in its base coordinate system.
+    // Canvas rotation is measured from +X, so add a quarter-turn to map the
+    // glyph's visual nose onto the route tangent.
+    canvas.save();
+    canvas.translate(pose.position.dx, pose.position.dy);
+    canvas.rotate(math.atan2(pose.tangent.dy, pose.tangent.dx) + math.pi / 2);
+    textPainter.paint(
+      canvas,
+      Offset(-textPainter.width / 2, -textPainter.height / 2),
+    );
+    canvas.restore();
+  }
+
+  ({Offset position, Offset tangent})? _routePoseForProgress(
+    _ProjectedRoute geometry,
+    double progress,
+  ) {
+    var remaining = geometry.routeLength * progress.clamp(0.0, 1.0);
+    for (final metrics in geometry.segmentMetrics) {
+      for (final metric in metrics) {
+        if (remaining <= metric.length) {
+          final tangent = metric.getTangentForOffset(remaining);
+          if (tangent != null) {
+            return (position: tangent.position, tangent: tangent.vector);
+          }
+        }
+        remaining -= metric.length;
+      }
+    }
+    final tangent = geometry.segmentMetrics.last.last.getTangentForOffset(
+      geometry.segmentMetrics.last.last.length,
+    );
+    if (tangent == null) return null;
+    return (position: tangent.position, tangent: tangent.vector);
+  }
+
+  /// Route geometry is independent from reveal progress and visual scale.
+  /// Cache it separately from the GeoJSON paths so a pinch, fullscreen fit,
+  /// or orientation frame only repaints the already-projected strokes.
+  _ProjectedRoute? _routeGeometryFor(MapRoute route, Size size, double offset) {
+    final cache = _routeGeometryCaches[route] ??= _RouteGeometryCache();
+    return cache.forRoute(this, route, size, offset);
+  }
+
+  /// Hit testing shares the painted projection, seam splits and route arcs.
+  /// [position] is in scene coordinates, after the widget's inverse transform.
+  MapSelection? selectionAt(Offset position, Size size, {double radius = 20}) {
+    final tolerance = radius / visualScale.clamp(.01, 30);
+    final worldWidth = _worldPixelWidth(size);
+    double distanceTo(Offset point) {
+      var dx = point.dx - position.dx;
+      if (horizontalWrap && worldWidth > 0) {
+        dx = (dx + worldWidth / 2) % worldWidth - worldWidth / 2;
+      }
+      return Offset(dx, point.dy - position.dy).distance;
+    }
+
+    if (mode == MapMode.travelFootprint) {
+      final hits =
+          places
+              .where(
+                (p) =>
+                    distanceTo(project(p.latitude, p.longitude, size)) <=
+                    tolerance,
+              )
+              .toList()
+            ..sort(
+              (a, b) => distanceTo(
+                project(a.latitude, a.longitude, size),
+              ).compareTo(distanceTo(project(b.latitude, b.longitude, size))),
+            );
+      if (hits.isNotEmpty) return MapSelection(places: hits);
+      return null;
+    }
+    final hits =
+        airports
+            .where(
+              (a) =>
+                  distanceTo(project(a.latitude, a.longitude, size)) <=
+                  tolerance,
+            )
+            .toList()
+          ..sort(
+            (a, b) => distanceTo(project(a.latitude, a.longitude, size))
+                .compareTo(distanceTo(project(b.latitude, b.longitude, size))),
+          );
+    if (hits.isNotEmpty) return MapSelection(airports: hits);
+    MapRoute? nearest;
+    var best = tolerance;
+    for (var index = 0; index < routes.length; index++) {
+      final route = routes[index];
+      final reverse = routes.indexWhere(
+        (r) =>
+            r.from.code == route.to.code &&
+            r.to.code == route.from.code &&
+            !identical(r, route),
+      );
+      final offset = reverse < 0 ? 0.0 : _screen(index < reverse ? -2.4 : 2.4);
+      final geometry = _routeGeometryFor(route, size, offset);
+      if (geometry == null) continue;
+      for (final segment in geometry.segments) {
+        for (var i = 1; i < segment.length; i++) {
+          final a = segment[i - 1];
+          final b = segment[i];
+          final delta = b - a;
+          final lengthSquared = delta.distanceSquared;
+          if (lengthSquared == 0) continue;
+          var point = position;
+          if (horizontalWrap && worldWidth > 0) {
+            point = Offset(
+              position.dx +
+                  ((a.dx - position.dx) / worldWidth).round() * worldWidth,
+              position.dy,
+            );
+          }
+          final relative = point - a;
+          final t =
+              ((relative.dx * delta.dx + relative.dy * delta.dy) /
+                      lengthSquared)
+                  .clamp(0.0, 1.0);
+          final distance = (point - (a + delta * t)).distance;
+          if (distance < best) {
+            best = distance;
+            nearest = route;
+          }
+        }
+      }
+    }
+    return nearest == null ? null : MapSelection(route: nearest);
   }
 
   /// Splits an unwrapped route whenever it crosses the map's date-line seam.
@@ -1020,10 +1180,52 @@ class FlatMapPainter extends CustomPainter {
     final markerScale = showPassportTexture ? .6 : 1.0;
     for (final airport in airports) {
       final point = project(airport.latitude, airport.longitude, size);
+      var revealProgress = 0.0;
+      var arrivalProgress = 0.0;
+      var arrivalColor = lightPalette
+          ? _lightRouteColors.first
+          : AppColors.lime;
+      var hasIncomingRoute = false;
+      if (showRouteAnimationPlane && routes.isNotEmpty) {
+        for (var routeIndex = 0; routeIndex < routes.length; routeIndex++) {
+          if (routes[routeIndex].to.code != airport.code) continue;
+          hasIncomingRoute = true;
+          revealProgress = math.max(
+            revealProgress,
+            _routeProgressForIndex(routeIndex, routes.length),
+          );
+          final pulse = _routeArrivalProgressForIndex(
+            routeIndex,
+            routes.length,
+          );
+          if (pulse >= arrivalProgress) {
+            arrivalProgress = pulse;
+            arrivalColor = _routeColors[routeIndex % _routeColors.length];
+          }
+        }
+        // During the reveal, a point is born only at the moment its incoming
+        // route arrives. Pure departure airports remain hidden until the
+        // complete sequence has finished; they are never shown as grey
+        // placeholders.
+        if (!hasIncomingRoute && routeRevealProgress < .999) continue;
+        if (hasIncomingRoute && revealProgress < .999) continue;
+      }
       // Flight-map points use the same semantic lime as the rest of the UI.
       // Route lines keep their five-color rhythm; only the airport marker
       // itself is unified so a dense itinerary reads as one clear layer.
       final color = lightPalette ? _lightRouteColors.first : AppColors.lime;
+      final markerColor = color;
+      if (arrivalProgress > 0 && arrivalProgress < 1) {
+        final wave = Curves.easeOut.transform(arrivalProgress);
+        canvas.drawCircle(
+          point,
+          _screen((4.5 + 15 * wave) * markerScale),
+          Paint()
+            ..color = arrivalColor.withValues(alpha: .5 * (1 - wave))
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = _screen(1.2),
+        );
+      }
       canvas.drawCircle(
         point,
         _screen(3.8 * markerScale),
@@ -1032,16 +1234,19 @@ class FlatMapPainter extends CustomPainter {
       canvas.drawCircle(
         point,
         _screen(2.55 * markerScale),
-        Paint()..color = color,
+        Paint()..color = markerColor,
       );
-      if (showLabels && airport.name.trim().isNotEmpty) {
+      final showArrivalLabel =
+          showRouteAnimationPlane && hasIncomingRoute && revealProgress >= .999;
+      if ((showLabels || showArrivalLabel) && airport.name.trim().isNotEmpty) {
         final name = normalizedMapLabel(airport.name);
         if (name.isNotEmpty && !isProvinceMapLabel(name)) {
           labels.add(
             _MapLabelCandidate(
               value: name,
               point: point,
-              priority: airport.isPrimary ? 3 : 2,
+              priority: showArrivalLabel ? 10 : (airport.isPrimary ? 3 : 2),
+              force: showArrivalLabel,
             ),
           );
         }
@@ -1090,9 +1295,13 @@ class FlatMapPainter extends CustomPainter {
   /// pass prevents nearby cities from painting over one another while the
   /// marker itself remains visible at every scale.
   void _drawLabels(Canvas canvas, List<_MapLabelCandidate> candidates) {
-    if (!showLabels || candidates.isEmpty) return;
+    if (candidates.isEmpty) return;
+    final visibleCandidates = showLabels
+        ? candidates
+        : candidates.where((candidate) => candidate.force).toList();
+    if (visibleCandidates.isEmpty) return;
     final unique = <String, _MapLabelCandidate>{};
-    for (final candidate in candidates) {
+    for (final candidate in visibleCandidates) {
       final key = candidate.value.trim().toLowerCase();
       final existing = unique[key];
       if (existing == null || candidate.priority > existing.priority) {
@@ -1199,6 +1408,7 @@ class FlatMapPainter extends CustomPainter {
       old.bottomFade != bottomFade ||
       old.excludePolarShelf != excludePolarShelf ||
       old.routeRevealProgress != routeRevealProgress ||
+      old.showRouteAnimationPlane != showRouteAnimationPlane ||
       old.showPassportTexture != showPassportTexture ||
       old.compactWorldViewport != compactWorldViewport ||
       old.visualScale != visualScale ||
@@ -1213,11 +1423,13 @@ class _MapLabelCandidate {
     required this.value,
     required this.point,
     required this.priority,
+    this.force = false,
   });
 
   final String value;
   final Offset point;
   final int priority;
+  final bool force;
 }
 
 /// Reprojects the static GeoJSON geometry only once for each recent canvas
@@ -1296,4 +1508,124 @@ class _ProjectedGeometry {
   final List<Path> maritimeMarks;
   final List<Path> internalBoundaries;
   final List<Path> maritimeLines;
+}
+
+class _RouteGeometryCache {
+  final LinkedHashMap<String, _ProjectedRoute> _entries = LinkedHashMap();
+
+  _ProjectedRoute? forRoute(
+    FlatMapPainter painter,
+    MapRoute route,
+    Size size,
+    double offset,
+  ) {
+    final key =
+        '${size.width.toStringAsFixed(1)}:${size.height.toStringAsFixed(1)}:'
+        '${painter.horizontalPadding.toStringAsFixed(1)}:'
+        '${painter.verticalPadding.toStringAsFixed(1)}:'
+        '${painter.compactWorldViewport}:$offset';
+    final existing = _entries.remove(key);
+    if (existing != null) {
+      _entries[key] = existing;
+      return existing;
+    }
+
+    // Use one consistent spherical interpolation for every flight. This is
+    // the expensive part of the map paint, so it is deliberately outside the
+    // reveal-progress and visual-scale path.
+    final angularDistance = painter._greatCircleAngularDistance(
+      route.from,
+      route.to,
+    );
+    final coordinates = painter._greatCircleRoute(route.from, route.to);
+    if (coordinates.length < 2) return null;
+    final normalized = painter._unwrap(coordinates);
+    final projectedPoints = [
+      for (final point in normalized)
+        painter.project(point.latitude, point.longitude, size),
+    ];
+    final offsetPoints = painter._archedProjectedRoute(
+      painter._offsetProjectedRoute(projectedPoints, offset),
+      angularDistance,
+      size: size,
+    );
+
+    // Always split at the canonical world seam. In the full-screen wrapped
+    // mode the already-canonical segments are then repeated with the world
+    // copies, so a route never leaks through a neighbouring tile.
+    final routeSegments = painter._splitRouteAtWorldSeam(offsetPoints, size);
+    final segmentMetrics = <List<ui.PathMetric>>[];
+    var routeLength = 0.0;
+    for (final segment in routeSegments) {
+      if (segment.length < 2) continue;
+      final path = Path()..moveTo(segment.first.dx, segment.first.dy);
+      for (final projected in segment.skip(1)) {
+        path.lineTo(projected.dx, projected.dy);
+      }
+      final metrics = path.computeMetrics().toList(growable: false);
+      if (metrics.isEmpty) continue;
+      segmentMetrics.add(metrics);
+      for (final metric in metrics) {
+        routeLength += metric.length;
+      }
+    }
+    if (routeLength <= 0) return null;
+
+    final arrowIndex = (((offsetPoints.length - 1) / 2).round())
+        .clamp(1, offsetPoints.length - 1)
+        .toInt();
+    final rawArrowEnd = offsetPoints[arrowIndex];
+    final rawArrowBefore = offsetPoints[arrowIndex - 1];
+    final arrowEnd = painter._canonicalWorldPoint(rawArrowEnd, size);
+    var arrowDirection =
+        painter._canonicalWorldPoint(rawArrowEnd, size) -
+        painter._canonicalWorldPoint(rawArrowBefore, size);
+    final worldWidth = painter._worldPixelWidth(size);
+    if (arrowDirection.dx > worldWidth / 2) {
+      arrowDirection = Offset(
+        arrowDirection.dx - worldWidth,
+        arrowDirection.dy,
+      );
+    } else if (arrowDirection.dx < -worldWidth / 2) {
+      arrowDirection = Offset(
+        arrowDirection.dx + worldWidth,
+        arrowDirection.dy,
+      );
+    }
+
+    final geometry = _ProjectedRoute(
+      segments: routeSegments,
+      segmentMetrics: segmentMetrics,
+      routeLength: routeLength,
+      arrowBefore: arrowEnd - arrowDirection,
+      arrowEnd: arrowEnd,
+      start: painter._canonicalWorldPoint(offsetPoints.first, size),
+      end: painter._canonicalWorldPoint(offsetPoints.last, size),
+    );
+    _entries[key] = geometry;
+    while (_entries.length > 3) {
+      _entries.remove(_entries.keys.first);
+    }
+    return geometry;
+  }
+}
+
+class _ProjectedRoute {
+  const _ProjectedRoute({
+    required this.segments,
+    required this.segmentMetrics,
+    required this.routeLength,
+    required this.arrowBefore,
+    required this.arrowEnd,
+    required this.start,
+    required this.end,
+  });
+
+  final List<List<ui.PathMetric>> segmentMetrics;
+  final List<List<Offset>> segments;
+  final double routeLength;
+  final Offset arrowBefore;
+  final Offset arrowEnd;
+  final Offset start;
+  final Offset end;
 }

@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flight_footprint/data/backup_codec.dart';
 import 'package:flight_footprint/domain/flight.dart';
+import 'package:flight_footprint/domain/journey.dart';
 import 'package:flight_footprint/domain/visited_place.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -36,6 +37,16 @@ void main() {
         updatedAt: updatedAt,
       ),
     ],
+    journeys: [
+      Journey(
+        id: 'journey-1',
+        name: '华东周末',
+        flightIds: ['flight-1', 'missing-flight'],
+        createdAt: createdAt,
+        updatedAt: updatedAt,
+      ),
+    ],
+    containsJourneys: true,
   );
 
   test('backup v1 survives a JSON round trip', () {
@@ -50,6 +61,40 @@ void main() {
     expect(decoded.flights.single.status, FlightStatus.upcoming);
     expect(decoded.visitedPlaces.single.name, 'The Bund');
     expect(decoded.visitedPlaces.single.visitedAt, DateTime.utc(2026, 8, 2));
+    expect(decoded.containsJourneys, isTrue);
+    expect(decoded.journeys.single.flightIds, ['flight-1', 'missing-flight']);
+  });
+
+  test('legacy v1 backups keep journeys absent instead of implying empty', () {
+    final decoded = BackupCodec.decode(
+      '{"format":"flight-footprint-backup","version":1,'
+      '"flights":[],"visitedPlaces":[]}',
+    );
+
+    expect(decoded.containsJourneys, isFalse);
+    expect(decoded.journeys, isEmpty);
+  });
+
+  test('journey structure and duplicate ids are validated', () {
+    final duplicate = jsonEncode({
+      'format': BackupCodec.format,
+      'version': BackupCodec.version,
+      'flights': [],
+      'visitedPlaces': [],
+      'journeys': [
+        data.journeys.single.toJson(),
+        data.journeys.single.copyWith(name: '重复').toJson(),
+      ],
+    });
+
+    expect(() => BackupCodec.decode(duplicate), throwsFormatException);
+    expect(
+      () => BackupCodec.decode(
+        '{"format":"${BackupCodec.format}","version":1,'
+        '"flights":[],"visitedPlaces":[],"journeys":[{}]}',
+      ),
+      throwsFormatException,
+    );
   });
 
   test('older backups without a status remain completed', () {
@@ -126,6 +171,7 @@ void main() {
 
     expect(decoded.flights.single.id, 'flight-1');
     expect(decoded.visitedPlaces.single.name, 'The Bund');
+    expect(decoded.journeys.single.id, 'journey-1');
   });
 
   test('decodes the legacy Pages envelope and ignores derived stats', () {
@@ -166,6 +212,17 @@ void main() {
     expect(decoded.visitedPlaces.single.latitude, 22.54);
   });
 
+  test('cloud web envelopes retain journeys alongside legacy places', () {
+    final decoded = BackupCodec.decodeCloudSnapshot({
+      'flights': [],
+      'places': [],
+      'journeys': [data.journeys.single.toJson()],
+    });
+
+    expect(decoded.containsJourneys, isTrue);
+    expect(decoded.journeys.single.id, 'journey-1');
+  });
+
   test('deduplicates legacy cloud records before restore', () {
     final first = jsonDecode(BackupCodec.encode(data)) as Map<String, dynamic>;
     final second = jsonDecode(
@@ -196,4 +253,15 @@ void main() {
     expect(decoded.flights.single.distanceKm, 1111);
     expect(decoded.visitedPlaces, hasLength(1));
   });
+
+  test(
+    'backup never exports unrelated app metadata such as cloud credentials',
+    () {
+      final encoded = BackupCodec.encode(data);
+      expect(encoded, contains('journeys'));
+      expect(encoded, isNot(contains('accessToken')));
+      expect(encoded, isNot(contains('refreshToken')));
+      expect(encoded, isNot(contains('cloudPassword')));
+    },
+  );
 }

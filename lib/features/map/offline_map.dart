@@ -6,6 +6,8 @@ import 'package:flutter/services.dart';
 
 import 'flat_map_painter.dart';
 import 'geojson_map_data.dart';
+import 'globe_map.dart';
+import 'map_explorer_controls.dart';
 import 'map_projection.dart';
 import 'map_models.dart';
 import '../../core/localization/app_strings.dart';
@@ -37,11 +39,14 @@ class OfflineMap extends StatefulWidget {
     this.excludePolarShelf = false,
     this.animateRouteReveal = false,
     this.routeRevealProgress = 1,
+    this.routeAnimationProgress,
+    this.showRouteAnimationPlane = false,
     this.showPassportTexture = false,
     this.enableInteraction = false,
     this.horizontalWrap = false,
     this.useLightPalette,
     this.onMapTap,
+    this.onSelection,
     this.onPlaceLongPress,
     this.loader = const GeoJsonMapLoader(),
   });
@@ -137,6 +142,14 @@ class OfflineMap extends StatefulWidget {
   /// static by default so ordinary maps keep their existing behavior.
   final double routeRevealProgress;
 
+  /// Optional external route timeline used by fullscreen controls. When
+  /// supplied, it takes precedence over the small internal reveal used by
+  /// passport/year transitions.
+  final double? routeAnimationProgress;
+
+  /// Shows a small moving aircraft at the head of the active route.
+  final bool showRouteAnimationPlane;
+
   /// Adds the static engraved texture used by the shareable passport card.
   /// It is opt-in so dashboard and fullscreen maps keep their existing clean
   /// rendering path.
@@ -155,6 +168,7 @@ class OfflineMap extends StatefulWidget {
   /// shareable passport artwork to explicitly keep its dark palette.
   final bool? useLightPalette;
   final ValueChanged<MapCoordinate>? onMapTap;
+  final ValueChanged<MapSelection>? onSelection;
   final Future<void> Function(List<MapPlace> candidates)? onPlaceLongPress;
   final GeoJsonMapLoader loader;
 
@@ -175,6 +189,8 @@ class MapFullscreenPage extends StatefulWidget {
     this.onPlaceLongPress,
     this.placesListenable,
     this.placesProvider,
+    this.onSelection,
+    this.restoreWindowOnDispose = true,
   });
 
   final MapMode mode;
@@ -185,21 +201,71 @@ class MapFullscreenPage extends StatefulWidget {
   final Future<void> Function(List<MapPlace> candidates)? onPlaceLongPress;
   final Listenable? placesListenable;
   final List<MapPlace> Function()? placesProvider;
+  final void Function(BuildContext context, MapSelection selection)?
+  onSelection;
+  final bool restoreWindowOnDispose;
 
   @override
   State<MapFullscreenPage> createState() => _MapFullscreenPageState();
 }
 
-class _MapFullscreenPageState extends State<MapFullscreenPage> {
+class _MapFullscreenPageState extends State<MapFullscreenPage>
+    with WidgetsBindingObserver, SingleTickerProviderStateMixin {
+  // Full-screen map follows the app's portrait-first orientation. Landscape
+  // remains available as an explicit user action from the floating toolbar.
   bool _landscape = false;
   bool _orientationChanging = false;
+  bool _globeMode = false;
+  bool _routeAnimationStarted = false;
+  int _viewReset = 0;
   late List<MapPlace> _places;
+  AnimationController? _routeAnimation;
+
+  /// Fullscreen animation treats repeated records with the same directed
+  /// airport pair as one visual leg. The underlying flight list stays intact
+  /// elsewhere in the app; this only prevents a duplicate flyover in the
+  /// presentation map.
+  List<MapRoute> get _animationRoutes => _deduplicateRoutes(widget.routes);
+
+  static List<MapRoute> _deduplicateRoutes(List<MapRoute> routes) {
+    final seen = <String>{};
+    final result = <MapRoute>[];
+    for (final route in routes) {
+      final from = route.from.code.trim().toUpperCase();
+      final to = route.to.code.trim().toUpperCase();
+      final key = '$from->$to';
+      if (seen.add(key)) result.add(route);
+    }
+    return result;
+  }
+
+  static String _routeSignature(List<MapRoute> routes) => [
+    for (final route in _deduplicateRoutes(routes))
+      '${route.from.code.trim().toUpperCase()}->${route.to.code.trim().toUpperCase()}',
+  ].join('|');
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _places = widget.places;
+    _routeController;
     widget.placesListenable?.addListener(_refreshPlaces);
+  }
+
+  @override
+  void didChangeMetrics() {
+    if (!_landscape || _orientationChanging) return;
+    // Android can briefly reveal the system bars during a rotation. Reapply
+    // immersive mode after the new layout has committed so no black status
+    // strip is left above the edge-to-edge map.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _landscape) {
+        unawaited(
+          SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky),
+        );
+      }
+    });
   }
 
   @override
@@ -212,6 +278,94 @@ class _MapFullscreenPageState extends State<MapFullscreenPage> {
     if (!identical(oldWidget.places, widget.places)) {
       _places = widget.places;
     }
+    if (_routeSignature(oldWidget.routes) != _routeSignature(widget.routes)) {
+      _routeController.duration = _routeAnimationDuration(
+        _animationRoutes.length,
+      );
+      _routeController.value = 1;
+      _routeAnimationStarted = false;
+    }
+  }
+
+  @override
+  void reassemble() {
+    super.reassemble();
+    // Flutter preserves this State during hot reload. Keep the live preview
+    // in sync with timing changes without requiring the user to leave the
+    // fullscreen map first.
+    _routeController.duration = _routeAnimationDuration(
+      _animationRoutes.length,
+    );
+  }
+
+  AnimationController get _routeController {
+    return _routeAnimation ??= AnimationController(
+      vsync: this,
+      duration: _routeAnimationDuration(_animationRoutes.length),
+      // Playback is explicitly requested. Keep its six-second leg timing
+      // even when the platform asks decorative UI to reduce motion.
+      animationBehavior: AnimationBehavior.preserve,
+      value: 1,
+    )..addStatusListener(_handleRouteAnimationStatus);
+  }
+
+  Duration _routeAnimationDuration(int count) {
+    // Every unique leg gets the same fixed time. Geographic distance never
+    // changes the rhythm, and the exact duration stays predictable when an
+    // itinerary contains both short and long flights.
+    return Duration(milliseconds: count.clamp(1, 1000) * 6000);
+  }
+
+  void _handleRouteAnimationStatus(AnimationStatus status) {
+    if (!mounted) return;
+    setState(() {});
+  }
+
+  void _toggleRouteAnimation() {
+    if (_animationRoutes.isEmpty) return;
+    final controller = _routeController;
+    if (controller.isAnimating) {
+      controller.stop();
+      setState(() {});
+      return;
+    }
+    setState(() => _routeAnimationStarted = true);
+    if (controller.value >= .999) {
+      controller.forward(from: 0);
+    } else {
+      controller.forward();
+    }
+  }
+
+  String _routeAnimationTooltip(AppStrings strings) {
+    final controller = _routeController;
+    if (controller.isAnimating) return strings.t('pauseRoutes');
+    if (_routeAnimationStarted && controller.value >= .999) {
+      return strings.t('replayRoutes');
+    }
+    return strings.t('playRoutes');
+  }
+
+  IconData get _routeAnimationIcon {
+    final controller = _routeController;
+    if (controller.isAnimating) return Icons.pause_rounded;
+    if (_routeAnimationStarted && controller.value >= .999) {
+      return Icons.replay_rounded;
+    }
+    return Icons.play_arrow_rounded;
+  }
+
+  String _routeCaption(AppStrings strings) {
+    final routes = _animationRoutes;
+    if (!_routeAnimationStarted) {
+      return strings.isZh ? '${routes.length} 条航线' : '${routes.length} routes';
+    }
+    final index = (_routeController.value * routes.length).floor().clamp(
+      0,
+      routes.length - 1,
+    );
+    final route = routes[index];
+    return '${route.from.code} → ${route.to.code}   ·   ${index + 1} / ${routes.length}';
   }
 
   void _refreshPlaces() {
@@ -222,126 +376,212 @@ class _MapFullscreenPageState extends State<MapFullscreenPage> {
 
   Future<void> _toggleLandscape() async {
     if (_orientationChanging) return;
-    setState(() => _orientationChanging = true);
-    final target = !_landscape;
+    await _setLandscape(!_landscape);
+  }
+
+  Future<void> _setLandscape(bool target) async {
+    if (_orientationChanging) return;
+    if (mounted) setState(() => _orientationChanging = true);
+
+    bool windowReady;
     if (target) {
       await SystemChrome.setPreferredOrientations(const [
         DeviceOrientation.landscapeLeft,
         DeviceOrientation.landscapeRight,
       ]);
+      windowReady = await _waitForWindowShape(landscape: true);
       await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     } else {
       await SystemChrome.setPreferredOrientations(const [
         DeviceOrientation.portraitUp,
       ]);
+      windowReady = await _waitForWindowShape(landscape: false);
       await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     }
+
     if (!mounted) return;
+    if (!windowReady) {
+      // Do not publish a new orientation state when Android did not commit
+      // the requested bounds. This prevents a half-rotated map from being
+      // treated as the stable destination of the transition.
+      setState(() => _orientationChanging = false);
+      return;
+    }
     setState(() {
       _landscape = target;
       _orientationChanging = false;
     });
   }
 
-  void _close() {
-    if (_landscape) {
-      // Restoring orientation before popping avoids leaving the underlying
-      // page in landscape when Android animates the route away.
-      SystemChrome.setPreferredOrientations(const [
-        DeviceOrientation.portraitUp,
-      ]);
-      SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+  Future<bool> _waitForWindowShape({required bool landscape}) async {
+    bool matches() {
+      if (!mounted) return true;
+      final view = View.of(context);
+      final physicalSize = view.physicalSize;
+      final physicalMatches = landscape
+          ? physicalSize.width > physicalSize.height
+          : physicalSize.height >= physicalSize.width;
+      final size = MediaQuery.sizeOf(context);
+      final logicalMatches = landscape
+          ? size.width > size.height
+          : size.height >= size.width;
+      return physicalMatches && logicalMatches;
     }
+
+    if (matches()) return true;
+    final deadline = DateTime.now().add(const Duration(milliseconds: 2400));
+    while (mounted && DateTime.now().isBefore(deadline)) {
+      await WidgetsBinding.instance.endOfFrame;
+      if (matches()) return true;
+      await Future<void>.delayed(const Duration(milliseconds: 16));
+    }
+    return matches();
+  }
+
+  void _close() {
     Navigator.maybePop(context);
   }
 
   @override
   void dispose() {
     widget.placesListenable?.removeListener(_refreshPlaces);
-    if (_landscape) {
-      SystemChrome.setPreferredOrientations(const [
-        DeviceOrientation.portraitUp,
-      ]);
-      SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
-    }
+    _routeAnimation
+      ?..removeStatusListener(_handleRouteAnimationStatus)
+      ..dispose();
+    WidgetsBinding.instance.removeObserver(this);
+    if (widget.restoreWindowOnDispose) unawaited(_restorePortraitWindow());
     super.dispose();
+  }
+
+  Future<void> _restorePortraitWindow() async {
+    await SystemChrome.setPreferredOrientations(const [
+      DeviceOrientation.portraitUp,
+    ]);
+    await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   }
 
   @override
   Widget build(BuildContext context) {
     final strings = context.strings;
     final colors = context.appColors;
-    return Scaffold(
-      backgroundColor: colors.background,
-      body: SafeArea(
-        child: Stack(
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: SystemUiOverlayStyle(
+        // The bars are hidden by immersiveSticky. Transparent colors are also
+        // important during the short hand-off while Android applies the new
+        // orientation, otherwise the old status-bar background can flash as a
+        // black strip over the map.
+        statusBarColor: Colors.transparent,
+        systemNavigationBarColor: Colors.transparent,
+        statusBarIconBrightness: Brightness.light,
+        systemNavigationBarIconBrightness: Brightness.light,
+        systemNavigationBarDividerColor: Colors.transparent,
+        systemNavigationBarContrastEnforced: false,
+      ),
+      child: Scaffold(
+        backgroundColor: colors.background,
+        resizeToAvoidBottomInset: false,
+        body: Stack(
           fit: StackFit.expand,
           children: [
             RepaintBoundary(
-              child: OfflineMap(
-                mode: widget.mode,
-                airports: widget.airports,
-                routes: widget.routes,
-                places: _places,
-                // Center the first frame on the recorded routes or cities.
-                // The complete-world vertical extent remains the minimum
-                // zoom, so the user can always pinch back out to the whole
-                // map without losing the fullscreen boundary behavior.
-                fitToData: true,
-                fillViewportHeight: true,
-                fitZoomMultiplier: 1,
-                enableInteraction: true,
-                horizontalWrap: true,
-                // The map is a visual data surface, so keep its established
-                // dark cartographic palette independent of page brightness.
-                useLightPalette: false,
-                onPlaceLongPress: widget.onPlaceLongPress,
+              child: AnimatedBuilder(
+                animation: _routeController,
+                builder: (context, _) => _globeMode
+                    ? GlobeMap(
+                        resetSignal: _viewReset,
+                        mode: widget.mode,
+                        // Travel footprint globe shows visited places only;
+                        // flight arcs belong exclusively to flight mode.
+                        routes: widget.mode == MapMode.flight
+                            ? _animationRoutes
+                            : const [],
+                        airports: widget.airports,
+                        places: _places,
+                        routeAnimationProgress: _routeController.value,
+                        showRouteAnimationPlane: _routeAnimationStarted,
+                        onSelection: widget.onSelection == null
+                            ? null
+                            : (selection) =>
+                                  widget.onSelection!(context, selection),
+                      )
+                    : OfflineMap(
+                        key: ValueKey('flat-$_viewReset'),
+                        mode: widget.mode,
+                        airports: widget.airports,
+                        routes: _animationRoutes,
+                        places: _places,
+                        // Center the first frame on the recorded routes or cities.
+                        // The complete-world vertical extent remains the minimum
+                        // zoom, so the user can always pinch back out to the whole
+                        // map without losing the fullscreen boundary behavior.
+                        fitToData: true,
+                        fillViewportHeight: true,
+                        fitZoomMultiplier: 1,
+                        enableInteraction: true,
+                        horizontalWrap: true,
+                        routeAnimationProgress: _routeController.value,
+                        showRouteAnimationPlane: _routeAnimationStarted,
+                        // The map is a visual data surface, so keep its established
+                        // dark cartographic palette independent of page brightness.
+                        useLightPalette: false,
+                        onPlaceLongPress: widget.onPlaceLongPress,
+                        onSelection: widget.onSelection == null
+                            ? null
+                            : (selection) =>
+                                  widget.onSelection!(context, selection),
+                      ),
               ),
             ),
             Positioned(
-              top: 12,
-              left: 12,
-              child: _MapCircleButton(
-                tooltip: strings.t('close'),
-                icon: Icons.close_rounded,
-                onPressed: _close,
-              ),
-            ),
-            if (widget.mode == MapMode.travelFootprint &&
-                widget.onAddPlace != null)
-              Positioned(
-                bottom: 136,
-                right: 12,
-                child: _MapCircleButton(
-                  tooltip: strings.t('addPlace'),
-                  icon: Icons.add_location_alt_rounded,
-                  onPressed: () {
-                    // Do not make the button wait for the sheet or catalogue
-                    // load; the route transition should start immediately.
-                    unawaited(widget.onAddPlace!(context));
-                  },
+              top: 0,
+              left: 0,
+              child: SafeArea(
+                minimum: const EdgeInsets.all(12),
+                child: MapExplorerGlass(
+                  child: MapExplorerButton(
+                    label: strings.t('close'),
+                    icon: Icons.close_rounded,
+                    onPressed: _close,
+                  ),
                 ),
               ),
-            Positioned(
-              bottom: 76,
-              right: 12,
-              child: _MapCircleButton(
-                tooltip: strings.t(
-                  _landscape ? 'exitLandscape' : 'landscapeFullscreen',
-                ),
-                icon: _landscape
-                    ? Icons.stay_current_portrait_rounded
-                    : Icons.screen_rotation_alt_rounded,
-                onPressed: _orientationChanging ? () {} : _toggleLandscape,
-              ),
             ),
             Positioned(
-              bottom: 16,
-              right: 12,
-              child: _MapCircleButton(
-                tooltip: strings.t('fullscreen'),
-                icon: Icons.fullscreen_exit_rounded,
-                onPressed: _close,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: AnimatedBuilder(
+                animation: _routeController,
+                builder: (context, _) {
+                  final hasRoutes =
+                      widget.mode == MapMode.flight &&
+                      _animationRoutes.isNotEmpty;
+                  return MapExplorerControls(
+                    globeMode: _globeMode,
+                    landscape: _landscape,
+                    onModeChanged: (globe) {
+                      if (_globeMode != globe) {
+                        setState(() => _globeMode = globe);
+                      }
+                    },
+                    onOrientation: _orientationChanging
+                        ? null
+                        : _toggleLandscape,
+                    onReset: () => setState(() => _viewReset++),
+                    onPlayback: hasRoutes ? _toggleRouteAnimation : null,
+                    playbackLabel: _routeAnimationTooltip(strings),
+                    playbackIcon: _routeAnimationIcon,
+                    progress: hasRoutes
+                        ? (_routeAnimationStarted ? _routeController.value : 0)
+                        : null,
+                    routeCaption: hasRoutes ? _routeCaption(strings) : null,
+                    onAddPlace:
+                        widget.mode == MapMode.travelFootprint &&
+                            widget.onAddPlace != null
+                        ? () => unawaited(widget.onAddPlace!(context))
+                        : null,
+                  );
+                },
               ),
             ),
           ],
@@ -351,38 +591,13 @@ class _MapFullscreenPageState extends State<MapFullscreenPage> {
   }
 }
 
-class _MapCircleButton extends StatelessWidget {
-  const _MapCircleButton({
-    required this.tooltip,
-    required this.icon,
-    required this.onPressed,
-  });
-
-  final String tooltip;
-  final IconData icon;
-  final VoidCallback onPressed;
-
-  @override
-  Widget build(BuildContext context) => Semantics(
-    button: true,
-    label: tooltip,
-    child: IconButton(
-      tooltip: tooltip,
-      onPressed: onPressed,
-      icon: Icon(icon),
-      style: IconButton.styleFrom(
-        fixedSize: const Size(48, 48),
-        backgroundColor: context.appColors.surface.withValues(alpha: .95),
-        foregroundColor: context.appColors.textPrimary,
-        side: BorderSide(color: context.appColors.border),
-      ),
-    ),
-  );
-}
-
 class _OfflineMapState extends State<OfflineMap> with TickerProviderStateMixin {
   late Future<GeoJsonMapBundle> _future;
   late final TransformationController _transform;
+  // Keep this nullable so a hot reload that adds or changes the map's
+  // repaint notifier can lazily initialize an already-mounted State object.
+  // Flutter does not rerun initState for those objects.
+  ValueNotifier<double>? _sceneScaleNotifier;
   AnimationController? _fitAnimation;
   CurvedAnimation? _fitCurve;
   AnimationController? _routeRevealAnimation;
@@ -395,8 +610,11 @@ class _OfflineMapState extends State<OfflineMap> with TickerProviderStateMixin {
   // currently visited routes or cities. It is refreshed for each orientation.
   double _minScale = 1;
   Size? _lastMapSize;
+  FlatMapPainter? _lastPainter;
+  Size? _lastFittedMapSize;
   bool _normalizingHorizontalPan = false;
   bool _hasPresentedFit = false;
+  bool _fitAnimationActive = false;
   double _routeRevealProgress = 1;
   int _routeRevealGeneration = 0;
 
@@ -404,6 +622,7 @@ class _OfflineMapState extends State<OfflineMap> with TickerProviderStateMixin {
   void initState() {
     super.initState();
     _transform = TransformationController();
+    _sceneScaleNotifier = ValueNotifier(_sceneScale);
     _transform.addListener(_onTransformChanged);
     _ensureAnimations();
     _future = _loadBundle();
@@ -422,6 +641,7 @@ class _OfflineMapState extends State<OfflineMap> with TickerProviderStateMixin {
       _fitAnimation = fitAnimation;
       _fitCurve = fitCurve;
       fitAnimation.addListener(_applyFitAnimation);
+      fitAnimation.addStatusListener(_handleFitAnimationStatus);
     }
     if (_routeRevealAnimation == null || _routeRevealCurve == null) {
       final routeRevealAnimation = AnimationController(
@@ -448,6 +668,7 @@ class _OfflineMapState extends State<OfflineMap> with TickerProviderStateMixin {
     _fitCurve?.dispose();
     _fitAnimation
       ?..removeListener(_applyFitAnimation)
+      ..removeStatusListener(_handleFitAnimationStatus)
       ..dispose();
     _routeRevealCurve?.dispose();
     _routeRevealAnimation
@@ -455,8 +676,12 @@ class _OfflineMapState extends State<OfflineMap> with TickerProviderStateMixin {
       ..dispose();
     _transform.removeListener(_onTransformChanged);
     _transform.dispose();
+    _sceneScaleNotifier?.dispose();
     super.dispose();
   }
+
+  ValueNotifier<double> get _sceneScaleListenable =>
+      _sceneScaleNotifier ??= ValueNotifier(_sceneScale);
 
   void _onTransformChanged() {
     if (!mounted) return;
@@ -470,7 +695,37 @@ class _OfflineMapState extends State<OfflineMap> with TickerProviderStateMixin {
     if (widget.enableInteraction && (scale - _sceneScale).abs() < .01) {
       return;
     }
-    setState(() => _sceneScale = scale);
+    _sceneScale = scale;
+    // Camera fitting is a layout transition, not a user zoom gesture. Keep
+    // the expensive painter static while the matrix moves, then update the
+    // marker scale once at the end. User pinch/zoom still gets live feedback.
+    if (_fitAnimationActive) return;
+    final notifier = _sceneScaleListenable;
+    if ((notifier.value - scale).abs() >= .01) {
+      notifier.value = scale;
+    }
+  }
+
+  void _handleFitAnimationStatus(AnimationStatus status) {
+    if (status != AnimationStatus.completed &&
+        status != AnimationStatus.dismissed) {
+      return;
+    }
+    _fitAnimationActive = false;
+    _syncSceneScale();
+  }
+
+  void _syncSceneScale() {
+    if (!mounted) return;
+    final scale = _transform.value
+        .getMaxScaleOnAxis()
+        .clamp(_minScale, 30.0)
+        .toDouble();
+    _sceneScale = scale;
+    final notifier = _sceneScaleListenable;
+    if ((notifier.value - scale).abs() >= .01) {
+      notifier.value = scale;
+    }
   }
 
   void _applyFitAnimation() {
@@ -499,10 +754,13 @@ class _OfflineMapState extends State<OfflineMap> with TickerProviderStateMixin {
     });
   }
 
-  void _presentFit(Matrix4 target) {
+  void _presentFit(Matrix4 target, {bool animate = true}) {
     _ensureAnimations();
-    if (!_hasPresentedFit) {
+    if (!_hasPresentedFit ||
+        !animate ||
+        MediaQuery.disableAnimationsOf(context)) {
       _fitAnimation?.stop();
+      _fitAnimationActive = false;
       _transform.value = target;
       _hasPresentedFit = true;
       return;
@@ -513,10 +771,12 @@ class _OfflineMapState extends State<OfflineMap> with TickerProviderStateMixin {
     // previous logical target.
     final fitAnimation = _fitAnimation;
     if (fitAnimation == null) {
+      _fitAnimationActive = false;
       _transform.value = target;
       return;
     }
     fitAnimation.stop();
+    _fitAnimationActive = true;
     _fitTween = Matrix4Tween(
       begin: Matrix4.copy(_transform.value),
       end: Matrix4.copy(target),
@@ -602,6 +862,14 @@ class _OfflineMapState extends State<OfflineMap> with TickerProviderStateMixin {
           Widget map = GestureDetector(
             behavior: HitTestBehavior.opaque,
             onTapUp: (details) {
+              final selection = _lastPainter?.selectionAt(
+                details.localPosition,
+                mapSize,
+              );
+              if (selection != null && widget.onSelection != null) {
+                widget.onSelection!(selection);
+                return;
+              }
               setState(() => _showLabels = !_showLabels);
               final point = details.localPosition;
               widget.onMapTap?.call(
@@ -616,42 +884,50 @@ class _OfflineMapState extends State<OfflineMap> with TickerProviderStateMixin {
                     unawaited(_handlePlaceLongPress(details, mapSize));
                   }
                 : null,
-            child: CustomPaint(
-              size: mapSize,
-              painter: FlatMapPainter(
-                data: data,
-                airports: widget.airports,
-                routes: widget.routes,
-                places: widget.places,
-                mode: widget.mode,
-                showLabels: _showLabels,
-                showGrid: widget.showGrid,
-                minimalWorldStyle: widget.minimalWorldStyle,
-                transparentBackground: widget.transparentBackground,
-                bottomFade: widget.bottomFade,
-                excludePolarShelf: widget.excludePolarShelf,
-                routeRevealProgress: widget.animateRouteReveal
-                    ? _routeRevealProgress
-                    : 1,
-                showPassportTexture: widget.showPassportTexture,
-                compactWorldViewport: widget.compactWorldViewport,
-                lightPalette:
-                    widget.useLightPalette ??
-                    Theme.of(context).brightness == Brightness.light,
-                visualScale: _sceneScale,
-                horizontalPadding: widget.horizontalPadding,
-                verticalPadding: widget.verticalPadding,
-                horizontalWrap: widget.horizontalWrap,
+            child: ValueListenableBuilder<double>(
+              valueListenable: _sceneScaleListenable,
+              builder: (context, sceneScale, _) => CustomPaint(
+                size: mapSize,
+                painter: _lastPainter = FlatMapPainter(
+                  data: data,
+                  airports: widget.airports,
+                  routes: widget.routes,
+                  places: widget.places,
+                  mode: widget.mode,
+                  showLabels: _showLabels,
+                  showGrid: widget.showGrid,
+                  minimalWorldStyle: widget.minimalWorldStyle,
+                  transparentBackground: widget.transparentBackground,
+                  bottomFade: widget.bottomFade,
+                  excludePolarShelf: widget.excludePolarShelf,
+                  routeRevealProgress:
+                      widget.routeAnimationProgress ??
+                      (widget.animateRouteReveal ? _routeRevealProgress : 1),
+                  showRouteAnimationPlane: widget.showRouteAnimationPlane,
+                  showPassportTexture: widget.showPassportTexture,
+                  compactWorldViewport: widget.compactWorldViewport,
+                  lightPalette:
+                      widget.useLightPalette ??
+                      Theme.of(context).brightness == Brightness.light,
+                  visualScale: sceneScale,
+                  horizontalPadding: widget.horizontalPadding,
+                  verticalPadding: widget.verticalPadding,
+                  horizontalWrap: widget.horizontalWrap,
+                ),
               ),
             ),
           );
           if (!widget.enableInteraction) {
             // Keep the calculated data-centred fit in the embedded preview,
             // but leave drag/pinch gestures to the surrounding page.
-            return Transform(
-              alignment: Alignment.topLeft,
-              transform: _transform.value,
-              child: map,
+            return AnimatedBuilder(
+              animation: _transform,
+              child: RepaintBoundary(child: map),
+              builder: (context, child) => Transform(
+                alignment: Alignment.topLeft,
+                transform: _transform.value,
+                child: child,
+              ),
             );
           }
           return InteractiveViewer(
@@ -664,6 +940,13 @@ class _OfflineMapState extends State<OfflineMap> with TickerProviderStateMixin {
             minScale: _minScale,
             maxScale: 30,
             boundaryMargin: _boundaryMargin(mapSize),
+            onInteractionStart: (_) {
+              if (_fitAnimation?.isAnimating ?? false) {
+                _fitAnimation?.stop();
+                _fitAnimationActive = false;
+                _syncSceneScale();
+              }
+            },
             child: map,
           );
         },
@@ -819,9 +1102,18 @@ class _OfflineMapState extends State<OfflineMap> with TickerProviderStateMixin {
     // the user's requested reference is a map that reaches both top and
     // bottom edges, not a distorted world stretched to the phone's shape.
     _minScale = _interactionFloor(size);
+    final previousSize = _lastFittedMapSize;
+    _lastFittedMapSize = size;
+    final viewportChanged = previousSize != null && previousSize != size;
     final matrix = _fitMatrix(size, points);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && _fitKey == key) _presentFit(matrix);
+      if (mounted && _fitKey == key) {
+        // During a rotation Android is already animating the window bounds.
+        // Do not add a second camera interpolation between portrait and
+        // landscape matrices; the old matrix can temporarily leave the map
+        // stranded at one edge of the newly shaped viewport.
+        _presentFit(matrix, animate: !viewportChanged);
+      }
     });
   }
 

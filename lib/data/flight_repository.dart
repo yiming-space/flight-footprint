@@ -4,6 +4,7 @@ import 'package:sqflite/sqflite.dart';
 import 'package:uuid/uuid.dart';
 
 import '../domain/flight.dart';
+import '../domain/journey.dart';
 import '../domain/visited_place.dart';
 import 'backup_codec.dart';
 import 'local_database.dart';
@@ -86,6 +87,8 @@ class _FlightImportOperation {
 
 class FlightRepository {
   static const _importBatchSize = 100;
+  static const _journeyMetaKey = 'journeys_v1';
+  static const _journeySchemaVersion = 1;
 
   FlightRepository({Future<Database> Function()? databaseProvider, Uuid? uuid})
     : _databaseProvider = databaseProvider ?? LocalDatabase.open,
@@ -356,6 +359,8 @@ class FlightRepository {
     BackupData(
       flights: await listFlights(),
       visitedPlaces: await listVisitedPlaces(),
+      journeys: _journeysFromMeta(await getMeta(_journeyMetaKey)),
+      containsJourneys: true,
     ),
   );
 
@@ -397,6 +402,15 @@ class FlightRepository {
           placeCount++;
         }
       }
+      if (backup.containsJourneys) {
+        final localJourneys = _journeysFromMeta(
+          await _getMetaInTransaction(transaction, _journeyMetaKey),
+        );
+        await _setJourneysInTransaction(
+          transaction,
+          _mergeJourneys(localJourneys, backup.journeys),
+        );
+      }
       return ImportResult(flightsMerged: flightCount, placesMerged: placeCount);
     });
   }
@@ -427,11 +441,89 @@ class FlightRepository {
           conflictAlgorithm: ConflictAlgorithm.replace,
         );
       }
+      if (backup.containsJourneys) {
+        await _setJourneysInTransaction(transaction, backup.journeys);
+      }
       return ImportResult(
         flightsMerged: backup.flights.length,
         placesMerged: backup.visitedPlaces.length,
       );
     });
+  }
+
+  Future<String?> _getMetaInTransaction(
+    Transaction transaction,
+    String key,
+  ) async {
+    final rows = await transaction.query(
+      'app_meta',
+      columns: ['value'],
+      where: 'key = ?',
+      whereArgs: [key],
+      limit: 1,
+    );
+    return rows.isEmpty ? null : rows.single['value']! as String;
+  }
+
+  Future<void> _setJourneysInTransaction(
+    Transaction transaction,
+    Iterable<Journey> journeys,
+  ) async {
+    await transaction.insert('app_meta', {
+      'key': _journeyMetaKey,
+      'value': jsonEncode({
+        'version': _journeySchemaVersion,
+        'journeys': journeys.map((journey) => journey.toJson()).toList(),
+      }),
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  List<Journey> _journeysFromMeta(String? raw) {
+    if (raw == null || raw.trim().isEmpty) return const [];
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map || decoded['version'] != _journeySchemaVersion) {
+        return const [];
+      }
+      final values = decoded['journeys'];
+      if (values is! List) return const [];
+      final result = <String, Journey>{};
+      for (final value in values) {
+        if (value is! Map) continue;
+        try {
+          final journey = Journey.fromJson(Map<String, Object?>.from(value));
+          final current = result[journey.id];
+          if (current == null || journey.updatedAt.isAfter(current.updatedAt)) {
+            result[journey.id] = journey;
+          }
+        } on FormatException {
+          // A corrupt local journey entry should not block flight restore.
+        }
+      }
+      return result.values.toList(growable: false);
+    } on FormatException {
+      return const [];
+    } on JsonUnsupportedObjectError {
+      return const [];
+    }
+  }
+
+  List<Journey> _mergeJourneys(
+    Iterable<Journey> local,
+    Iterable<Journey> incoming,
+  ) {
+    final merged = <String, Journey>{
+      for (final journey in local) journey.id: journey,
+    };
+    for (final journey in incoming) {
+      final current = merged[journey.id];
+      if (current == null ||
+          journey.updatedAt.isAfter(current.updatedAt) ||
+          journey.updatedAt.isAtSameMomentAs(current.updatedAt)) {
+        merged[journey.id] = journey;
+      }
+    }
+    return merged.values.toList(growable: false);
   }
 
   Future<bool> _shouldWrite(

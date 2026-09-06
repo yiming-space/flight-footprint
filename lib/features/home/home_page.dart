@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 
 import '../../app/app_controller.dart';
@@ -11,6 +12,7 @@ import '../../data/city_catalog.dart';
 import '../../domain/visited_place.dart';
 import '../../features/map/map.dart';
 import '../../features/map/add_visited_place_sheet.dart';
+import '../map/map_records_sheet.dart';
 import '../../ui/theme/app_theme.dart';
 import '../../ui/widgets/widgets.dart';
 import '../flights/flight_card.dart';
@@ -34,10 +36,19 @@ class _HomePageState extends State<HomePage> {
   late final Future<CityCatalog> _chinaCatalog = CityCatalog.loadChina();
   CityCatalog? _mapCatalog;
   final _mapPreviewKey = GlobalKey();
+  bool _openingMapFullscreen = false;
 
   @override
   void initState() {
     super.initState();
+    // The app shell is portrait-first. Fullscreen map rotation is explicit
+    // from the map toolbar, so a stale orientation request from an older
+    // fullscreen session cannot leave the home screen sideways.
+    unawaited(
+      SystemChrome.setPreferredOrientations(const [
+        DeviceOrientation.portraitUp,
+      ]),
+    );
     // Resolve legacy pinyin/province labels as soon as the bundled world
     // index is ready. The first frame still renders immediately, then the map
     // quietly refreshes with canonical Chinese names and deduplicated dots.
@@ -205,6 +216,8 @@ class _HomePageState extends State<HomePage> {
                             horizontalPadding: 0,
                             verticalPadding: 0,
                             onPlaceLongPress: _handlePlaceLongPress,
+                            onSelection: (selection) =>
+                                _openMapRecords(context, selection),
                           ),
                         ),
                       ),
@@ -214,23 +227,19 @@ class _HomePageState extends State<HomePage> {
                         child: Semantics(
                           button: true,
                           label: s.t('fullscreen'),
-                          child: IconButton(
+                          child: LiquidGlassIconButton(
                             tooltip: s.t('fullscreen'),
-                            onPressed: () => _openMapFullscreen(
-                              mode: _mode,
-                              airports: mapAirports.values.toList(),
-                              routes: routes,
-                              places: mapPlaces,
-                              onPlaceLongPress: _handlePlaceLongPress,
-                            ),
-                            icon: const Icon(Icons.fullscreen_rounded),
-                            style: IconButton.styleFrom(
-                              fixedSize: const Size(46, 46),
-                              backgroundColor: colors.background.withValues(
-                                alpha: .94,
+                            onPressed: () => unawaited(
+                              _openMapFullscreen(
+                                mode: _mode,
+                                airports: mapAirports.values.toList(),
+                                routes: routes,
+                                places: mapPlaces,
+                                onPlaceLongPress: _handlePlaceLongPress,
                               ),
-                              foregroundColor: colors.textPrimary,
                             ),
+                            size: 46,
+                            icon: Icons.fullscreen_rounded,
                           ),
                         ),
                       ),
@@ -302,7 +311,7 @@ class _HomePageState extends State<HomePage> {
     final s = context.strings;
     final colors = context.appColors;
     final isLight = Theme.of(context).brightness == Brightness.light;
-    final metricCardColor = isLight ? colors.cardMint : colors.surfaceElevated;
+    final metricCardColor = isLight ? colors.cardBlue : colors.surfaceElevated;
     final metricTextColor = isLight ? colors.cardText : colors.lime;
     final metricSecondaryTextColor = isLight
         ? colors.cardText.withValues(alpha: .62)
@@ -324,7 +333,7 @@ class _HomePageState extends State<HomePage> {
               width: 52,
               height: 52,
               decoration: BoxDecoration(
-                color: metricTextColor.withValues(alpha: .10),
+                color: metricTextColor.withValues(alpha: isLight ? .14 : .10),
                 shape: BoxShape.circle,
               ),
               child: Icon(Icons.radar_rounded, color: metricTextColor),
@@ -445,12 +454,20 @@ class _HomePageState extends State<HomePage> {
             : chinaPlaces.map((place) => place.name.trim()).toSet().length;
         final worldProgress = (countryCount / 195).clamp(0.0, 1.0).toDouble();
         final chinaProgress = (chinaCount / 34).clamp(0.0, 1.0).toDouble();
+        // Keep the two primary home metrics on the same light-theme card
+        // surface; progress colors provide the internal hierarchy.
         final explorationCardColor = isLight
-            ? Color.alphaBlend(
-                colors.cardMint.withValues(alpha: .50),
-                colors.surface,
-              )
+            ? colors.cardBlue
             : colors.surfaceElevated;
+        // Use the same saturated UI accents as the action controls. Blending
+        // them too far toward the card ink made the progress UI look gray.
+        final worldAccent = isLight
+            ? HSLColor.fromColor(colors.lime)
+                  .withSaturation(.66)
+                  .withLightness(.40)
+                  .toColor()
+            : colors.lime;
+        final chinaAccent = isLight ? const Color(0xFF8067C7) : colors.purple;
         return Container(
           padding: const EdgeInsets.fromLTRB(22, 22, 22, 20),
           decoration: ShapeDecoration(
@@ -472,7 +489,7 @@ class _HomePageState extends State<HomePage> {
                 count: countryCount,
                 total: 195,
                 progress: worldProgress,
-                color: colors.lime,
+                color: worldAccent,
                 detail: s.t('visitedCountries'),
               ),
               const SizedBox(height: 20),
@@ -482,7 +499,7 @@ class _HomePageState extends State<HomePage> {
                 count: chinaCount,
                 total: 34,
                 progress: chinaProgress,
-                color: colors.purple,
+                color: chinaAccent,
                 detail: s.t('visitedRegions'),
               ),
               const SizedBox(height: 18),
@@ -490,6 +507,8 @@ class _HomePageState extends State<HomePage> {
                 label: s.t('addPlace'),
                 icon: Icons.add_location_alt_rounded,
                 onPressed: onAdd,
+                backgroundColor: isLight ? colors.lime : null,
+                foregroundColor: isLight ? colors.cardText : null,
               ),
             ],
           ),
@@ -556,7 +575,9 @@ class _HomePageState extends State<HomePage> {
         Text(
           '$count / $total · $detail',
           style: AppTextStyles.bodySecondary.copyWith(
-            color: colors.textSecondary,
+            color: Theme.of(context).brightness == Brightness.light
+                ? colors.textPrimary
+                : colors.textSecondary,
           ),
         ),
       ],
@@ -617,22 +638,38 @@ class _HomePageState extends State<HomePage> {
       );
   }
 
-  void _openMapFullscreen({
+  Future<void> _openMapFullscreen({
     required MapMode mode,
     required List<MapAirport> airports,
     required List<MapRoute> routes,
     required List<MapPlace> places,
     required Future<void> Function(List<MapPlace> candidates) onPlaceLongPress,
-  }) {
-    final mapPreviewRect = _mapPreviewRect();
-    Navigator.of(context).push(
-      PageRouteBuilder<void>(
+  }) async {
+    if (_openingMapFullscreen) return;
+    _openingMapFullscreen = true;
+    final previousOrientations = const [DeviceOrientation.portraitUp];
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
+    try {
+      await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+      if (!mounted) return;
+
+      final viewport = Offset.zero & MediaQuery.sizeOf(context);
+      final previewRect = _mapPreviewRect();
+      final mapPreviewRect =
+          previewRect != null && previewRect.overlaps(viewport)
+          ? previewRect
+          : null;
+      final route = PageRouteBuilder<void>(
         // Let the preview remain visible around the expanding map. The route
         // itself fills the window by the end of the transition.
         opaque: false,
         fullscreenDialog: true,
-        transitionDuration: const Duration(milliseconds: 420),
-        reverseTransitionDuration: const Duration(milliseconds: 320),
+        transitionDuration: reduceMotion
+            ? Duration.zero
+            : const Duration(milliseconds: 300),
+        reverseTransitionDuration: reduceMotion
+            ? Duration.zero
+            : const Duration(milliseconds: 240),
         pageBuilder: (_, animation, secondaryAnimation) => MapFullscreenPage(
           mode: mode,
           airports: airports,
@@ -641,6 +678,8 @@ class _HomePageState extends State<HomePage> {
           onPlaceLongPress: onPlaceLongPress,
           placesListenable: widget.controller,
           placesProvider: _mapPlacesSnapshot,
+          restoreWindowOnDispose: false,
+          onSelection: _openMapRecords,
           onAddPlace: mode == MapMode.travelFootprint
               ? (hostContext) => _openAddPlace(hostContext)
               : null,
@@ -657,6 +696,36 @@ class _HomePageState extends State<HomePage> {
             child: child,
           );
         },
+      );
+      unawaited(Navigator.of(context).push(route));
+      // `completed` includes the exit animation and overlay disposal. Keep
+      // the entry guard until then so an old route cannot rotate a new one.
+      await route.completed;
+    } finally {
+      await SystemChrome.setPreferredOrientations(previousOrientations);
+      await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+      _openingMapFullscreen = false;
+    }
+  }
+
+  void _openMapRecords(BuildContext hostContext, MapSelection selection) {
+    unawaited(
+      showModalBottomSheet<void>(
+        context: hostContext,
+        isScrollControlled: true,
+        useSafeArea: true,
+        requestFocus: false,
+        backgroundColor: Colors.transparent,
+        builder: (_) => FractionallySizedBox(
+          heightFactor: .86,
+          child: ClipPath(
+            clipper: ShapeBorderClipper(shape: AppShapes.sheet),
+            child: MapRecordsSheet(
+              controller: widget.controller,
+              selection: selection,
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -781,10 +850,11 @@ class _HomePageState extends State<HomePage> {
 
   List<BoxShadow> _cardShadow() {
     final isLight = Theme.of(context).brightness == Brightness.light;
+    if (isLight) return const <BoxShadow>[];
     return [
       BoxShadow(
-        color: Colors.black.withValues(alpha: isLight ? .10 : .22),
-        blurRadius: isLight ? 22 : 24,
+        color: Colors.black.withValues(alpha: .22),
+        blurRadius: 24,
         offset: const Offset(0, 12),
       ),
     ];

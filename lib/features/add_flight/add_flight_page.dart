@@ -9,6 +9,7 @@ import '../../core/localization/app_strings.dart';
 import '../../data/airline_catalog.dart';
 import '../../data/airport_catalog.dart';
 import '../../data/airport_localization.dart';
+import '../../data/flight_draft_store.dart';
 import '../../domain/airport.dart';
 import '../../domain/flight.dart';
 import '../../ui/theme/app_theme.dart';
@@ -19,14 +20,18 @@ class AddFlightPage extends StatefulWidget {
     super.key,
     required this.controller,
     this.initialFlight,
+    this.draftStore,
   });
   final AppController controller;
   final Flight? initialFlight;
+  final FlightDraftStore? draftStore;
   @override
   State<AddFlightPage> createState() => _AddFlightPageState();
 }
 
-class _AddFlightPageState extends State<AddFlightPage> {
+class _AddFlightPageState extends State<AddFlightPage>
+    with WidgetsBindingObserver {
+  static const _draftDebounce = Duration(milliseconds: 650);
   Airport? _departure;
   Airport? _arrival;
   DateTime _date = DateTime.now();
@@ -48,12 +53,42 @@ class _AddFlightPageState extends State<AddFlightPage> {
   final _seat = TextEditingController();
   final _note = TextEditingController();
   String? _cabin;
+  late final FlightDraftStore _draftStore;
+  Timer? _draftTimer;
+  Future<void> _draftWrites = Future<void>.value();
+  int _draftRevision = 0;
+  bool _draftRestoreInProgress = false;
+  bool _userEdited = false;
+  bool _applyingDraft = false;
+
+  List<TextEditingController> get _draftControllers => [
+    _flightIdentity,
+    _airline,
+    _flightNumber,
+    _aircraft,
+    _duration,
+    _distance,
+    _seat,
+    _note,
+  ];
 
   @override
   void initState() {
     super.initState();
+    _draftStore =
+        widget.draftStore ??
+        FlightDraftStore.fromRepository(widget.controller.repository);
+    for (final controller in _draftControllers) {
+      controller.addListener(_onDraftTextChanged);
+    }
     final initial = widget.initialFlight;
     if (initial == null) {
+      WidgetsBinding.instance.addObserver(this);
+      unawaited(
+        _restoreDraft().catchError((_) {
+          _draftRestoreInProgress = false;
+        }),
+      );
       return;
     }
     _departure = widget.controller.airportFor(initial.departureIata);
@@ -95,6 +130,14 @@ class _AddFlightPageState extends State<AddFlightPage> {
 
   @override
   void dispose() {
+    if (widget.initialFlight == null) {
+      WidgetsBinding.instance.removeObserver(this);
+      _draftTimer?.cancel();
+      _flushDraftQuietly();
+    }
+    for (final controller in _draftControllers) {
+      controller.removeListener(_onDraftTextChanged);
+    }
     for (final controller in [
       _flightIdentity,
       _airline,
@@ -111,15 +154,168 @@ class _AddFlightPageState extends State<AddFlightPage> {
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (widget.initialFlight == null &&
+        (state == AppLifecycleState.inactive ||
+            state == AppLifecycleState.paused ||
+            state == AppLifecycleState.detached)) {
+      _flushDraftQuietly();
+    }
+  }
+
+  void _onDraftTextChanged() {
+    if (_applyingDraft || widget.initialFlight != null) return;
+    _userEdited = true;
+    _scheduleDraftSave();
+  }
+
+  void _markDraftChanged() {
+    if (_applyingDraft || widget.initialFlight != null) return;
+    _userEdited = true;
+    _scheduleDraftSave();
+  }
+
+  void _scheduleDraftSave() {
+    if (_draftRestoreInProgress) return;
+    _draftTimer?.cancel();
+    _draftTimer = Timer(_draftDebounce, () {
+      _draftTimer = null;
+      _flushDraftQuietly();
+    });
+  }
+
+  void _flushDraftQuietly() {
+    unawaited(_flushDraft().catchError((_) {}));
+  }
+
+  Future<void> _flushDraft() async {
+    if (widget.initialFlight != null) return;
+    final revision = _draftRevision;
+    final draft = _currentDraft();
+    _draftWrites = _draftWrites.then((_) async {
+      if (revision != _draftRevision || !draft.hasMeaningfulContent) return;
+      await _draftStore.save(draft);
+    });
+    await _draftWrites;
+  }
+
+  Future<void> _clearDraft() async {
+    _draftTimer?.cancel();
+    _draftRevision++;
+    _draftWrites = _draftWrites.then((_) => _draftStore.clear());
+    await _draftWrites;
+  }
+
+  FlightDraft _currentDraft() => FlightDraft(
+    departureIata: _departure?.iataCode,
+    arrivalIata: _arrival?.iataCode,
+    date: _date,
+    dateTouched: _dateTouched,
+    arrivalAt: _arrivalAt,
+    arrivalTouched: _arrivalTouched,
+    identity: _flightIdentity.text,
+    aircraft: _aircraft.text,
+    duration: _duration.text,
+    distance: _distance.text,
+    seat: _seat.text,
+    note: _note.text,
+    cabin: _cabin,
+    more: _more,
+  );
+
+  Future<void> _restoreDraft() async {
+    _draftRestoreInProgress = true;
+    final draft = await _draftStore.load();
+    if (!mounted || _userEdited) {
+      _draftRestoreInProgress = false;
+      if (_userEdited) _scheduleDraftSave();
+      return;
+    }
+    if (draft == null) {
+      _draftRestoreInProgress = false;
+      return;
+    }
+    final strings = _draftPromptStrings(context);
+    final shouldRestore = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: Text(strings.title),
+        content: Text(strings.message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(strings.discard),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(strings.continueLabel),
+          ),
+        ],
+      ),
+    );
+    if (!mounted) return;
+    if (shouldRestore == true && !_userEdited) {
+      _applyDraft(draft);
+    } else if (shouldRestore != true) {
+      await _clearDraft();
+    }
+    _draftRestoreInProgress = false;
+  }
+
+  void _applyDraft(FlightDraft draft) {
+    _applyingDraft = true;
+    try {
+      _departure = draft.departureIata == null
+          ? null
+          : widget.controller.airportFor(draft.departureIata!);
+      _arrival = draft.arrivalIata == null
+          ? null
+          : widget.controller.airportFor(draft.arrivalIata!);
+      if (draft.date != null) _date = draft.date!.toLocal();
+      _dateTouched = draft.dateTouched;
+      _arrivalAt = draft.arrivalAt?.toLocal();
+      _arrivalTouched = draft.arrivalTouched;
+      _flightIdentity.text = draft.identity;
+      _aircraft.text = draft.aircraft;
+      _duration.text = draft.duration;
+      _distance.text = draft.distance;
+      _seat.text = draft.seat;
+      _note.text = draft.note;
+      _cabin = _normalizeCabinValue(draft.cabin);
+      _more = draft.more;
+      _applyCalculatedFields();
+    } finally {
+      _applyingDraft = false;
+    }
+    setState(() {});
+  }
+
+  ({String title, String message, String discard, String continueLabel})
+  _draftPromptStrings(BuildContext context) {
+    final isZh = context.strings.locale.languageCode == 'zh';
+    return isZh
+        ? (
+            title: '继续填写上次的航班？',
+            message: '发现一份未完成的航班草稿。',
+            discard: '丢弃',
+            continueLabel: '继续填写',
+          )
+        : (
+            title: 'Continue your flight draft?',
+            message: 'An unfinished flight draft was found on this device.',
+            discard: 'Discard',
+            continueLabel: 'Continue',
+          );
+  }
+
+  @override
   Widget build(BuildContext context) {
     final s = context.strings;
     final colors = context.appColors;
     final isLight = Theme.of(context).brightness == Brightness.light;
     final identityCardColor = isLight
-        ? Color.alphaBlend(
-            colors.cardMint.withValues(alpha: .52),
-            colors.surface,
-          )
+        ? colors.cardBlue
         : colors.surfaceElevated;
     return Material(
       color: colors.background,
@@ -144,7 +340,7 @@ class _AddFlightPageState extends State<AddFlightPage> {
                       decoration: ShapeDecoration(
                         color: colors.surface,
                         shape: AppShapes.large,
-                        shadows: _surfaceShadow(),
+                        shadows: _surfaceShadow(context),
                       ),
                       child: DefaultTextStyle(
                         style: TextStyle(color: colors.textPrimary),
@@ -224,7 +420,7 @@ class _AddFlightPageState extends State<AddFlightPage> {
                       color: identityCardColor,
                       borderRadius: AppRadii.large,
                       showBorder: false,
-                      boxShadow: _surfaceShadow(),
+                      boxShadow: _surfaceShadow(context),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
@@ -268,15 +464,14 @@ class _AddFlightPageState extends State<AddFlightPage> {
                               ),
                               style: FilledButton.styleFrom(
                                 minimumSize: const Size(44, 56),
-                                backgroundColor: colors.lime.withValues(
-                                  alpha: isLight ? .22 : .14,
-                                ),
+                                // Keep the identity module cool and quiet;
+                                // reserve the chartreuse fill for its single
+                                // primary action.
+                                backgroundColor: isLight
+                                    ? colors.lime
+                                    : colors.lime.withValues(alpha: .14),
                                 foregroundColor: isLight
-                                    ? Color.lerp(
-                                        colors.lime,
-                                        colors.textPrimary,
-                                        .10,
-                                      )
+                                    ? colors.cardText
                                     : colors.lime,
                                 disabledBackgroundColor: colors.surface,
                                 disabledForegroundColor: colors.textTertiary,
@@ -308,7 +503,7 @@ class _AddFlightPageState extends State<AddFlightPage> {
                       color: colors.surfaceElevated,
                       borderRadius: AppRadii.large,
                       showBorder: false,
-                      boxShadow: _surfaceShadow(),
+                      boxShadow: _surfaceShadow(context),
                       child: Column(
                         children: [
                           DisclosureRow(
@@ -316,7 +511,10 @@ class _AddFlightPageState extends State<AddFlightPage> {
                             subtitle: s.t('optionalInfo'),
                             showChevron: false,
                             value: _more ? '−' : '+',
-                            onTap: () => setState(() => _more = !_more),
+                            onTap: () {
+                              setState(() => _more = !_more);
+                              _markDraftChanged();
+                            },
                           ),
                           if (_more)
                             Padding(
@@ -364,6 +562,7 @@ class _AddFlightPageState extends State<AddFlightPage> {
                                           items: _cabinOptions(s),
                                           onChanged: (value) {
                                             setState(() => _cabin = value);
+                                            _markDraftChanged();
                                           },
                                         ),
                                       ),
@@ -442,31 +641,36 @@ class _AddFlightPageState extends State<AddFlightPage> {
         fontWeight: FontWeight.w600,
       ),
       contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 18),
-      border: ShapedInputBorder(
-        shape: AppShapes.medium,
+      border: OutlineInputBorder(
+        borderRadius: AppRadii.medium,
         borderSide: BorderSide(color: colors.border),
         gapPadding: 8,
       ),
-      enabledBorder: ShapedInputBorder(
-        shape: AppShapes.medium,
+      enabledBorder: OutlineInputBorder(
+        borderRadius: AppRadii.medium,
         borderSide: BorderSide(color: colors.border),
         gapPadding: 8,
       ),
-      focusedBorder: ShapedInputBorder(
-        shape: AppShapes.medium,
+      focusedBorder: OutlineInputBorder(
+        borderRadius: AppRadii.medium,
         borderSide: BorderSide(color: colors.lime, width: 1.5),
         gapPadding: 8,
       ),
     );
   }
 
-  List<BoxShadow> _surfaceShadow() => [
-    BoxShadow(
-      color: Colors.black.withValues(alpha: .16),
-      blurRadius: 18,
-      offset: const Offset(0, 8),
-    ),
-  ];
+  List<BoxShadow> _surfaceShadow(BuildContext context) {
+    if (Theme.of(context).brightness == Brightness.light) {
+      return const <BoxShadow>[];
+    }
+    return [
+      BoxShadow(
+        color: Colors.black.withValues(alpha: .16),
+        blurRadius: 18,
+        offset: const Offset(0, 8),
+      ),
+    ];
+  }
 
   String? _normalizeCabinValue(String? value) {
     final normalized = value?.trim();
@@ -675,6 +879,7 @@ class _AddFlightPageState extends State<AddFlightPage> {
       }
       _applyCalculatedFields();
     });
+    _markDraftChanged();
   }
 
   Future<void> _pickDate() async {
@@ -696,6 +901,7 @@ class _AddFlightPageState extends State<AddFlightPage> {
         _dateTouched = true;
         _applyCalculatedFields();
       });
+      _markDraftChanged();
     }
   }
 
@@ -716,6 +922,7 @@ class _AddFlightPageState extends State<AddFlightPage> {
       _dateTouched = true;
       _applyCalculatedFields();
     });
+    _markDraftChanged();
   }
 
   Future<void> _pickArrivalDate() async {
@@ -739,6 +946,7 @@ class _AddFlightPageState extends State<AddFlightPage> {
       _arrivalTouched = true;
       _applyCalculatedFields();
     });
+    _markDraftChanged();
   }
 
   Future<void> _pickArrivalTime() async {
@@ -759,6 +967,7 @@ class _AddFlightPageState extends State<AddFlightPage> {
       _arrivalTouched = true;
       _applyCalculatedFields();
     });
+    _markDraftChanged();
   }
 
   void _applyCalculatedFields({
@@ -894,6 +1103,7 @@ class _AddFlightPageState extends State<AddFlightPage> {
           status: status,
         );
       }
+      if (initial == null) await _clearDraft();
       if (mounted) Navigator.pop(context);
     } catch (error) {
       if (!mounted) return;
@@ -1330,8 +1540,8 @@ class _AirportPickerState extends State<_AirportPicker> {
                   hintText: context.strings.t('searchAirport'),
                   filled: true,
                   fillColor: colors.surface,
-                  border: ShapedInputBorder(
-                    shape: AppShapes.medium,
+                  border: OutlineInputBorder(
+                    borderRadius: AppRadii.medium,
                     borderSide: BorderSide(color: colors.border),
                   ),
                 ),

@@ -38,12 +38,17 @@ class AppUpdateResult {
          releaseNotes: releaseNotes,
        );
 
-  const AppUpdateResult.upToDate({required String currentVersion})
-    : this._(
-        status: UpdateCheckStatus.upToDate,
-        currentVersion: currentVersion,
-        latestVersion: currentVersion,
-      );
+  const AppUpdateResult.upToDate({
+    required String currentVersion,
+    String? releaseNotes,
+    Uri? releaseUrl,
+  }) : this._(
+         status: UpdateCheckStatus.upToDate,
+         currentVersion: currentVersion,
+         latestVersion: currentVersion,
+         releaseNotes: releaseNotes,
+         releaseUrl: releaseUrl,
+       );
 
   const AppUpdateResult.notConfigured()
     : this._(status: UpdateCheckStatus.notConfigured);
@@ -228,7 +233,11 @@ class AppUpdateService {
         releaseNotes: notes,
       );
     }
-    return AppUpdateResult.upToDate(currentVersion: currentVersion);
+    return AppUpdateResult.upToDate(
+      currentVersion: currentVersion,
+      releaseUrl: releaseUrl,
+      releaseNotes: notes,
+    );
   }
 
   Future<({Uri uri, int? size})?> _latestApkAsset(
@@ -324,7 +333,11 @@ class AppUpdateService {
             build > currentBuild);
     final notes = _text(manifest['notes']);
     if (!isNewer) {
-      return AppUpdateResult.upToDate(currentVersion: currentVersion);
+      return AppUpdateResult.upToDate(
+        currentVersion: currentVersion,
+        releaseUrl: releaseUrl,
+        releaseNotes: notes,
+      );
     }
     return AppUpdateResult.available(
       currentVersion: currentVersion,

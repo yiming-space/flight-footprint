@@ -258,6 +258,7 @@ class _StatsPageState extends State<StatsPage> {
   Widget _aircraftCollectionCard(List<_AircraftSummary> items) {
     final s = context.strings;
     final colors = context.appColors;
+    final accentColor = _readableStatsAccent(colors.lime);
     final secondary = <String, String>{
       for (final item in items)
         item.type: '${_formatDistance(item.distanceKm)} ${s.t('km')}',
@@ -266,10 +267,10 @@ class _StatsPageState extends State<StatsPage> {
       button: true,
       label: s.t('aircraftCollection'),
       child: SurfaceCard(
-        padding: const EdgeInsets.fromLTRB(20, 20, 20, 18),
+        padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
         color: _statsCardSurface(colors.lime),
         showBorder: false,
-        boxShadow: _statsCardShadow,
+        boxShadow: _statsCardShadow(context),
         onTap: () => _openRankingDetail(
           title: s.t('aircraftCollection'),
           icon: Icons.flight_rounded,
@@ -286,7 +287,7 @@ class _StatsPageState extends State<StatsPage> {
               .t('aircraftTypesCount')
               .replaceFirst('{count}', '${items.length}'),
           icon: Icons.flight_rounded,
-          accentColor: colors.lime,
+          accentColor: accentColor,
         ),
       ),
     );
@@ -318,15 +319,15 @@ class _StatsPageState extends State<StatsPage> {
                   letterSpacing: -.25,
                 ),
               ),
-              const SizedBox(height: 10),
+              const SizedBox(height: 8),
               _StatsCountLabel(value: subtitle, color: accentColor),
             ],
           ),
         ),
-        const SizedBox(width: 18),
+        const SizedBox(width: 12),
         Container(
-          width: 52,
-          height: 52,
+          width: 46,
+          height: 46,
           decoration: BoxDecoration(
             color: accentColor.withValues(alpha: .14),
             shape: BoxShape.circle,
@@ -348,15 +349,16 @@ class _StatsPageState extends State<StatsPage> {
         ? s.t('rankingEmpty')
         : s.t('rankingEntries').replaceFirst('{count}', '${items.length}');
     final icon = _rankingIcon(key);
-    final accentColor = _rankingAccentColor(key);
+    final baseAccentColor = _rankingAccentColor(key);
+    final accentColor = _readableStatsAccent(baseAccentColor);
     return Semantics(
       button: true,
       label: title,
       child: SurfaceCard(
         padding: const EdgeInsets.fromLTRB(20, 20, 20, 18),
-        color: _statsCardSurface(accentColor),
+        color: _statsCardSurface(baseAccentColor),
         showBorder: false,
-        boxShadow: _statsCardShadow,
+        boxShadow: _statsCardShadow(context),
         onTap: () => _openRankingDetail(
           title: title,
           icon: icon,
@@ -374,17 +376,46 @@ class _StatsPageState extends State<StatsPage> {
     );
   }
 
-  static const _statsCardShadow = [
-    BoxShadow(color: Color(0x26000000), blurRadius: 18, offset: Offset(0, 8)),
-  ];
+  List<BoxShadow> _statsCardShadow(BuildContext context) =>
+      AppShadows.card(context);
 
   Color _statsCardSurface(Color accentColor) {
     final colors = context.appColors;
     final isLight = Theme.of(context).brightness == Brightness.light;
+    final surfaceAccent = isLight
+        ? _statsSurfaceAccent(accentColor)
+        : accentColor;
+    if (isLight) {
+      // Let the hue read as a soft surface instead of a full-bleed color
+      // block; the stronger color belongs to the metric and icon accents.
+      return Color.alphaBlend(
+        surfaceAccent.withValues(alpha: .68),
+        colors.surface,
+      );
+    }
     return Color.alphaBlend(
-      accentColor.withValues(alpha: isLight ? .16 : .055),
-      isLight ? colors.surface : colors.surfaceElevated,
+      surfaceAccent.withValues(alpha: .055),
+      colors.surfaceElevated,
     );
+  }
+
+  Color _statsSurfaceAccent(Color accentColor) {
+    final colors = context.appColors;
+    if (accentColor == colors.lime) return colors.cardMint;
+    if (accentColor == colors.purple) return colors.cardLavender;
+    return accentColor;
+  }
+
+  Color _readableStatsAccent(Color accentColor) {
+    final isLight = Theme.of(context).brightness == Brightness.light;
+    if (!isLight) return accentColor;
+    final hsl = HSLColor.fromColor(accentColor);
+    // Keep the same UI hue, but give metric numbers a denser, more saturated
+    // ink color so they do not dissolve into the direct-color card surface.
+    return hsl
+        .withSaturation((hsl.saturation + .18).clamp(0.0, 1.0).toDouble())
+        .withLightness(.44)
+        .toColor();
   }
 
   Color _rankingAccentColor(String key) => switch (key) {
@@ -636,7 +667,7 @@ class _PassportYearFilterBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final values = <int?>[null, ...years];
     return SizedBox(
-      height: 48,
+      height: 44,
       child: ListView.separated(
         padding: EdgeInsets.zero,
         scrollDirection: Axis.horizontal,
@@ -654,9 +685,11 @@ class _PassportYearFilterBar extends StatelessWidget {
               customBorder: AppShapes.pill,
               onTap: () => onChanged(value),
               child: AnimatedContainer(
-                duration: const Duration(milliseconds: 180),
+                duration: MediaQuery.disableAnimationsOf(context)
+                    ? Duration.zero
+                    : AppMotion.control,
                 curve: Curves.easeOutCubic,
-                padding: const EdgeInsets.symmetric(horizontal: 16),
+                padding: const EdgeInsets.symmetric(horizontal: 14),
                 alignment: Alignment.center,
                 decoration: ShapeDecoration(
                   color: selected
@@ -692,6 +725,7 @@ class _StatsCountLabel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    final isLight = Theme.of(context).brightness == Brightness.light;
     final match = RegExp(r'^(\d[\d,]*)(.*)$').firstMatch(value.trim());
     if (match == null) {
       return Text(
@@ -719,7 +753,9 @@ class _StatsCountLabel extends StatelessWidget {
           TextSpan(
             text: match.group(2),
             style: TextStyle(
-              color: colors.textTertiary,
+              color: isLight
+                  ? colors.cardText.withValues(alpha: .72)
+                  : colors.textTertiary,
               fontSize: 14,
               fontWeight: FontWeight.w600,
             ),

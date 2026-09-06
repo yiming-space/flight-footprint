@@ -206,6 +206,7 @@ class _MetaPill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    final isLight = Theme.of(context).brightness == Brightness.light;
     return DecoratedBox(
       decoration: ShapeDecoration(
         color: colors.cardText.withValues(alpha: .08),
@@ -217,7 +218,8 @@ class _MetaPill extends StatelessWidget {
           label,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
-          style: const TextStyle(
+          style: TextStyle(
+            color: colors.cardText.withValues(alpha: isLight ? .70 : 1),
             fontSize: 10,
             height: 1,
             fontWeight: FontWeight.w700,
@@ -458,6 +460,8 @@ class _DateTimeInfo extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.appColors;
+    final isLight = Theme.of(context).brightness == Brightness.light;
     final date = value == null
         ? '—'
         : DateFormat('yyyy-MM-dd').format(value!.toLocal());
@@ -481,7 +485,7 @@ class _DateTimeInfo extends StatelessWidget {
               textAlign: alignment,
               maxLines: 1,
               style: TextStyle(
-                color: context.appColors.cardText.withValues(alpha: .58),
+                color: colors.cardText.withValues(alpha: isLight ? .68 : .58),
                 fontSize: 10.5,
                 height: 1,
                 fontWeight: FontWeight.w700,

@@ -1,3 +1,5 @@
+import 'dart:ui' show ImageFilter;
+
 import 'package:flutter/material.dart';
 
 import '../theme/app_theme.dart';
@@ -56,6 +58,81 @@ class PageHeader extends StatelessWidget {
       ),
     ),
   );
+}
+
+/// A compact translucent control for visual surfaces such as the map.
+///
+/// The blur is clipped before painting the tint and border, so the control
+/// reads as glass without leaking a rectangular blur into the artwork behind
+/// it. Keeping this in the shared widgets file makes the home preview and
+/// full-screen map use exactly the same treatment.
+class LiquidGlassIconButton extends StatelessWidget {
+  const LiquidGlassIconButton({
+    super.key,
+    required this.icon,
+    required this.onPressed,
+    this.tooltip,
+    this.size = 48,
+    this.iconSize = 22,
+    this.tintColor = Colors.white,
+    this.tintOpacity = .18,
+    this.foregroundColor = Colors.white,
+    this.borderColor = const Color(0x4DFFFFFF),
+  });
+
+  final IconData icon;
+  final VoidCallback? onPressed;
+  final String? tooltip;
+  final double size;
+  final double iconSize;
+  final Color tintColor;
+  final double tintOpacity;
+  final Color foregroundColor;
+  final Color borderColor;
+
+  @override
+  Widget build(BuildContext context) {
+    final shape = RoundedSuperellipseBorder(
+      borderRadius: BorderRadius.circular(size / 2),
+      side: BorderSide(color: borderColor, width: 1),
+    );
+    return SizedBox.square(
+      dimension: size,
+      child: ClipPath(
+        clipper: ShapeBorderClipper(shape: shape),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+          child: DecoratedBox(
+            decoration: ShapeDecoration(
+              color: tintColor.withValues(alpha: tintOpacity),
+              shape: shape,
+              shadows: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: .24),
+                  blurRadius: 16,
+                  offset: const Offset(0, 6),
+                ),
+              ],
+            ),
+            child: IconButton(
+              tooltip: tooltip,
+              onPressed: onPressed,
+              icon: Icon(icon, size: iconSize),
+              style: IconButton.styleFrom(
+                fixedSize: Size.square(size),
+                padding: EdgeInsets.zero,
+                backgroundColor: Colors.transparent,
+                foregroundColor: foregroundColor,
+                overlayColor: foregroundColor.withValues(alpha: .14),
+                side: BorderSide.none,
+                shape: const CircleBorder(),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 enum AppNavDestination { home, flights, stats, profile }
@@ -187,10 +264,12 @@ class AppSegmentedControl extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (labels.isEmpty) return const SizedBox.shrink();
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
     final safeIndex = selectedIndex.clamp(0, labels.length - 1);
     final controlRadius = pill ? AppRadii.pill : AppRadii.medium;
     final itemRadius = pill ? AppRadii.pill : AppRadii.small;
     final colors = context.appColors;
+    const segmentCurve = Cubic(0.77, 0, 0.175, 1);
     final controlShape = RoundedSuperellipseBorder(
       borderRadius: controlRadius,
       side: pill ? BorderSide.none : BorderSide(color: colors.border),
@@ -228,10 +307,12 @@ class AppSegmentedControl extends StatelessWidget {
                         Expanded(
                           child: IgnorePointer(
                             child: AnimatedContainer(
-                              duration: const Duration(milliseconds: 180),
-                              curve: Curves.easeOut,
+                              duration: reduceMotion
+                                  ? Duration.zero
+                                  : AppMotion.selection,
+                              curve: segmentCurve,
                               decoration: ShapeDecoration(
-                                color: i == safeIndex
+                                color: i == safeIndex || pill
                                     ? Colors.transparent
                                     : inactiveSegmentColor,
                                 shape: itemShape,
@@ -250,9 +331,19 @@ class AppSegmentedControl extends StatelessWidget {
                       width: itemWidth,
                       height: constraints.maxHeight,
                       child: TweenAnimationBuilder<double>(
+                        // A width change means the coordinate system changed
+                        // (fold/unfold or a new window size). Recreate the
+                        // tween so the highlight snaps to the new track
+                        // instead of animating from a stale pixel offset.
+                        key: ValueKey(
+                          '${labels.length}:${itemWidth.round()}:'
+                          '${constraints.maxHeight.round()}',
+                        ),
                         tween: Tween<double>(end: itemWidth * safeIndex),
-                        duration: const Duration(milliseconds: 260),
-                        curve: const Cubic(0.77, 0, 0.175, 1),
+                        duration: reduceMotion
+                            ? Duration.zero
+                            : AppMotion.selection,
+                        curve: segmentCurve,
                         builder: (context, offset, child) =>
                             Transform.translate(
                               offset: Offset(offset, 0),
@@ -282,8 +373,10 @@ class AppSegmentedControl extends StatelessWidget {
                               customBorder: itemShape,
                               child: Center(
                                 child: AnimatedDefaultTextStyle(
-                                  duration: const Duration(milliseconds: 180),
-                                  curve: Curves.easeOut,
+                                  duration: reduceMotion
+                                      ? Duration.zero
+                                      : AppMotion.selection,
+                                  curve: segmentCurve,
                                   style: TextStyle(
                                     fontSize: 16,
                                     fontWeight: i == safeIndex
@@ -552,11 +645,15 @@ class PrimaryButton extends StatelessWidget {
     this.onPressed,
     this.icon,
     this.expand = true,
+    this.backgroundColor,
+    this.foregroundColor,
   });
   final String label;
   final VoidCallback? onPressed;
   final IconData? icon;
   final bool expand;
+  final Color? backgroundColor;
+  final Color? foregroundColor;
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
@@ -566,8 +663,8 @@ class PrimaryButton extends StatelessWidget {
       label: Text(label),
       style: FilledButton.styleFrom(
         minimumSize: const Size(44, 56),
-        backgroundColor: colors.lime,
-        foregroundColor: colors.cardText,
+        backgroundColor: backgroundColor ?? colors.lime,
+        foregroundColor: foregroundColor ?? colors.cardText,
         shape: AppShapes.large,
         textStyle: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
       ),

@@ -62,29 +62,29 @@ class AppThemeColors extends ThemeExtension<AppThemeColors> {
   );
 
   static const light = AppThemeColors(
-    // Cool white with a quiet sage undertone keeps the canvas bright without
-    // turning the light mode into a beige filter. Color lives in the cards
-    // and controls, while the map remains deliberately dark.
-    background: Color(0xFFF6F8F5),
-    surface: Color(0xFFFFFEFC),
-    surfaceElevated: Color(0xFFEDF1EC),
-    border: Color(0xFFD9E2DB),
-    textPrimary: Color(0xFF17221B),
-    textSecondary: Color(0xFF68766D),
-    textTertiary: Color(0xFF929C95),
-    // A muted sage is the light-mode signature: calm enough for chrome,
-    // distinct enough to keep selected states and progress easy to scan.
-    lime: Color(0xFF9BCB78),
-    purple: Color(0xFF9A84D8),
-    danger: Color(0xFFD78991),
-    // Pastels borrow the reference's mint, lilac, powder blue, blush, and
-    // butter notes, but keep enough value contrast for dark flight data.
-    cardLavender: Color(0xFFD6CBEE),
-    cardBlue: Color(0xFFC2DDE8),
-    cardMint: Color(0xFFC6E2CF),
-    cardCoral: Color(0xFFE9C3D5),
-    cardYellow: Color(0xFFF1E4A6),
-    cardText: Color(0xFF17221B),
+    // Light mode follows the reference world: white content planes, near-black
+    // ink, dusty lilac, and a restrained chartreuse accent. It is intentionally
+    // composed independently from the dark theme; the map remains dark.
+    background: Color(0xFFF5F5F2),
+    surface: Color(0xFFFFFFFF),
+    surfaceElevated: Color(0xFFF0F0EE),
+    border: Color(0xFFDCDCD7),
+    textPrimary: Color(0xFF1E1E1C),
+    textSecondary: Color(0xFF6A6A64),
+    textTertiary: Color(0xFF8D8D86),
+    // Chartreuse is reserved for action, selection, progress, and one card
+    // role so it stays recognizable instead of becoming wallpaper.
+    lime: Color(0xFFC9DE73),
+    purple: Color(0xFFA59BD0),
+    danger: Color(0xFFCF8795),
+    // A tight reference-led card family: lilac, mist, chartreuse, blush,
+    // and butter. Each remains readable with the same near-black card ink.
+    cardLavender: Color(0xFFB0A6D2),
+    cardBlue: Color(0xFFDFEAE7),
+    cardMint: Color(0xFFD9E88D),
+    cardCoral: Color(0xFFF0D9E4),
+    cardYellow: Color(0xFFF0ECCA),
+    cardText: Color(0xFF1F1F1D),
   );
 
   @override
@@ -189,6 +189,26 @@ abstract final class AppSpacing {
         ? systemBottom
         : bottomBarBottomMinimum;
     return bottomBarHeight + sm + safeBottom + md;
+  }
+}
+
+abstract final class AppMotion {
+  static const control = Duration(milliseconds: 180);
+  static const selection = Duration(milliseconds: 260);
+  static const short = Duration(milliseconds: 120);
+}
+
+abstract final class AppShadows {
+  static List<BoxShadow> card(BuildContext context) {
+    final isLight = Theme.of(context).brightness == Brightness.light;
+    if (isLight) return const <BoxShadow>[];
+    return [
+      BoxShadow(
+        color: Colors.black.withValues(alpha: .18),
+        blurRadius: 20,
+        offset: const Offset(0, 8),
+      ),
+    ];
   }
 }
 

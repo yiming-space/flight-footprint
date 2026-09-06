@@ -41,6 +41,31 @@ void main() {
     expect(selected, 1);
   });
 
+  testWidgets('segmented control is static when animations are disabled', (
+    tester,
+  ) async {
+    var selected = 0;
+    await tester.pumpWidget(
+      host(
+        MediaQuery(
+          data: const MediaQueryData(disableAnimations: true),
+          child: StatefulBuilder(
+            builder: (context, setState) => AppSegmentedControl(
+              labels: const ['全部', '2026'],
+              selectedIndex: selected,
+              onChanged: (value) => setState(() => selected = value),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('2026'));
+    await tester.pump();
+
+    expect(selected, 1);
+    expect(tester.binding.transientCallbackCount, 0);
+  });
+
   testWidgets('bottom navigation exposes four destinations and add action', (
     tester,
   ) async {

@@ -35,6 +35,8 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  shaders:
+    - shaders/globe_surface.frag
   assets:
     - assets/data/airport-coordinates.json
     - assets/data/china-city-centers.json

@@ -1,13 +1,26 @@
 import 'dart:convert';
 
 import '../domain/flight.dart';
+import '../domain/journey.dart';
 import '../domain/visited_place.dart';
 
 class BackupData {
-  const BackupData({required this.flights, required this.visitedPlaces});
+  const BackupData({
+    required this.flights,
+    required this.visitedPlaces,
+    this.journeys = const [],
+    this.containsJourneys = false,
+  });
 
   final List<Flight> flights;
   final List<VisitedPlace> visitedPlaces;
+  final List<Journey> journeys;
+
+  /// False means this backup predates journey support and must not clear or
+  /// overwrite journeys already stored on the device.
+  final bool containsJourneys;
+
+  bool get hasJourneys => containsJourneys;
 }
 
 /// The intentionally small, portable backup contract. Date values are UTC ISO-8601.
@@ -22,6 +35,8 @@ class BackupCodec {
         'exportedAt': (exportedAt ?? DateTime.now()).toUtc().toIso8601String(),
         'flights': data.flights.map(_flightToJson).toList(),
         'visitedPlaces': data.visitedPlaces.map(_placeToJson).toList(),
+        if (data.containsJourneys || data.journeys.isNotEmpty)
+          'journeys': data.journeys.map((journey) => journey.toJson()).toList(),
       });
 
   /// Decodes a snapshot returned by the cloud API.
@@ -51,6 +66,7 @@ class BackupCodec {
       final hasRecords =
           map['flights'] is List ||
           map['visitedPlaces'] is List ||
+          map['journeys'] is List ||
           map['places'] is List ||
           map['visited_places'] is List;
       // Some gateways wrap the stored JSON one more time as {snapshot: ...}
@@ -82,18 +98,32 @@ class BackupCodec {
       if (object != null && object['format'] == format) {
         if (_integer(object['version']) != version ||
             object['flights'] is! List ||
-            object['visitedPlaces'] is! List) {
+            object['visitedPlaces'] is! List ||
+            (object.containsKey('journeys') && object['journeys'] is! List)) {
           throw const FormatException(
             'Unsupported or malformed Flight Footprint backup.',
           );
         }
+        final flights = (object['flights'] as List)
+            .map((item) => _flightFromJson(_object(item, 'flight')))
+            .toList(growable: false);
+        final visitedPlaces = (object['visitedPlaces'] as List)
+            .map((item) => _placeFromJson(_object(item, 'visited place')))
+            .toList(growable: false);
+        final containsJourneys = object.containsKey('journeys');
+        final journeys = containsJourneys
+            ? _journeysFromJson(object['journeys'] as List)
+            : const <Journey>[];
+        _assertUniqueIds(flights.map((flight) => flight.id), 'flight');
+        _assertUniqueIds(
+          visitedPlaces.map((place) => place.id),
+          'visited place',
+        );
         return BackupData(
-          flights: (object['flights'] as List)
-              .map((item) => _flightFromJson(_object(item, 'flight')))
-              .toList(growable: false),
-          visitedPlaces: (object['visitedPlaces'] as List)
-              .map((item) => _placeFromJson(_object(item, 'visited place')))
-              .toList(growable: false),
+          flights: flights,
+          visitedPlaces: visitedPlaces,
+          journeys: journeys,
+          containsJourneys: containsJourneys,
         );
       }
 
@@ -290,6 +320,37 @@ class BackupCodec {
     ]),
   );
 
+  static List<Journey> _journeysFromJson(List<dynamic> values) {
+    final journeys = <Journey>[];
+    for (final item in values) {
+      final json = _object(item, 'journey');
+      const requiredKeys = [
+        'id',
+        'name',
+        'flightIds',
+        'createdAt',
+        'updatedAt',
+      ];
+      if (requiredKeys.any((key) => !json.containsKey(key)) ||
+          json['flightIds'] is! List ||
+          (json['flightIds'] as List).any((value) => value is! String)) {
+        throw const FormatException('Malformed journey record.');
+      }
+      journeys.add(Journey.fromJson(Map<String, Object?>.from(json)));
+    }
+    _assertUniqueIds(journeys.map((journey) => journey.id), 'journey');
+    return List.unmodifiable(journeys);
+  }
+
+  static void _assertUniqueIds(Iterable<String> ids, String label) {
+    final seen = <String>{};
+    for (final id in ids) {
+      if (!seen.add(id)) {
+        throw FormatException('Duplicate $label id: $id.');
+      }
+    }
+  }
+
   static Object? _first(Map<String, dynamic> json, List<String> keys) {
     for (final key in keys) {
       if (json.containsKey(key) && json[key] != null) return json[key];
@@ -380,9 +441,11 @@ class BackupCodec {
   static BackupData _decodeWebExport(dynamic decoded) {
     final List<dynamic> rawFlights;
     final List<dynamic> rawPlaces;
+    final List<Journey> journeys;
     if (decoded is List) {
       rawFlights = decoded;
       rawPlaces = const [];
+      journeys = const [];
     } else if (decoded is Map<String, dynamic> && decoded['flights'] is List) {
       rawFlights = decoded['flights'] as List<dynamic>;
       final places =
@@ -390,6 +453,10 @@ class BackupCodec {
           decoded['places'] ??
           decoded['visited_places'];
       rawPlaces = places is List ? places : const [];
+      final rawJourneys = decoded['journeys'];
+      journeys = rawJourneys is List
+          ? _journeysFromJson(rawJourneys)
+          : const [];
     } else {
       throw const FormatException('Web export must contain a flights array.');
     }
@@ -402,6 +469,8 @@ class BackupCodec {
         for (final item in rawPlaces)
           _webPlaceFromJson(_object(item, 'web visited place')),
       ],
+      journeys: journeys,
+      containsJourneys: decoded is Map && decoded.containsKey('journeys'),
     );
   }
 
@@ -697,9 +766,18 @@ class BackupCodec {
         places[key] = place;
       }
     }
+    final journeys = <String, Journey>{};
+    for (final journey in data.journeys) {
+      final current = journeys[journey.id];
+      if (current == null || _isNewer(journey.updatedAt, current.updatedAt)) {
+        journeys[journey.id] = journey;
+      }
+    }
     return BackupData(
       flights: List.unmodifiable(flights.values),
       visitedPlaces: List.unmodifiable(places.values),
+      journeys: List.unmodifiable(journeys.values),
+      containsJourneys: data.containsJourneys,
     );
   }
 

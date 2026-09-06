@@ -13,6 +13,15 @@ String _normalizedMapLabel(String value, {String? countryCode}) {
       .replaceAll(RegExp(r'\s*[（(][^）)]*[）)]'), '')
       .replaceAll(RegExp(r'\s*[，,;；|].*$'), '')
       .trim();
+  // Map labels are painted as one compact line. Some imported airport names
+  // contain a line break (or spaces) between Chinese characters. Preserving
+  // those break opportunities lets TextPainter wrap one glyph per line,
+  // which looks like a broken vertical label on the rotating globe.
+  if (RegExp(r'[\u3400-\u9fff]').hasMatch(result)) {
+    result = result.replaceAll(RegExp(r'[\s\u200B-\u200D\u2060\uFEFF]+'), '');
+  } else {
+    result = result.replaceAll(RegExp(r'\s+'), ' ');
+  }
   if (countryCode?.trim().toUpperCase() == 'CN' && result.endsWith('市')) {
     result = result.substring(0, result.length - 1);
   }
@@ -27,6 +36,19 @@ bool isProvinceMapLabel(String value) {
 }
 
 enum MapMode { flight, travelFootprint }
+
+/// A hit on visible map artwork. Empty-space taps do not create a selection.
+@immutable
+class MapSelection {
+  const MapSelection({
+    this.airports = const [],
+    this.places = const [],
+    this.route,
+  });
+  final List<MapAirport> airports;
+  final List<MapPlace> places;
+  final MapRoute? route;
+}
 
 @immutable
 class MapAirport {

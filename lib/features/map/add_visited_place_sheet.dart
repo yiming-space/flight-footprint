@@ -50,8 +50,6 @@ class _AddVisitedPlaceSheetState extends State<AddVisitedPlaceSheet> {
     final query = _search.text.trim();
     if (_selected != null && query != _selected!.name) {
       setState(() => _selected = null);
-    } else {
-      setState(() {});
     }
     if (_catalog != null || query.isEmpty) return;
     // Start the catalogue only after the user pauses briefly. The sheet opens
@@ -68,8 +66,18 @@ class _AddVisitedPlaceSheetState extends State<AddVisitedPlaceSheet> {
   Widget build(BuildContext context) {
     final s = context.strings;
     final colors = context.appColors;
+    final isLight = Theme.of(context).brightness == Brightness.light;
+    final actionInk = isLight
+        ? Color.lerp(colors.cardText, colors.cardLavender, .18)!
+        : colors.textPrimary;
+    final searchFill = isLight
+        ? Color.alphaBlend(
+            colors.cardBlue.withValues(alpha: .72),
+            colors.surface,
+          )
+        : colors.surface;
     return Material(
-      color: colors.background,
+      color: isLight ? colors.surface : colors.background,
       child: SafeArea(
         top: true,
         bottom: true,
@@ -82,7 +90,9 @@ class _AddVisitedPlaceSheetState extends State<AddVisitedPlaceSheet> {
                   Expanded(
                     child: Text(
                       s.t('addPlace'),
-                      style: AppTextStyles.sectionTitle,
+                      style: AppTextStyles.sectionTitle.copyWith(
+                        color: colors.textPrimary,
+                      ),
                     ),
                   ),
                   IconButton(
@@ -93,17 +103,28 @@ class _AddVisitedPlaceSheetState extends State<AddVisitedPlaceSheet> {
                 ],
               ),
               const SizedBox(height: 4),
-              Text(s.t('addPlaceHint'), style: AppTextStyles.bodySecondary),
+              Text(
+                s.t('addPlaceHint'),
+                style: AppTextStyles.bodySecondary.copyWith(
+                  color: colors.textSecondary,
+                ),
+              ),
               const SizedBox(height: 18),
-              OutlinedButton.icon(
+              FilledButton.icon(
                 onPressed: _saving ? null : _openPhotoImport,
                 icon: const Icon(Icons.photo_library_outlined),
                 label: Text(s.t('addFromPhotos')),
-                style: OutlinedButton.styleFrom(
+                style: FilledButton.styleFrom(
                   minimumSize: const Size.fromHeight(52),
-                  foregroundColor: colors.textPrimary,
-                  side: BorderSide(color: colors.border),
+                  backgroundColor: isLight
+                      ? Color.alphaBlend(
+                          colors.cardLavender.withValues(alpha: .74),
+                          colors.surface,
+                        )
+                      : colors.surfaceElevated,
+                  foregroundColor: actionInk,
                   shape: AppShapes.medium,
+                  side: BorderSide.none,
                 ),
               ),
               const SizedBox(height: 12),
@@ -119,103 +140,113 @@ class _AddVisitedPlaceSheetState extends State<AddVisitedPlaceSheet> {
                   prefixIcon: const Icon(Icons.search_rounded),
                   hintText: s.t('searchCity'),
                   filled: true,
-                  fillColor: colors.surface,
-                  border: ShapedInputBorder(
-                    shape: AppShapes.medium,
-                    borderSide: BorderSide(color: colors.border),
+                  fillColor: searchFill,
+                  prefixIconColor: isLight
+                      ? Color.lerp(colors.cardText, colors.cardBlue, .35)
+                      : colors.textSecondary,
+                  border: OutlineInputBorder(
+                    borderRadius: AppRadii.pill,
+                    borderSide: BorderSide.none,
                   ),
-                  enabledBorder: ShapedInputBorder(
-                    shape: AppShapes.medium,
-                    borderSide: BorderSide(color: colors.border),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: AppRadii.pill,
+                    borderSide: BorderSide.none,
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: AppRadii.pill,
+                    borderSide: BorderSide.none,
                   ),
                 ),
               ),
               const SizedBox(height: 10),
               Flexible(
                 fit: FlexFit.loose,
-                child: _selected != null
-                    ? SizedBox(
-                        height: 88,
-                        child: _selectedCity(context, _selected!),
-                      )
-                    : _catalog == null
-                    ? Center(child: Text(s.t('searchCity')))
-                    : FutureBuilder<CityCatalog>(
-                        future: _catalog,
-                        builder: (context, snapshot) {
-                          if (snapshot.connectionState !=
-                              ConnectionState.done) {
-                            return const Center(
-                              child: CircularProgressIndicator(),
-                            );
-                          }
-                          if (snapshot.hasError || snapshot.data == null) {
-                            return Center(child: Text(s.t('noCityResults')));
-                          }
-                          final query = _search.text.trim();
-                          final suggestions = query.isEmpty
-                              ? const <CityCenter>[]
-                              : snapshot.data!.search(query);
-                          if (query.isNotEmpty && suggestions.isEmpty) {
-                            return Center(child: Text(s.t('noCityResults')));
-                          }
-                          return ListView.separated(
-                            keyboardDismissBehavior:
-                                ScrollViewKeyboardDismissBehavior.onDrag,
-                            itemCount: suggestions.length,
-                            separatorBuilder: (_, _) =>
-                                const Divider(height: 1),
-                            itemBuilder: (context, index) {
-                              final city = suggestions[index];
-                              return ListTile(
-                                contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 4,
-                                  vertical: 2,
-                                ),
-                                leading: Container(
-                                  width: 42,
-                                  height: 42,
-                                  alignment: Alignment.center,
-                                  decoration: BoxDecoration(
-                                    color: colors.lime.withValues(alpha: .16),
-                                    shape: BoxShape.circle,
-                                  ),
-                                  child: Icon(
-                                    Icons.location_on_rounded,
-                                    color: colors.lime,
-                                    size: 20,
-                                  ),
-                                ),
-                                title: Text(
-                                  city.name,
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                                subtitle: Text(city.regionLabel),
-                                onTap: () {
-                                  // Keep the selected card and action area out
-                                  // of the IME's reduced viewport. The old
-                                  // focused search field left the result area
-                                  // with a tight height and produced Flutter's
-                                  // BOTTOM OVERFLOWED warning on smaller
-                                  // devices.
-                                  _searchFocus.unfocus();
-                                  setState(() {
-                                    _selected = city;
-                                    _search.value = TextEditingValue(
-                                      text: city.name,
-                                      selection: TextSelection.collapsed(
-                                        offset: city.name.length,
-                                      ),
-                                    );
-                                  });
-                                },
+                child: ValueListenableBuilder<TextEditingValue>(
+                  valueListenable: _search,
+                  builder: (context, _, _) => _selected != null
+                      ? SizedBox(
+                          height: 88,
+                          child: _selectedCity(context, _selected!),
+                        )
+                      : _catalog == null
+                      ? Center(child: Text(s.t('searchCity')))
+                      : FutureBuilder<CityCatalog>(
+                          future: _catalog,
+                          builder: (context, snapshot) {
+                            if (snapshot.connectionState !=
+                                ConnectionState.done) {
+                              return const Center(
+                                child: CircularProgressIndicator(),
                               );
-                            },
-                          );
-                        },
-                      ),
+                            }
+                            if (snapshot.hasError || snapshot.data == null) {
+                              return Center(child: Text(s.t('noCityResults')));
+                            }
+                            final query = _search.text.trim();
+                            final suggestions = query.isEmpty
+                                ? const <CityCenter>[]
+                                : snapshot.data!.search(query);
+                            if (query.isNotEmpty && suggestions.isEmpty) {
+                              return Center(child: Text(s.t('noCityResults')));
+                            }
+                            return ListView.separated(
+                              keyboardDismissBehavior:
+                                  ScrollViewKeyboardDismissBehavior.onDrag,
+                              itemCount: suggestions.length,
+                              separatorBuilder: (_, _) =>
+                                  const Divider(height: 1),
+                              itemBuilder: (context, index) {
+                                final city = suggestions[index];
+                                return ListTile(
+                                  contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 4,
+                                    vertical: 2,
+                                  ),
+                                  leading: Container(
+                                    width: 42,
+                                    height: 42,
+                                    alignment: Alignment.center,
+                                    decoration: BoxDecoration(
+                                      color: colors.lime.withValues(alpha: .16),
+                                      shape: BoxShape.circle,
+                                    ),
+                                    child: Icon(
+                                      Icons.location_on_rounded,
+                                      color: colors.lime,
+                                      size: 20,
+                                    ),
+                                  ),
+                                  title: Text(
+                                    city.name,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                  subtitle: Text(city.regionLabel),
+                                  onTap: () {
+                                    // Keep the selected card and action area out
+                                    // of the IME's reduced viewport. The old
+                                    // focused search field left the result area
+                                    // with a tight height and produced Flutter's
+                                    // BOTTOM OVERFLOWED warning on smaller
+                                    // devices.
+                                    _searchFocus.unfocus();
+                                    setState(() {
+                                      _selected = city;
+                                      _search.value = TextEditingValue(
+                                        text: city.name,
+                                        selection: TextSelection.collapsed(
+                                          offset: city.name.length,
+                                        ),
+                                      );
+                                    });
+                                  },
+                                );
+                              },
+                            );
+                          },
+                        ),
+                ),
               ),
               const SizedBox(height: 10),
               if (_selected != null)
@@ -228,10 +259,15 @@ class _AddVisitedPlaceSheetState extends State<AddVisitedPlaceSheet> {
                       vertical: 14,
                     ),
                     decoration: ShapeDecoration(
-                      color: colors.surface,
+                      color: isLight
+                          ? Color.alphaBlend(
+                              colors.cardBlue.withValues(alpha: .72),
+                              colors.surface,
+                            )
+                          : colors.surface,
                       shape: RoundedSuperellipseBorder(
                         borderRadius: BorderRadius.all(Radius.circular(18)),
-                        side: BorderSide(color: colors.border),
+                        side: BorderSide.none,
                       ),
                     ),
                     child: Row(
@@ -252,6 +288,8 @@ class _AddVisitedPlaceSheetState extends State<AddVisitedPlaceSheet> {
                 label: _saving ? '…' : s.t('savePlace'),
                 icon: Icons.add_location_alt_rounded,
                 onPressed: _selected == null || _saving ? null : _save,
+                backgroundColor: isLight ? colors.cardText : null,
+                foregroundColor: isLight ? colors.cardMint : null,
               ),
             ],
           ),
@@ -260,56 +298,68 @@ class _AddVisitedPlaceSheetState extends State<AddVisitedPlaceSheet> {
     );
   }
 
-  Widget _selectedCity(BuildContext context, CityCenter city) => SizedBox(
-    height: 88,
-    width: double.infinity,
-    child: Container(
+  Widget _selectedCity(BuildContext context, CityCenter city) {
+    final colors = context.appColors;
+    final isLight = Theme.of(context).brightness == Brightness.light;
+    final selectedFill = isLight
+        ? Color.alphaBlend(
+            colors.cardMint.withValues(alpha: .78),
+            colors.surface,
+          )
+        : colors.lime.withValues(alpha: .14);
+    final selectedInk = isLight
+        ? Color.lerp(colors.cardText, colors.cardMint, .32)!
+        : colors.lime;
+    return SizedBox(
+      height: 88,
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      decoration: ShapeDecoration(
-        color: context.appColors.lime.withValues(alpha: .14),
-        shape: RoundedSuperellipseBorder(
-          borderRadius: const BorderRadius.all(Radius.circular(18)),
-          side: BorderSide(
-            color: context.appColors.lime.withValues(alpha: .55),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        decoration: ShapeDecoration(
+          color: selectedFill,
+          shape: RoundedSuperellipseBorder(
+            borderRadius: const BorderRadius.all(Radius.circular(18)),
+            side: BorderSide.none,
           ),
         ),
-      ),
-      child: Row(
-        children: [
-          Icon(Icons.check_circle_rounded, color: context.appColors.lime),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  city.name,
-                  style: const TextStyle(fontWeight: FontWeight.w800),
-                ),
-                const SizedBox(height: 3),
-                Text(city.regionLabel, style: AppTextStyles.bodySecondary),
-              ],
+        child: Row(
+          children: [
+            Icon(Icons.check_circle_rounded, color: selectedInk),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    city.name,
+                    style: const TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(city.regionLabel, style: AppTextStyles.bodySecondary),
+                ],
+              ),
             ),
-          ),
-          TextButton(
-            onPressed: () => setState(() {
-              _selected = null;
-              _search.clear();
-            }),
-            style: TextButton.styleFrom(
-              minimumSize: Size.zero,
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              visualDensity: VisualDensity.compact,
+            TextButton(
+              onPressed: () => setState(() {
+                _selected = null;
+                _search.clear();
+              }),
+              style: TextButton.styleFrom(
+                minimumSize: Size.zero,
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                visualDensity: VisualDensity.compact,
+                foregroundColor: selectedInk,
+              ),
+              child: Text(context.strings.t('selectCity')),
             ),
-            child: Text(context.strings.t('selectCity')),
-          ),
-        ],
+          ],
+        ),
       ),
-    ),
-  );
+    );
+  }
 
   Future<void> _pickDate() async {
     final picked = await showDatePicker(

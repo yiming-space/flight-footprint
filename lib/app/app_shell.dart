@@ -26,9 +26,9 @@ class _AppShellState extends State<AppShell>
   int _index = 0;
   late final AnimationController _addAnimation = AnimationController(
     vsync: this,
-    duration: const Duration(milliseconds: 360),
-    lowerBound: .88,
-    upperBound: 1.08,
+    duration: AppMotion.short,
+    lowerBound: .92,
+    upperBound: 1,
     value: 1,
   );
 
@@ -82,20 +82,19 @@ class _AppShellState extends State<AppShell>
 
   Future<void> _playAddAnimation() async {
     if (!mounted) return;
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _addAnimation.value = 1;
+      return;
+    }
     try {
       await _addAnimation.animateTo(
-        .9,
+        .94,
         duration: const Duration(milliseconds: 70),
         curve: Curves.easeOut,
       );
       await _addAnimation.animateTo(
-        1.08,
-        duration: const Duration(milliseconds: 120),
-        curve: Curves.easeOutBack,
-      );
-      await _addAnimation.animateTo(
         1,
-        duration: const Duration(milliseconds: 150),
+        duration: AppMotion.short,
         curve: Curves.easeOutCubic,
       );
     } on TickerCanceled {
@@ -232,7 +231,7 @@ class _BottomBarState extends State<_BottomBar>
     }
 
     final spring = SpringDescription.withDurationAndBounce(
-      duration: const Duration(milliseconds: 400),
+      duration: const Duration(milliseconds: 300),
       bounce: 0,
     );
     unawaited(
@@ -258,12 +257,12 @@ class _BottomBarState extends State<_BottomBar>
     final colors = context.appColors;
     final isLight = Theme.of(context).brightness == Brightness.light;
     final glassBorder = isLight
-        ? colors.border.withValues(alpha: .58)
+        ? Colors.white.withValues(alpha: .18)
         : Colors.white.withValues(alpha: .16);
     final glassColor = isLight
-        ? Colors.white.withValues(alpha: .66)
+        ? Colors.black.withValues(alpha: .82)
         : colors.surface.withValues(alpha: .46);
-    final glassShadow = Colors.black.withValues(alpha: isLight ? .12 : .28);
+    final glassShadow = Colors.black.withValues(alpha: isLight ? .22 : .28);
     const icons = [
       Icons.home_rounded,
       Icons.flight_rounded,
@@ -319,10 +318,10 @@ class _BottomBarState extends State<_BottomBar>
                             end: Alignment.bottomCenter,
                             colors: [
                               Colors.white.withValues(
-                                alpha: isLight ? .28 : .10,
+                                alpha: isLight ? .12 : .10,
                               ),
                               Colors.white.withValues(
-                                alpha: isLight ? .07 : .025,
+                                alpha: isLight ? .035 : .025,
                               ),
                               Colors.transparent,
                             ],
@@ -477,11 +476,9 @@ class _BottomBarState extends State<_BottomBar>
     final selected = value == widget.index;
     final reduceMotion = MediaQuery.disableAnimationsOf(context);
     final inactiveColor = isLight
-        ? colors.textSecondary.withValues(alpha: .82)
+        ? Colors.white.withValues(alpha: .74)
         : colors.textTertiary;
-    final selectedColor = isLight
-        ? Color.lerp(colors.lime, colors.textPrimary, .12)!
-        : colors.lime;
+    final selectedColor = colors.lime;
     final style = TextStyle(
       fontSize: 11,
       fontWeight: selected ? FontWeight.w700 : FontWeight.w500,

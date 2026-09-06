@@ -110,6 +110,7 @@ void main() {
             'version': '1.0.0',
             'build': 6,
             'releaseUrl': '$repository/releases/tag/1.0.0',
+            'notes': 'No changes required.',
           }),
           200,
         ),
@@ -121,6 +122,8 @@ void main() {
     service.dispose();
 
     expect(result.status, UpdateCheckStatus.upToDate);
+    expect(result.releaseNotes, 'No changes required.');
+    expect(result.releaseUrl, Uri.parse('$repository/releases/tag/1.0.0'));
   });
 
   test(

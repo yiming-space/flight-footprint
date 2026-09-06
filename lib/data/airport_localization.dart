@@ -1402,3 +1402,17 @@ String localizedCountryEnglishName(String? countryCode) {
   final code = countryCode?.trim().toUpperCase() ?? '';
   return _countryEnglishNames[code] ?? (code.isEmpty ? '' : code);
 }
+
+/// Returns the country key used by the world-exploration counter.
+///
+/// Map points, airport flags, and travel-region details keep their original
+/// codes. This normalization is intentionally limited to the country total:
+/// Hong Kong, Macao, and Taiwan remain distinct destinations but roll up to
+/// mainland China so the 195-country denominator stays coherent.
+String canonicalWorldCountryCode(String? countryCode) {
+  final code = countryCode?.trim().toUpperCase() ?? '';
+  return switch (code) {
+    'HK' || 'MO' || 'TW' => 'CN',
+    _ => code,
+  };
+}

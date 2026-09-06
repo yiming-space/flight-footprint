@@ -4,6 +4,14 @@ import 'package:flight_footprint/domain/airport.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('world country statistics roll up special China regions', () {
+    expect(canonicalWorldCountryCode('HK'), 'CN');
+    expect(canonicalWorldCountryCode('mo'), 'CN');
+    expect(canonicalWorldCountryCode('TW'), 'CN');
+    expect(canonicalWorldCountryCode('JP'), 'JP');
+    expect(canonicalWorldCountryCode(null), '');
+  });
+
   test('great-circle distance is zero at the same point', () {
     final distance = AirportCatalog.greatCircleDistanceKm(
       const Airport(

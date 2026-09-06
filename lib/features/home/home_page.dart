@@ -419,6 +419,11 @@ class _HomePageState extends State<HomePage> {
         .where((place) => place.isVisited && place.name.trim().isNotEmpty)
         .toList(growable: false);
     final countryCount = visited
+        .map((place) => canonicalWorldCountryCode(place.countryCode))
+        .where((code) => code.isNotEmpty)
+        .toSet()
+        .length;
+    final regionCount = visited
         .map((place) => place.countryCode?.trim().toUpperCase() ?? '')
         .where((code) => code.isNotEmpty)
         .toSet()
@@ -490,7 +495,8 @@ class _HomePageState extends State<HomePage> {
                 total: 195,
                 progress: worldProgress,
                 color: worldAccent,
-                detail: s.t('visitedCountries'),
+                detail:
+                    '${s.t('visitedCountries')} · $regionCount ${s.t('visitedRegionsInline')}',
               ),
               const SizedBox(height: 20),
               _progressSection(

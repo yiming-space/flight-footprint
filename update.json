@@ -1,7 +1,8 @@
 {
-  "version": "1.1.4",
-  "build": 11,
-  "releaseUrl": "https://github.com/yiming-space/flight-footprint/releases/tag/v1.1.4",
-  "apkUrl": "https://github.com/yiming-space/flight-footprint/releases/download/v1.1.4/app-release.apk",
-  "notes": "优化地图与旅行足迹地球模式；加入星空背景、可交互地球、点亮足迹板块与地名选择；修复地球板块破碎、航线动画、方向跟随和菜单视觉问题。"
+  "version": "1.1.5",
+  "build": 12,
+  "releaseUrl": "https://github.com/yiming-space/flight-footprint/releases/tag/v1.1.5",
+  "apkUrl": "https://github.com/yiming-space/flight-footprint/releases/download/v1.1.5/app-release.apk",
+  "apkSize": 68351448,
+  "notes": "优化地图与旅行足迹地球模式；加入星空背景、可交互地球、点亮足迹板块与地名选择；修复地球板块破碎、航线动画、方向跟随和菜单视觉问题；提升浅色 UI 卡片饱和度。"
 }

@@ -5,7 +5,7 @@
   "apkUrl": "https://github.com/yiming-space/flight-footprint/releases/download/v1.1.5/app-release.apk",
   "apkSize": 68351448,
   "macosUrl": "https://github.com/yiming-space/flight-footprint/releases/download/v1.1.5/flight_footprint-macos-v1.1.5.dmg",
-  "macosSize": 27824876,
-  "macosSha256": "22d37737b3859b96fa4d3dac6d2936b44a9596f36b9fbda0f528aef2e66e51d4",
+  "macosSize": 27713688,
+  "macosSha256": "ae97f403e8c1cbe27fd3e3e378c86da80544ccb83a1a57ae54a64f512b5b02e6",
   "notes": "优化地图与旅行足迹地球模式；加入星空背景、可交互地球、点亮足迹板块与地名选择；修复地球板块破碎、航线动画、方向跟随和菜单视觉问题；提升浅色 UI 卡片饱和度；补充 macOS 桌面布局与 DMG 更新支持。"
 }

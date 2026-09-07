@@ -27,7 +27,7 @@
   <tr>
     <td width="50%" valign="top">
       <h3>Android</h3>
-      <p>APK · v1.1.5 · 本地优先，免登录</p>
+      <p>APK · v1.1.5 · 本地优先</p>
       <a href="https://github.com/yiming-space/flight-footprint/releases/download/v1.1.5/app-release.apk">
         <img alt="下载 Android APK" src="https://img.shields.io/badge/下载_Android_APK-9BEA3D?style=for-the-badge&logo=android&logoColor=0B1017&labelColor=0B1017" />
       </a>

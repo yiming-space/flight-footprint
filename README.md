@@ -1,10 +1,10 @@
 # 航迹 · Flight Footprint
 
-一个独立、离线、本地优先的 Flutter 飞行记录应用。当前 `1.1.5` 支持 Android 与 macOS，数据无需登录即可记录在设备内；云同步和版本检查都是可选的自建能力。
+一个独立、离线、本地优先的 Flutter 飞行记录应用。当前 Android 优化版为 `1.1.6`，数据无需登录即可记录在设备内；云同步和版本检查都是可选的自建能力。
 
 <img width="4500" height="2000" alt="app00" src="https://github.com/user-attachments/assets/6dfe0337-5632-4911-b3c7-10347d550a13" />
 
-## 1.1.5 功能
+## 1.1.6 功能
 
 - 飞行地图 / 旅行足迹离线切换，支持平面地图与可旋转、缩放的地球模式
 - 平面地图和地球模式支持航线动画、机场点选、地名显示、国界线与星空背景
@@ -27,8 +27,8 @@
   <tr>
     <td width="50%" valign="top">
       <h3>Android</h3>
-      <p>APK · v1.1.5 · 本地优先</p>
-      <a href="https://github.com/yiming-space/flight-footprint/releases/download/v1.1.5/app-release.apk">
+      <p>APK · v1.1.6 · 本地优先</p>
+      <a href="https://github.com/yiming-space/flight-footprint/releases/download/v1.1.6/app-release.apk">
         <img alt="下载 Android APK" src="https://img.shields.io/badge/下载_Android_APK-9BEA3D?style=for-the-badge&logo=android&logoColor=0B1017&labelColor=0B1017" />
       </a>
     </td>
@@ -64,7 +64,7 @@ flutter run
 - 地图、机场坐标和行政区数据均随安装包离线提供。
 - 机场索引由 [OurAirports 公共机场数据](https://ourairports.com/data/) 生成，保留 IATA、ICAO、正式名、行政城市、机场类型、定期航班标记和别名；生成脚本为 `tool/generate_airport_index.py`。
 - 索引保留上一个版本中已移除的 IATA 别名，避免历史记录因数据源更新而失去坐标。
-- 1.1.5 的核心记录功能不要求账号、配对码或网络；更新检查仅在进入关于页或用户主动点击时联网。
+- 1.1.6 的核心记录功能不要求账号、配对码或网络；更新检查仅在进入关于页或用户主动点击时联网。
 - 未连接云端时完全离线可用；连接云端也不会改变 SQLite 本地数据源。
 
 ## 可选云端同步

@@ -17,6 +17,7 @@ import '../map/map_records_sheet.dart';
 import '../../ui/theme/app_theme.dart';
 import '../../ui/widgets/widgets.dart';
 import '../flights/flight_card.dart';
+import 'home_map_records_pane.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({
@@ -33,11 +34,13 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
+  static const _wideMapBreakpoint = 760.0;
   MapMode _mode = MapMode.flight;
   late final Future<CityCatalog> _chinaCatalog = CityCatalog.loadChina();
   CityCatalog? _mapCatalog;
   final _mapPreviewKey = GlobalKey();
   bool _openingMapFullscreen = false;
+  MapSelection? _selectedMapRecord;
 
   @override
   void initState() {
@@ -140,9 +143,6 @@ class _HomePageState extends State<HomePage> {
     final travellerName = widget.controller.travellerName.trim().isEmpty
         ? 'TRAVELER'
         : widget.controller.travellerName.trim();
-    final mapHeight = (MediaQuery.sizeOf(context).width * .70)
-        .clamp(250.0, 320.0)
-        .toDouble();
     return SafeArea(
       top: false,
       left: false,
@@ -159,84 +159,22 @@ class _HomePageState extends State<HomePage> {
                   selectedIndex: _mode == MapMode.flight ? 0 : 1,
                   pill: true,
                   height: 52,
-                  onChanged: (value) => setState(
-                    () => _mode = value == 0
+                  onChanged: (value) => setState(() {
+                    _mode = value == 0
                         ? MapMode.flight
-                        : MapMode.travelFootprint,
-                  ),
+                        : MapMode.travelFootprint;
+                    _selectedMapRecord = null;
+                  }),
                 ),
                 const SizedBox(height: 18),
-                Container(
-                  key: _mapPreviewKey,
-                  height: mapHeight,
-                  clipBehavior: Clip.antiAlias,
-                  decoration: ShapeDecoration(
-                    color: colors.surface,
-                    shape: AppShapes.large,
-                    shadows: _cardShadow(),
-                  ),
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      RepaintBoundary(
-                        child: LayoutBuilder(
-                          builder: (context, constraints) => OfflineMap(
-                            mode: _mode,
-                            airports: mapAirports.values.toList(),
-                            routes: routes,
-                            places: mapPlaces,
-                            fitPoints: mapFitPoints,
-                            fitToData: true,
-                            fitZoomMultiplier: 1,
-                            coverViewport: true,
-                            // Keep the cartographic artwork dark even when the
-                            // surrounding home surface follows the light theme.
-                            useLightPalette: false,
-                            // The dashboard preview should use the same visual
-                            // cover treatment as the full-screen map: the whole
-                            // card is occupied, while the camera remains centred
-                            // on the recorded flight region. The projection is
-                            // still uniformly scaled, so filling the portrait
-                            // card never stretches the world silhouette.
-                            fillViewportHeight: true,
-                            // An expanded foldable can be wider than one
-                            // complete world at the preview's fixed height. A
-                            // neighbouring world copy keeps that wide canvas
-                            // continuous instead of exposing a black date-line
-                            // gutter on the right. Phones retain the single-copy
-                            // composition so the preview stays calm.
-                            horizontalWrap: constraints.maxWidth >= 600,
-                            horizontalPadding: 0,
-                            verticalPadding: 0,
-                            onPlaceLongPress: _handlePlaceLongPress,
-                            onSelection: (selection) =>
-                                _openMapRecords(context, selection),
-                          ),
-                        ),
-                      ),
-                      Positioned(
-                        bottom: 14,
-                        right: 14,
-                        child: Semantics(
-                          button: true,
-                          label: s.t('fullscreen'),
-                          child: LiquidGlassIconButton(
-                            tooltip: s.t('fullscreen'),
-                            onPressed: () => unawaited(
-                              _openMapFullscreen(
-                                mode: _mode,
-                                airports: mapAirports.values.toList(),
-                                routes: routes,
-                                places: mapPlaces,
-                                onPlaceLongPress: _handlePlaceLongPress,
-                              ),
-                            ),
-                            size: 46,
-                            icon: Icons.fullscreen_rounded,
-                          ),
-                        ),
-                      ),
-                    ],
+                LayoutBuilder(
+                  builder: (context, constraints) => _mapAndRecordsSection(
+                    context,
+                    availableWidth: constraints.maxWidth,
+                    airports: mapAirports.values.toList(),
+                    routes: routes,
+                    places: mapPlaces,
+                    fitPoints: mapFitPoints,
                   ),
                 ),
                 const SizedBox(height: 20),
@@ -282,6 +220,129 @@ class _HomePageState extends State<HomePage> {
                   FlightCard(flight: nextFlight, controller: widget.controller),
                 SizedBox(height: AppSpacing.bottomBarClearance(context)),
               ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _mapAndRecordsSection(
+    BuildContext context, {
+    required double availableWidth,
+    required List<MapAirport> airports,
+    required List<MapRoute> routes,
+    required List<MapPlace> places,
+    required List<MapCoordinate> fitPoints,
+  }) {
+    final wide = availableWidth >= _wideMapBreakpoint;
+    final mapHeight = wide
+        ? 430.0
+        : (MediaQuery.sizeOf(context).width * .70)
+              .clamp(250.0, 320.0)
+              .toDouble();
+    final selection = _selectedMapRecord;
+    final map = _homeMapSurface(
+      context,
+      height: mapHeight,
+      wide: wide,
+      airports: airports,
+      routes: routes,
+      places: places,
+      fitPoints: fitPoints,
+    );
+
+    if (!wide || selection == null) return map;
+    return SizedBox(
+      height: mapHeight,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Expanded(flex: 3, child: map),
+          const SizedBox(width: AppSpacing.cardGap),
+          Expanded(
+            flex: 2,
+            child: HomeMapRecordsPane(
+              controller: widget.controller,
+              selection: selection,
+              onClose: () => setState(() => _selectedMapRecord = null),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _homeMapSurface(
+    BuildContext context, {
+    required double height,
+    required bool wide,
+    required List<MapAirport> airports,
+    required List<MapRoute> routes,
+    required List<MapPlace> places,
+    required List<MapCoordinate> fitPoints,
+  }) {
+    final colors = context.appColors;
+    final strings = context.strings;
+    return Container(
+      key: _mapPreviewKey,
+      height: height,
+      clipBehavior: Clip.antiAlias,
+      decoration: ShapeDecoration(
+        color: colors.surface,
+        shape: AppShapes.large,
+        shadows: _cardShadow(),
+      ),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          RepaintBoundary(
+            child: LayoutBuilder(
+              builder: (context, constraints) => OfflineMap(
+                mode: _mode,
+                airports: airports,
+                routes: routes,
+                places: places,
+                fitPoints: fitPoints,
+                fitToData: true,
+                fitZoomMultiplier: 1,
+                coverViewport: true,
+                useLightPalette: false,
+                fillViewportHeight: true,
+                horizontalWrap: constraints.maxWidth >= 600,
+                horizontalPadding: 0,
+                verticalPadding: 0,
+                onPlaceLongPress: _handlePlaceLongPress,
+                onSelection: (selection) {
+                  if (wide) {
+                    setState(() => _selectedMapRecord = selection);
+                  } else {
+                    _openMapRecords(context, selection);
+                  }
+                },
+              ),
+            ),
+          ),
+          Positioned(
+            bottom: 14,
+            right: 14,
+            child: Semantics(
+              button: true,
+              label: strings.t('fullscreen'),
+              child: LiquidGlassIconButton(
+                tooltip: strings.t('fullscreen'),
+                onPressed: () => unawaited(
+                  _openMapFullscreen(
+                    mode: _mode,
+                    airports: airports,
+                    routes: routes,
+                    places: places,
+                    onPlaceLongPress: _handlePlaceLongPress,
+                  ),
+                ),
+                size: 46,
+                icon: Icons.fullscreen_rounded,
+              ),
             ),
           ),
         ],
@@ -708,6 +769,7 @@ class _HomePageState extends State<HomePage> {
   }
 
   void _openMapRecords(BuildContext hostContext, MapSelection selection) {
+    if (mounted) setState(() => _selectedMapRecord = selection);
     unawaited(
       showModalBottomSheet<void>(
         context: hostContext,

@@ -1,6 +1,16 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+
+GeoJsonMapData _decodeGeoJson(String source) {
+  final decoded = jsonDecode(source);
+  if (decoded is! Map<String, dynamic> ||
+      decoded['type'] != 'FeatureCollection') {
+    throw const FormatException('GeoJSON must be a FeatureCollection');
+  }
+  return GeoJsonMapData.fromJson(decoded);
+}
 
 class MapPolygon {
   const MapPolygon(this.rings);
@@ -99,12 +109,10 @@ class GeoJsonMapLoader {
 
   Future<GeoJsonMapData> load(String assetPath) async {
     final source = await rootBundle.loadString(assetPath);
-    final decoded = jsonDecode(source);
-    if (decoded is! Map<String, dynamic> ||
-        decoded['type'] != 'FeatureCollection') {
-      throw const FormatException('GeoJSON must be a FeatureCollection');
-    }
-    return GeoJsonMapData.fromJson(decoded);
+    // The complete bundle is several megabytes. Parse and materialize its
+    // coordinate graph away from the UI isolate so opening the map cannot
+    // steal frames from the page transition or the first gesture.
+    return compute(_decodeGeoJson, source, debugLabel: 'decode $assetPath');
   }
 
   Future<GeoJsonMapBundle> loadBundle() {

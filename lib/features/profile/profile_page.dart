@@ -1218,7 +1218,7 @@ class _ProfilePageState extends State<ProfilePage> {
         await progressDialog;
       }
       if (!context.mounted) return;
-      await _showSpreadsheetComplete(context, imported);
+      await _showSpreadsheetComplete(context, imported, parsed.issues);
     } catch (error) {
       if (context.mounted) {
         _message(context, '${context.strings.t('operationFailed')}: $error');
@@ -1313,12 +1313,6 @@ class _ProfilePageState extends State<ProfilePage> {
     FlightImportSummary summary,
   ) async {
     final s = context.strings;
-    final detail = s
-        .t('calendarImportDoneDetail')
-        .replaceFirst('{added}', '${summary.added}')
-        .replaceFirst('{updated}', '${summary.updated}')
-        .replaceFirst('{unchanged}', '${summary.unchanged}')
-        .replaceFirst('{skipped}', '${summary.skipped}');
     await showDialog<void>(
       context: context,
       builder: (dialogContext) => AlertDialog(
@@ -1327,7 +1321,7 @@ class _ProfilePageState extends State<ProfilePage> {
           color: dialogContext.appColors.lime,
         ),
         title: Text(s.t('calendarImportDone')),
-        content: Text(detail),
+        content: _ImportCompletionBody(summary: summary, issueCount: 0),
         actions: [
           FilledButton(
             onPressed: () => Navigator.pop(dialogContext),
@@ -1372,15 +1366,10 @@ class _ProfilePageState extends State<ProfilePage> {
   Future<void> _showSpreadsheetComplete(
     BuildContext context,
     FlightImportSummary summary,
+    List<SpreadsheetImportIssue> issues,
   ) async {
     final s = context.strings;
-    final detail = s
-        .t('spreadsheetImportDoneDetail')
-        .replaceFirst('{added}', '${summary.added}')
-        .replaceFirst('{updated}', '${summary.updated}')
-        .replaceFirst('{unchanged}', '${summary.unchanged}')
-        .replaceFirst('{skipped}', '${summary.skipped}');
-    await showDialog<void>(
+    final reviewIssues = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
         icon: Icon(
@@ -1388,16 +1377,78 @@ class _ProfilePageState extends State<ProfilePage> {
           color: dialogContext.appColors.lime,
         ),
         title: Text(s.t('spreadsheetImportDone')),
-        content: Text(detail),
+        content: _ImportCompletionBody(
+          summary: summary,
+          issueCount: issues.length,
+        ),
         actions: [
+          if (issues.isNotEmpty)
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: Text(s.t('reviewImportIssues')),
+            ),
           FilledButton(
-            onPressed: () => Navigator.pop(dialogContext),
+            onPressed: () => Navigator.pop(dialogContext, false),
             child: Text(s.t('close')),
           ),
         ],
       ),
     );
+    if (reviewIssues == true && context.mounted) {
+      await _showSpreadsheetIssues(context, issues);
+    }
   }
+
+  Future<void> _showSpreadsheetIssues(
+    BuildContext context,
+    List<SpreadsheetImportIssue> issues,
+  ) => showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    builder: (sheetContext) => FractionallySizedBox(
+      heightFactor: .72,
+      child: Material(
+        color: sheetContext.appColors.background,
+        shape: AppShapes.sheet,
+        clipBehavior: Clip.antiAlias,
+        child: SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+            child: Column(
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        sheetContext.strings.t('spreadsheetIssueRows'),
+                        style: AppTextStyles.sectionTitle,
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: sheetContext.strings.t('close'),
+                      onPressed: () => Navigator.pop(sheetContext),
+                      icon: const Icon(Icons.close_rounded),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Expanded(
+                  child: SingleChildScrollView(
+                    child: _SpreadsheetIssuesPanel(
+                      issues: issues,
+                      hint: sheetContext.strings.t('spreadsheetIssuesHint'),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
 
   void _language(BuildContext context) {
     showModalBottomSheet<void>(
@@ -2007,6 +2058,151 @@ class _ProfileActionTile extends StatelessWidget {
           onTap: onTap,
           customBorder: AppShapes.medium,
           child: Padding(padding: const EdgeInsets.all(14), child: content),
+        ),
+      ),
+    );
+  }
+}
+
+class _ImportCompletionBody extends StatelessWidget {
+  const _ImportCompletionBody({
+    required this.summary,
+    required this.issueCount,
+  });
+
+  final FlightImportSummary summary;
+  final int issueCount;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = context.strings;
+    final colors = context.appColors;
+    final duplicates = summary.unchanged + summary.skipped;
+    final followUp = issueCount == 0
+        ? s.t('importCompleteClean')
+        : s
+              .t('importCompleteNeedsReview')
+              .replaceFirst('{count}', '$issueCount');
+    return SizedBox(
+      width: 360,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final metricWidth = (constraints.maxWidth - 8) / 2;
+              return Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _ImportResultMetric(
+                    width: metricWidth,
+                    label: s.t('importAdded'),
+                    value: summary.added,
+                    color: colors.lime,
+                  ),
+                  _ImportResultMetric(
+                    width: metricWidth,
+                    label: s.t('importUpdated'),
+                    value: summary.updated,
+                    color: colors.purple,
+                  ),
+                  _ImportResultMetric(
+                    width: metricWidth,
+                    label: s.t('importDuplicates'),
+                    value: duplicates,
+                    color: colors.cardBlue,
+                  ),
+                  _ImportResultMetric(
+                    width: metricWidth,
+                    label: s.t('importNeedsReview'),
+                    value: issueCount,
+                    color: issueCount == 0 ? colors.cardMint : colors.danger,
+                  ),
+                ],
+              );
+            },
+          ),
+          const SizedBox(height: 16),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(
+                issueCount == 0
+                    ? Icons.task_alt_rounded
+                    : Icons.info_outline_rounded,
+                size: 19,
+                color: issueCount == 0 ? colors.lime : colors.danger,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  followUp,
+                  style: TextStyle(
+                    color: colors.textSecondary,
+                    fontSize: 13,
+                    height: 1.4,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ImportResultMetric extends StatelessWidget {
+  const _ImportResultMetric({
+    required this.width,
+    required this.label,
+    required this.value,
+    required this.color,
+  });
+
+  final double width;
+  final String label;
+  final int value;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    return Semantics(
+      label: '$label, $value',
+      child: Container(
+        width: width,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+        decoration: ShapeDecoration(
+          color: Color.alphaBlend(color.withValues(alpha: .12), colors.surface),
+          shape: AppShapes.small,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: colors.textSecondary,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 3),
+            Text(
+              '$value ${context.strings.t('importResultUnit')}',
+              style: TextStyle(
+                color: colors.textPrimary,
+                fontSize: 20,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
         ),
       ),
     );

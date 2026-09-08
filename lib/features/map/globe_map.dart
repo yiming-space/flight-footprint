@@ -24,6 +24,7 @@ class GlobeMap extends StatefulWidget {
     this.routeAnimationProgress = 1,
     this.showRouteAnimationPlane = false,
     this.onSelection,
+    this.onInteractionChanged,
     this.resetSignal = 0,
     this.loader = const GeoJsonMapLoader(),
   });
@@ -35,6 +36,7 @@ class GlobeMap extends StatefulWidget {
   final double routeAnimationProgress;
   final bool showRouteAnimationPlane;
   final ValueChanged<MapSelection>? onSelection;
+  final ValueChanged<bool>? onInteractionChanged;
   // Nullable keeps hot reload compatible with a State created before this
   // optional control was added; a missing value behaves like the initial 0.
   final int? resetSignal;
@@ -44,11 +46,15 @@ class GlobeMap extends StatefulWidget {
   State<GlobeMap> createState() => _GlobeMapState();
 }
 
-class _GlobeMapState extends State<GlobeMap>
-    with SingleTickerProviderStateMixin {
+class _GlobeMapState extends State<GlobeMap> with TickerProviderStateMixin {
+  static const _entryDuration = Duration(milliseconds: 680);
+  static const _autoRotationDuration = Duration(seconds: 120);
+
   late Future<({GeoJsonMapBundle data, GlobeSurface surface})> _future;
   ui.FragmentShader? _surfaceShader;
   late final AnimationController _momentum;
+  AnimationController? _entryControllerValue;
+  AnimationController? _autoRotateControllerValue;
   double _releaseYaw = 0;
   double _releasePitch = 0;
   Offset _releaseVelocity = Offset.zero;
@@ -65,6 +71,10 @@ class _GlobeMapState extends State<GlobeMap>
   double _startFollowYawOffset = 0;
   double _startFollowPitchOffset = 0;
   bool _showLabels = false;
+  bool _interactionReported = false;
+  bool _presentationStarted = false;
+  bool _autoRotationRunning = false;
+  double _autoRotationLastValue = 0;
   String? _selectedLabel;
   MapCoordinate? _selectedCoordinate;
 
@@ -74,18 +84,41 @@ class _GlobeMapState extends State<GlobeMap>
     _future = _loadScene();
     _momentum =
         AnimationController(
-          vsync: this,
-          duration: const Duration(milliseconds: 900),
-        )..addListener(() {
-          final travel = (1 - math.exp(-6 * _momentum.value)) / 6;
-          setState(() {
-            _yaw = _releaseYaw + _releaseVelocity.dx * travel;
-            _pitch = (_releasePitch + _releaseVelocity.dy * travel)
-                .clamp(-math.pi / 2, math.pi / 2)
-                .toDouble();
+            vsync: this,
+            duration: const Duration(milliseconds: 900),
+          )
+          ..addListener(() {
+            final travel = (1 - math.exp(-6 * _momentum.value)) / 6;
+            setState(() {
+              _yaw = _releaseYaw + _releaseVelocity.dx * travel;
+              _pitch = (_releasePitch + _releaseVelocity.dy * travel)
+                  .clamp(-math.pi / 2, math.pi / 2)
+                  .toDouble();
+            });
+          })
+          ..addStatusListener((status) {
+            if (status == AnimationStatus.completed ||
+                status == AnimationStatus.dismissed) {
+              _reportInteraction(false);
+            }
           });
-        });
   }
+
+  AnimationController get _entryController => _entryControllerValue ??=
+      (AnimationController(
+          vsync: this,
+          duration: _entryDuration,
+          animationBehavior: AnimationBehavior.normal,
+        )
+        ..addListener(_handleEntryTick)
+        ..addStatusListener(_handleEntryStatus));
+
+  AnimationController get _autoRotateController =>
+      _autoRotateControllerValue ??= (AnimationController(
+        vsync: this,
+        duration: _autoRotationDuration,
+        animationBehavior: AnimationBehavior.preserve,
+      )..addListener(_handleAutoRotationTick));
 
   Future<({GeoJsonMapBundle data, GlobeSurface surface})> _loadScene() async {
     final data = await widget.loader.loadBundle();
@@ -100,8 +133,99 @@ class _GlobeMapState extends State<GlobeMap>
   bool get _following =>
       widget.showRouteAnimationPlane && widget.routeAnimationProgress < .999;
 
+  void _handleEntryTick() {
+    if (mounted) setState(() {});
+  }
+
+  void _handleEntryStatus(AnimationStatus status) {
+    if (status == AnimationStatus.completed) {
+      _maybeResumeAutoRotation();
+    }
+  }
+
+  void _handleAutoRotationTick() {
+    if (!mounted ||
+        !_autoRotationRunning ||
+        _interactionReported ||
+        _momentum.isAnimating ||
+        _following) {
+      return;
+    }
+    final value = _autoRotateController.value;
+    var delta = value - _autoRotationLastValue;
+    // repeat() wraps from 1 back to 0; keep that seam continuous.
+    if (delta < -.5) delta += 1;
+    _autoRotationLastValue = value;
+    if (delta <= 0) return;
+    setState(() {
+      _yaw = _wrappedAngle(_yaw + delta * math.pi * 2);
+    });
+  }
+
+  void _startPresentationIfNeeded() {
+    if (_presentationStarted || !mounted) return;
+    _presentationStarted = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_presentationStarted) return;
+      if (MediaQuery.disableAnimationsOf(context)) {
+        _entryController.value = 1;
+        _maybeResumeAutoRotation();
+      } else {
+        _entryController.forward(from: 0);
+      }
+    });
+  }
+
+  void _resetPresentation() {
+    _pauseAutoRotation();
+    _presentationStarted = false;
+    _entryController.stop();
+    _entryController.value = 0;
+  }
+
+  void _resumeAutoRotation() {
+    if (_autoRotationRunning ||
+        !_presentationStarted ||
+        _entryController.value < .999 ||
+        _interactionReported ||
+        _momentum.isAnimating ||
+        _following ||
+        MediaQuery.disableAnimationsOf(context)) {
+      return;
+    }
+    _autoRotateController.stop();
+    _autoRotateController.value = 0;
+    _autoRotationLastValue = 0;
+    _autoRotationRunning = true;
+    _autoRotateController.repeat(period: _autoRotationDuration);
+  }
+
+  void _pauseAutoRotation() {
+    _autoRotationRunning = false;
+    _autoRotateController.stop();
+  }
+
+  void _maybeResumeAutoRotation() {
+    if (!mounted) return;
+    _resumeAutoRotation();
+  }
+
+  static double _wrappedAngle(double value) {
+    var result = value;
+    while (result > math.pi) result -= math.pi * 2;
+    while (result < -math.pi) result += math.pi * 2;
+    return result;
+  }
+
   @override
   void dispose() {
+    _entryControllerValue
+      ?..removeListener(_handleEntryTick)
+      ..removeStatusListener(_handleEntryStatus)
+      ..dispose();
+    _autoRotateControllerValue
+      ?..removeListener(_handleAutoRotationTick)
+      ..dispose();
     _momentum.dispose();
     super.dispose();
   }
@@ -112,12 +236,14 @@ class _GlobeMapState extends State<GlobeMap>
     if (oldWidget.loader != widget.loader) {
       _surfaceShader = null;
       _future = _loadScene();
+      _resetPresentation();
     }
     if (oldWidget.mode != widget.mode ||
         (widget.mode == MapMode.travelFootprint &&
             oldWidget.places != widget.places)) {
       _surfaceShader = null;
       _future = _loadScene();
+      _resetPresentation();
     }
     if ((oldWidget.resetSignal ?? 0) != (widget.resetSignal ?? 0)) {
       _momentum.stop();
@@ -129,14 +255,27 @@ class _GlobeMapState extends State<GlobeMap>
       _showLabels = false;
       _selectedLabel = null;
       _selectedCoordinate = null;
+      _resetPresentation();
     }
     if (!oldWidget.showRouteAnimationPlane && widget.showRouteAnimationPlane) {
       _followYawOffset = 0;
       _followPitchOffset = 0;
     }
+    if (_following) {
+      _pauseAutoRotation();
+    } else {
+      _maybeResumeAutoRotation();
+    }
   }
 
   void _onScaleStart(ScaleStartDetails details) {
+    if (_entryController.isAnimating) {
+      _entryController.stop();
+      _entryController.value = 1;
+    }
+    _presentationStarted = true;
+    _pauseAutoRotation();
+    _reportInteraction(true);
     _momentum.stop();
     _pinching = false;
     _startYaw = _yaw;
@@ -172,10 +311,14 @@ class _GlobeMapState extends State<GlobeMap>
 
   void _onScaleEnd(ScaleEndDetails details) {
     if (_following || _pinching || MediaQuery.disableAnimationsOf(context)) {
+      _reportInteraction(false);
       return;
     }
     final velocity = details.velocity.pixelsPerSecond / 240;
-    if (velocity.distance < .15) return;
+    if (velocity.distance < .15) {
+      _reportInteraction(false);
+      return;
+    }
     _releaseVelocity = Offset(
       velocity.dx.clamp(-5.0, 5.0),
       velocity.dy.clamp(-5.0, 5.0),
@@ -183,6 +326,13 @@ class _GlobeMapState extends State<GlobeMap>
     _releaseYaw = _yaw;
     _releasePitch = _pitch;
     _momentum.forward(from: 0);
+  }
+
+  void _reportInteraction(bool value) {
+    if (_interactionReported == value) return;
+    _interactionReported = value;
+    widget.onInteractionChanged?.call(value);
+    if (!value) _maybeResumeAutoRotation();
   }
 
   @override
@@ -212,6 +362,11 @@ class _GlobeMapState extends State<GlobeMap>
         );
       }
       _surfaceShader ??= snapshot.data!.surface.createShader();
+      _startPresentationIfNeeded();
+      final entryProgress = Curves.easeOutCubic.transform(
+        _entryController.value.clamp(0.0, 1.0).toDouble(),
+      );
+      final entryScale = .86 + entryProgress * .14;
       final animationCamera = _following
           ? GlobePainter.animationCameraForProgress(
               widget.routes,
@@ -243,7 +398,7 @@ class _GlobeMapState extends State<GlobeMap>
             places: widget.places,
             yaw: _yaw,
             pitch: _pitch,
-            scale: _scale,
+            scale: _scale * entryScale,
             routeAnimationProgress: widget.routeAnimationProgress,
             showRouteAnimationPlane: widget.showRouteAnimationPlane,
             showLabels: _showLabels,
@@ -323,12 +478,23 @@ class GlobePainter extends CustomPainter {
   final String? selectedLabel;
   final MapCoordinate? selectedCoordinate;
 
+  // The fullscreen map receives both flight-derived airports and manually
+  // visited places. In flight mode only airports that are actual endpoints
+  // of a rendered route belong on the globe; keep the lookup cached because
+  // the painter is rebuilt while the globe rotates.
+  late final Set<String> _routeAirportCodes = {
+    for (final route in routes) ...[
+      route.from.code.trim().toUpperCase(),
+      route.to.code.trim().toUpperCase(),
+    ],
+  };
+
   static const _routeColors = <Color>[
-    Color(0xffc6ff32),
-    Color(0xffa58aff),
-    Color(0xff75dce9),
-    Color(0xfff6e68a),
-    Color(0xffff8b7a),
+    Color(0xff68b7ff),
+    Color(0xff68b7ff),
+    Color(0xff68b7ff),
+    Color(0xff68b7ff),
+    Color(0xff68b7ff),
   ];
   static const _travelColors = <Color>[
     Color(0xff75688f),
@@ -426,6 +592,14 @@ class GlobePainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     const GalaxyBackgroundPainter().paint(canvas, size);
+    canvas.drawRect(
+      Offset.zero & size,
+      Paint()
+        ..shader = const RadialGradient(
+          colors: [Color(0x9208182b), Color(0xF302050d)],
+          radius: .92,
+        ).createShader(Offset.zero & size),
+    );
     final radius = math.min(size.width, size.height) * .39 * scale;
     final projection = _GlobeProjection(
       center: size.center(Offset.zero),
@@ -434,6 +608,26 @@ class GlobePainter extends CustomPainter {
       pitch: pitch,
     );
     final sphere = Path()..addOval(projection.bounds);
+    // A small radial falloff keeps the atmosphere outside the surface and
+    // avoids a full-screen blur pass while the camera moves.
+    canvas.drawCircle(
+      projection.center,
+      radius * 1.09,
+      Paint()
+        ..shader =
+            const RadialGradient(
+              colors: [
+                Color(0x007cbfdc),
+                Color(0x007cbfdc),
+                Color(0x387cbfdc),
+                Color(0x147cbfdc),
+                Color(0x007cbfdc),
+              ],
+              stops: [0, .89, .918, .95, 1],
+            ).createShader(
+              Rect.fromCircle(center: projection.center, radius: radius * 1.09),
+            ),
+    );
     final shader = surfaceShader;
     if (shader != null) {
       GlobeSurface.paint(
@@ -450,7 +644,7 @@ class GlobePainter extends CustomPainter {
 
     canvas.save();
     canvas.clipPath(sphere);
-    _drawGrid(canvas, projection);
+    if (showLabels) _drawGrid(canvas, projection);
     canvas.restore();
 
     // Routes are raised above the sphere, so they need to be painted outside
@@ -487,7 +681,7 @@ class GlobePainter extends CustomPainter {
 
   void _drawGrid(Canvas canvas, _GlobeProjection projection) {
     final paint = Paint()
-      ..color = const Color(0xffaac0cb).withValues(alpha: .055)
+      ..color = const Color(0xffaac0cb).withValues(alpha: .018)
       ..style = PaintingStyle.stroke
       ..strokeWidth = .7;
     for (var longitude = -180.0; longitude < 180; longitude += 30) {
@@ -516,13 +710,13 @@ class GlobePainter extends CustomPainter {
         path,
         Paint()
           ..color = _routeColors[index % _routeColors.length].withValues(
-            alpha: route.isHighlight ? .95 : .78,
+            alpha: route.isHighlight ? .88 : .48,
           )
           ..style = PaintingStyle.stroke
           // The globe already gives routes extra visual weight through
           // elevation and perspective. Keep every route at the same delicate
           // weight so long and highlighted routes do not overpower the globe.
-          ..strokeWidth = .9
+          ..strokeWidth = .75
           ..strokeCap = StrokeCap.round
           ..strokeJoin = StrokeJoin.round,
       );
@@ -532,18 +726,33 @@ class GlobePainter extends CustomPainter {
   void _drawAirports(Canvas canvas, _GlobeProjection projection) {
     for (var index = 0; index < airports.length; index++) {
       final airport = airports[index];
+      if (mode == MapMode.flight && !_hasRenderedRoute(airport)) continue;
       final point = projection.project(airport.latitude, airport.longitude);
       if (point == null) continue;
       final color = _routeColors[index % _routeColors.length];
       if (!_isAirportVisibleForPlayback(airport)) continue;
-      final markerColor = color;
-      canvas.drawCircle(
-        point,
-        3.8,
-        Paint()..color = const Color(0xff0b1015).withValues(alpha: .8),
-      );
-      canvas.drawCircle(point, 2.5, Paint()..color = markerColor);
+      _drawGlowingMarker(canvas, point, color, coreRadius: 1.8);
     }
+  }
+
+  void _drawGlowingMarker(
+    Canvas canvas,
+    Offset point,
+    Color color, {
+    required double coreRadius,
+  }) {
+    // Concentric alpha layers give the marker a soft halo without a blur pass.
+    canvas.drawCircle(
+      point,
+      coreRadius * 4.0,
+      Paint()..color = color.withValues(alpha: .055),
+    );
+    canvas.drawCircle(
+      point,
+      coreRadius * 2.6,
+      Paint()..color = color.withValues(alpha: .14),
+    );
+    canvas.drawCircle(point, coreRadius, Paint()..color = color);
   }
 
   bool _isAirportVisibleForPlayback(MapAirport airport) {
@@ -562,23 +771,23 @@ class GlobePainter extends CustomPainter {
     return !hasIncomingRoute || revealProgress >= .999;
   }
 
+  bool _hasRenderedRoute(MapAirport airport) =>
+      _routeAirportCodes.contains(airport.code.trim().toUpperCase());
+
   void _drawPlaces(Canvas canvas, _GlobeProjection projection) {
+    if (mode != MapMode.travelFootprint) return;
     for (var index = 0; index < places.length; index++) {
       final place = places[index];
       if (!place.isVisited) continue;
       final point = projection.project(place.latitude, place.longitude);
       if (point == null) continue;
       final color = _travelColors[index % _travelColors.length];
-      canvas.drawCircle(
-        point,
-        3.8,
-        Paint()..color = const Color(0xff0b1015).withValues(alpha: .8),
-      );
-      canvas.drawCircle(point, 2.5, Paint()..color = color);
+      _drawGlowingMarker(canvas, point, color, coreRadius: 2.5);
     }
   }
 
   void _drawAllLabels(Canvas canvas, _GlobeProjection projection) {
+    final occupied = <Rect>[];
     if (mode == MapMode.travelFootprint) {
       for (final place in places) {
         if (!place.isVisited) continue;
@@ -587,16 +796,17 @@ class GlobePainter extends CustomPainter {
         if (name.isEmpty || isProvinceMapLabel(name) || point == null) {
           continue;
         }
-        _drawGlobeLabel(canvas, projection, point, name);
+        _drawGlobeLabel(canvas, projection, point, name, occupied);
       }
       return;
     }
     for (final airport in airports) {
+      if (!_hasRenderedRoute(airport)) continue;
       if (!_isAirportVisibleForPlayback(airport)) continue;
       final name = normalizedMapLabel(airport.name);
       final point = projection.project(airport.latitude, airport.longitude);
       if (name.isEmpty || isProvinceMapLabel(name) || point == null) continue;
-      _drawGlobeLabel(canvas, projection, point, name);
+      _drawGlobeLabel(canvas, projection, point, name, occupied);
     }
   }
 
@@ -605,14 +815,15 @@ class GlobePainter extends CustomPainter {
     _GlobeProjection projection,
     Offset point,
     String name,
+    List<Rect> occupied,
   ) {
     final painter = TextPainter(
       text: TextSpan(
         text: name,
         style: const TextStyle(
           color: Color(0xfff4f6f8),
-          fontSize: 11,
-          fontWeight: FontWeight.w600,
+          fontSize: 10,
+          fontWeight: FontWeight.w500,
           shadows: [Shadow(color: Color(0xff0b1015), blurRadius: 3)],
         ),
       ),
@@ -629,7 +840,15 @@ class GlobePainter extends CustomPainter {
       bounds.top + 4,
       bounds.bottom - painter.height - 4,
     );
-    painter.paint(canvas, Offset(left.toDouble(), top.toDouble()));
+    final rect = Rect.fromLTWH(
+      left.toDouble(),
+      top.toDouble(),
+      painter.width,
+      painter.height,
+    );
+    if (occupied.any((other) => other.overlaps(rect.inflate(4)))) return;
+    occupied.add(rect);
+    painter.paint(canvas, rect.topLeft);
   }
 
   void _drawArrivalLabels(Canvas canvas, _GlobeProjection projection) {
@@ -721,6 +940,7 @@ class GlobePainter extends CustomPainter {
 
     final airportHits =
         airports.where((airport) {
+          if (!_hasRenderedRoute(airport)) return false;
           final point = projection.project(airport.latitude, airport.longitude);
           return point != null && distanceTo(point) <= radius;
         }).toList()..sort((a, b) {
@@ -982,7 +1202,7 @@ class GlobePainter extends CustomPainter {
       _GlobeCoordinate(route.from.latitude, route.from.longitude),
       _GlobeCoordinate(route.to.latitude, route.to.longitude),
     );
-    final height = (angle / 180 * .25).clamp(.012, .20);
+    final height = (angle / 180 * .10).clamp(.008, .075);
     return math.sin(progress.clamp(0.0, 1.0) * math.pi) * height;
   }
 

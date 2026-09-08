@@ -39,6 +39,7 @@ flutter:
     - shaders/globe_surface.frag
   assets:
     - assets/data/airport-coordinates.json
+    - assets/data/earth-night.jpg
     - assets/data/china-city-centers.json
     - assets/data/world-countries-50m.geo.json
     - assets/data/world-land-50m.geo.json

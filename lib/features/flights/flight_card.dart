@@ -271,29 +271,74 @@ class _SwipeActions extends StatefulWidget {
   State<_SwipeActions> createState() => _SwipeActionsState();
 }
 
-class _SwipeActionsState extends State<_SwipeActions> {
+class _SwipeActionsState extends State<_SwipeActions>
+    with SingleTickerProviderStateMixin {
   static const _actionWidth = 116.0;
-  double _offset = 0;
+  late final AnimationController _controller;
+  bool _open = false;
 
   bool get _hasActions => widget.onEdit != null || widget.onDelete != null;
+  double get _offset => _controller.value * _actionWidth;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(vsync: this);
+  }
+
+  @override
+  void didUpdateWidget(covariant _SwipeActions oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!_hasActions) {
+      _open = false;
+      _controller.value = 0;
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _dragStart(DragStartDetails details) {
+    _controller.stop();
+  }
 
   void _dragUpdate(DragUpdateDetails details) {
     if (!_hasActions) return;
-    setState(() {
-      _offset = (_offset - details.delta.dx).clamp(0, _actionWidth).toDouble();
-    });
+    _controller.value = ((_offset - details.delta.dx) / _actionWidth).clamp(
+      0.0,
+      1.0,
+    );
   }
 
   void _dragEnd(DragEndDetails details) {
     final fastLeft =
         details.primaryVelocity != null && details.primaryVelocity! < -260;
-    final open = fastLeft || _offset > _actionWidth * .42;
-    setState(() => _offset = open ? _actionWidth : 0);
+    final fastRight =
+        details.primaryVelocity != null && details.primaryVelocity! > 260;
+    final open = fastLeft || (!fastRight && _offset > _actionWidth * .42);
+    _snapTo(open ? 1 : 0);
   }
 
   void _close() {
-    if (_offset == 0) return;
-    setState(() => _offset = 0);
+    if (_controller.value == 0) return;
+    _snapTo(0);
+  }
+
+  void _snapTo(double target) {
+    final open = target > 0;
+    if (_open != open) setState(() => _open = open);
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _controller.value = target;
+      return;
+    }
+    _controller.animateTo(
+      target,
+      duration: AppMotion.control,
+      curve: Curves.easeOutCubic,
+    );
   }
 
   @override
@@ -301,7 +346,7 @@ class _SwipeActionsState extends State<_SwipeActions> {
     if (!_hasActions) return widget.child;
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onTap: _offset == 0 ? null : _close,
+      onTap: _open ? _close : null,
       child: Stack(
         children: [
           Positioned.fill(
@@ -337,15 +382,17 @@ class _SwipeActionsState extends State<_SwipeActions> {
               ),
             ),
           ),
-          AnimatedContainer(
-            duration: const Duration(milliseconds: 180),
-            curve: Curves.easeOutCubic,
-            transform: Matrix4.translationValues(-_offset, 0, 0),
+          AnimatedBuilder(
+            animation: _controller,
             child: GestureDetector(
+              onHorizontalDragStart: _dragStart,
               onHorizontalDragUpdate: _dragUpdate,
               onHorizontalDragEnd: _dragEnd,
+              onHorizontalDragCancel: _close,
               child: widget.child,
             ),
+            builder: (context, child) =>
+                Transform.translate(offset: Offset(-_offset, 0), child: child),
           ),
         ],
       ),

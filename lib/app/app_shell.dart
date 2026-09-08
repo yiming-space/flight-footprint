@@ -224,10 +224,17 @@ class _AppShellState extends State<AppShell>
   }
 
   bool _isDesktopWindow(BuildContext context) {
-    if (!(Platform.isMacOS || Platform.isWindows || Platform.isLinux)) {
-      return false;
+    final size = MediaQuery.sizeOf(context);
+    final wideWindow = size.width >= 840;
+    if (Platform.isMacOS || Platform.isWindows || Platform.isLinux) {
+      return wideWindow;
     }
-    return MediaQuery.sizeOf(context).width >= 840;
+
+    // An unfolded Android foldable is still an Android window, but its
+    // landscape canvas is wide enough for the desktop shell. Keeping the
+    // mobile floating bottom bar in that posture lets it cover the second
+    // column and the lower part of the scroll view.
+    return Platform.isAndroid && wideWindow && size.width > size.height;
   }
 }
 

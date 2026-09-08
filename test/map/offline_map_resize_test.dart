@@ -126,7 +126,11 @@ void main() {
     final painting = find.descendant(
       of: find.byType(OfflineMap),
       matching: find.byWidgetPredicate(
-        (w) => w is CustomPaint && w.painter is FlatMapPainter,
+        (w) =>
+            w is CustomPaint &&
+            w.painter is FlatMapPainter &&
+            (w.painter! as FlatMapPainter).paintLayer ==
+                FlatMapPaintLayer.overlay,
       ),
     );
     final painter =

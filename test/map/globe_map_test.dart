@@ -22,9 +22,16 @@ void main() {
       latitude: 0,
       longitude: 0,
     );
+    const destination = MapAirport(
+      code: 'JNB',
+      name: '约翰内斯堡',
+      latitude: -26,
+      longitude: 28,
+    );
     final painter = GlobePainter(
       data: _emptyMapBundle,
-      airports: const [airport],
+      airports: const [airport, destination],
+      routes: const [MapRoute(from: airport, to: destination)],
     );
 
     final selection = painter.selectionAt(

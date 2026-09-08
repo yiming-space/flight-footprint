@@ -11,6 +11,7 @@ import '../../ui/widgets/country_flag.dart';
 import '../../ui/widgets/widgets.dart';
 import '../map/map_models.dart';
 import 'flight_passport_card.dart';
+import 'travel_milestones.dart';
 
 class StatsPage extends StatefulWidget {
   const StatsPage({super.key, required this.controller});
@@ -25,7 +26,6 @@ class _StatsPageState extends State<StatsPage> {
 
   @override
   Widget build(BuildContext context) {
-    final s = context.strings;
     final hasAnyFlights = widget.controller.flights.isNotEmpty;
     final flights = widget.controller.flights
         .where((flight) => flight.isCompleted)
@@ -62,6 +62,10 @@ class _StatsPageState extends State<StatsPage> {
     final passportFlightTimeMinutes = _flightTimeMinutes(passportFlights);
     final passportRouteCount = _routeKeys(passportFlights).length;
     final aircraftSummaries = _aircraftSummaries(flights);
+    final milestones = TravelMilestones.fromFlights(
+      flights,
+      cityNameFor: _cityName,
+    );
     final data = _StatsViewData(
       hasAnyFlights: hasAnyFlights,
       flights: flights,
@@ -76,6 +80,7 @@ class _StatsPageState extends State<StatsPage> {
       passportFlightTimeMinutes: passportFlightTimeMinutes,
       passportRouteCount: passportRouteCount,
       aircraftSummaries: aircraftSummaries,
+      milestones: milestones,
     );
     return SafeArea(
       top: false,
@@ -126,6 +131,8 @@ class _StatsPageState extends State<StatsPage> {
       if (data.flights.isEmpty)
         _emptyStats(data)
       else ...[
+        _milestonesCard(data.milestones),
+        const SizedBox(height: AppSpacing.cardGap),
         _aircraftCollectionCard(data.aircraftSummaries),
         const SizedBox(height: AppSpacing.cardGap),
         _rankingCard(
@@ -196,6 +203,8 @@ class _StatsPageState extends State<StatsPage> {
     final s = context.strings;
     return Column(
       children: [
+        _milestonesCard(data.milestones),
+        const SizedBox(height: AppSpacing.cardGap),
         _aircraftCollectionCard(data.aircraftSummaries),
         const SizedBox(height: AppSpacing.cardGap),
         _rankingCard(
@@ -291,6 +300,95 @@ class _StatsPageState extends State<StatsPage> {
         ),
       ),
     );
+  }
+
+  Widget _milestonesCard(TravelMilestones milestones) {
+    final s = context.strings;
+    final colors = context.appColors;
+    final firstArrival = milestones.firstArrival;
+    final latestCities = milestones.latestNewCities;
+    final frequentRoute = milestones.frequentRoute;
+    return SurfaceCard(
+      padding: const EdgeInsets.fromLTRB(18, 18, 18, 10),
+      color: _statsCardSurface(colors.cardCoral),
+      showBorder: false,
+      boxShadow: _statsCardShadow(context),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            s.t('travelMilestones'),
+            style: TextStyle(
+              color: colors.textPrimary,
+              fontSize: 21,
+              height: 1.15,
+              fontWeight: FontWeight.w700,
+              letterSpacing: -.25,
+            ),
+          ),
+          const SizedBox(height: 14),
+          if (firstArrival != null)
+            _MilestoneRow(
+              icon: Icons.flag_rounded,
+              title: s.t('firstArrival'),
+              value: firstArrival.city,
+              detail: _formatMilestoneDate(firstArrival.flight.departedAt),
+              onTap: () => _openRankingDetail(
+                title: s.t('firstArrival'),
+                icon: Icons.flag_rounded,
+                subtitle: s.t('firstArrivalDetail'),
+                items: [(firstArrival.city, 1)],
+                secondaryByName: {
+                  firstArrival.city:
+                      '${firstArrival.flight.departureIata} → ${firstArrival.flight.arrivalIata} · ${_formatMilestoneDate(firstArrival.flight.departedAt)}',
+                },
+              ),
+            ),
+          if (latestCities != null)
+            _MilestoneRow(
+              icon: Icons.location_city_rounded,
+              title: s
+                  .t('yearNewCities')
+                  .replaceFirst('{year}', '${latestCities.year}'),
+              value: s
+                  .t('newCitiesCount')
+                  .replaceFirst('{count}', '${latestCities.cities.length}'),
+              detail: latestCities.cities.take(3).join(' · '),
+              onTap: () => _openRankingDetail(
+                title: s
+                    .t('yearNewCities')
+                    .replaceFirst('{year}', '${latestCities.year}'),
+                icon: Icons.location_city_rounded,
+                subtitle: s.t('yearNewCitiesDetail'),
+                items: [for (final city in latestCities.cities) (city, 1)],
+              ),
+            ),
+          if (frequentRoute != null)
+            _MilestoneRow(
+              icon: Icons.route_rounded,
+              title: s.t('frequentRoute'),
+              value: frequentRoute.label,
+              detail: s
+                  .t('routeFlightsCount')
+                  .replaceFirst('{count}', '${frequentRoute.flights.length}'),
+              onTap: () => _openRankingDetail(
+                title: s.t('frequentRoute'),
+                icon: Icons.route_rounded,
+                subtitle: s.t('frequentRouteDetail'),
+                items: [
+                  for (final route in milestones.routes)
+                    (route.label, route.flights.length),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  String _formatMilestoneDate(DateTime value) {
+    final local = value.toLocal();
+    return '${local.year}.${local.month.toString().padLeft(2, '0')}.${local.day.toString().padLeft(2, '0')}';
   }
 
   Widget _rankingCardHeader({
@@ -633,6 +731,7 @@ class _StatsViewData {
     required this.passportFlightTimeMinutes,
     required this.passportRouteCount,
     required this.aircraftSummaries,
+    required this.milestones,
   });
 
   final bool hasAnyFlights;
@@ -648,6 +747,93 @@ class _StatsViewData {
   final int passportFlightTimeMinutes;
   final int passportRouteCount;
   final List<_AircraftSummary> aircraftSummaries;
+  final TravelMilestones milestones;
+}
+
+class _MilestoneRow extends StatelessWidget {
+  const _MilestoneRow({
+    required this.icon,
+    required this.title,
+    required this.value,
+    required this.detail,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String title;
+  final String value;
+  final String detail;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    return Semantics(
+      button: true,
+      label: '$title, $value, $detail',
+      child: InkWell(
+        borderRadius: AppRadii.medium,
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          child: Row(
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: colors.cardCoral.withValues(alpha: .18),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(icon, color: colors.purple, size: 20),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: TextStyle(
+                        color: colors.textTertiary,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      value,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: colors.textPrimary,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    if (detail.isNotEmpty) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        detail,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: colors.textSecondary,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              Icon(Icons.chevron_right_rounded, color: colors.textTertiary),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _PassportYearFilterBar extends StatelessWidget {

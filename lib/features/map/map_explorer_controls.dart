@@ -19,6 +19,7 @@ class MapExplorerControls extends StatelessWidget {
     this.progress,
     this.routeCaption,
     this.onAddPlace,
+    this.mapInteracting = false,
   });
 
   final bool globeMode;
@@ -32,6 +33,11 @@ class MapExplorerControls extends StatelessWidget {
   final double? progress;
   final String? routeCaption;
   final VoidCallback? onAddPlace;
+
+  /// Disables live backdrop blur while the map is moving. The solid fallback
+  /// keeps the controls readable without forcing the map below to be sampled
+  /// and blurred for every gesture frame.
+  final bool mapInteracting;
 
   @override
   Widget build(BuildContext context) {
@@ -92,6 +98,7 @@ class MapExplorerControls extends StatelessWidget {
             children: [
               if (routeCaption != null && progress != null) ...[
                 MapExplorerGlass(
+                  blurEnabled: !mapInteracting,
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(11, 8, 11, 9),
                     child: SizedBox(
@@ -150,18 +157,24 @@ class MapExplorerControls extends StatelessWidget {
 }
 
 class MapExplorerGlass extends StatelessWidget {
-  const MapExplorerGlass({super.key, required this.child});
+  const MapExplorerGlass({
+    super.key,
+    required this.child,
+    this.blurEnabled = true,
+  });
 
   final Widget child;
+  final bool blurEnabled;
 
   @override
   Widget build(BuildContext context) {
     final highContrast = MediaQuery.highContrastOf(context);
+    final useBlur = blurEnabled && !highContrast;
     return ClipRRect(
       borderRadius: BorderRadius.circular(24),
       child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 28, sigmaY: 28),
-        enabled: !highContrast,
+        filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+        enabled: useBlur,
         child: DecoratedBox(
           decoration: BoxDecoration(
             gradient: LinearGradient(
@@ -188,7 +201,7 @@ class MapExplorerGlass extends StatelessWidget {
           ),
           child: Stack(
             children: [
-              if (!highContrast)
+              if (!highContrast && useBlur)
                 Positioned.fill(
                   child: IgnorePointer(
                     child: DecoratedBox(

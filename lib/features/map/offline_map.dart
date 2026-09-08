@@ -48,6 +48,7 @@ class OfflineMap extends StatefulWidget {
     this.useLightPalette,
     this.onMapTap,
     this.onSelection,
+    this.onInteractionChanged,
     this.onPlaceLongPress,
     this.loader = const GeoJsonMapLoader(),
   });
@@ -170,6 +171,7 @@ class OfflineMap extends StatefulWidget {
   final bool? useLightPalette;
   final ValueChanged<MapCoordinate>? onMapTap;
   final ValueChanged<MapSelection>? onSelection;
+  final ValueChanged<bool>? onInteractionChanged;
   final Future<void> Function(List<MapPlace> candidates)? onPlaceLongPress;
   final GeoJsonMapLoader loader;
 
@@ -218,6 +220,7 @@ class _MapFullscreenPageState extends State<MapFullscreenPage>
   bool _orientationChanging = false;
   bool _globeMode = false;
   bool _routeAnimationStarted = false;
+  bool _mapInteracting = false;
   int _viewReset = 0;
   late List<MapPlace> _places;
   AnimationController? _routeAnimation;
@@ -376,6 +379,11 @@ class _MapFullscreenPageState extends State<MapFullscreenPage>
     setState(() => _places = provider());
   }
 
+  void _handleMapInteraction(bool interacting) {
+    if (!mounted || _mapInteracting == interacting) return;
+    setState(() => _mapInteracting = interacting);
+  }
+
   Future<void> _toggleLandscape() async {
     if (_orientationChanging) return;
     await _setLandscape(!_landscape);
@@ -503,6 +511,7 @@ class _MapFullscreenPageState extends State<MapFullscreenPage>
                         places: _places,
                         routeAnimationProgress: _routeController.value,
                         showRouteAnimationPlane: _routeAnimationStarted,
+                        onInteractionChanged: _handleMapInteraction,
                         onSelection: widget.onSelection == null
                             ? null
                             : (selection) =>
@@ -525,6 +534,7 @@ class _MapFullscreenPageState extends State<MapFullscreenPage>
                         horizontalWrap: true,
                         routeAnimationProgress: _routeController.value,
                         showRouteAnimationPlane: _routeAnimationStarted,
+                        onInteractionChanged: _handleMapInteraction,
                         // The map is a visual data surface, so keep its established
                         // dark cartographic palette independent of page brightness.
                         useLightPalette: false,
@@ -542,6 +552,8 @@ class _MapFullscreenPageState extends State<MapFullscreenPage>
               child: SafeArea(
                 minimum: const EdgeInsets.all(12),
                 child: MapExplorerGlass(
+                  blurEnabled:
+                      !_mapInteracting && !_routeController.isAnimating,
                   child: MapExplorerButton(
                     label: strings.t('close'),
                     icon: Icons.close_rounded,
@@ -562,6 +574,8 @@ class _MapFullscreenPageState extends State<MapFullscreenPage>
                       _animationRoutes.isNotEmpty;
                   return MapExplorerControls(
                     globeMode: _globeMode,
+                    mapInteracting:
+                        _mapInteracting || _routeController.isAnimating,
                     landscape: _landscape,
                     onModeChanged: (globe) {
                       if (_globeMode != globe) {
@@ -619,6 +633,11 @@ class _OfflineMapState extends State<OfflineMap> with TickerProviderStateMixin {
   FlatMapPainter? _lastPainter;
   Size? _lastFittedMapSize;
   bool _normalizingHorizontalPan = false;
+  // Repainting the complete GeoJSON scene on every pinch update is much more
+  // expensive than letting InteractiveViewer transform the retained layer.
+  // Keep marker/line sizing stable during the gesture and refresh it once the
+  // user's fingers leave the screen.
+  bool _interactionActive = false;
   bool _hasPresentedFit = false;
   bool _fitAnimationActive = false;
   double _routeRevealProgress = 1;
@@ -698,6 +717,10 @@ class _OfflineMapState extends State<OfflineMap> with TickerProviderStateMixin {
         .getMaxScaleOnAxis()
         .clamp(_minScale, 30.0)
         .toDouble();
+    if (_interactionActive) {
+      _sceneScale = scale;
+      return;
+    }
     if (widget.enableInteraction && (scale - _sceneScale).abs() < .01) {
       return;
     }
@@ -892,33 +915,36 @@ class _OfflineMapState extends State<OfflineMap> with TickerProviderStateMixin {
                 : null,
             child: ValueListenableBuilder<double>(
               valueListenable: _sceneScaleListenable,
-              builder: (context, sceneScale, _) => CustomPaint(
-                size: mapSize,
-                painter: _lastPainter = FlatMapPainter(
-                  data: data,
-                  airports: widget.airports,
-                  routes: widget.routes,
-                  places: widget.places,
-                  mode: widget.mode,
-                  showLabels: _showLabels,
-                  showGrid: widget.showGrid,
-                  minimalWorldStyle: widget.minimalWorldStyle,
-                  transparentBackground: widget.transparentBackground,
-                  bottomFade: widget.bottomFade,
-                  excludePolarShelf: widget.excludePolarShelf,
-                  routeRevealProgress:
-                      widget.routeAnimationProgress ??
-                      (widget.animateRouteReveal ? _routeRevealProgress : 1),
-                  showRouteAnimationPlane: widget.showRouteAnimationPlane,
-                  showPassportTexture: widget.showPassportTexture,
-                  compactWorldViewport: widget.compactWorldViewport,
-                  lightPalette:
-                      widget.useLightPalette ??
-                      Theme.of(context).brightness == Brightness.light,
-                  visualScale: sceneScale,
-                  horizontalPadding: widget.horizontalPadding,
-                  verticalPadding: widget.verticalPadding,
-                  horizontalWrap: widget.horizontalWrap,
+              builder: (context, sceneScale, _) => RepaintBoundary(
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    RepaintBoundary(
+                      child: CustomPaint(
+                        size: mapSize,
+                        isComplex: true,
+                        painter: _mapPainter(
+                          data,
+                          sceneScale,
+                          layer: FlatMapPaintLayer.base,
+                        ),
+                      ),
+                    ),
+                    RepaintBoundary(
+                      child: CustomPaint(
+                        size: mapSize,
+                        isComplex: true,
+                        willChange:
+                            widget.showRouteAnimationPlane &&
+                            (widget.routeAnimationProgress ?? 1) < .999,
+                        painter: _lastPainter = _mapPainter(
+                          data,
+                          sceneScale,
+                          layer: FlatMapPaintLayer.overlay,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ),
@@ -947,17 +973,56 @@ class _OfflineMapState extends State<OfflineMap> with TickerProviderStateMixin {
             maxScale: 30,
             boundaryMargin: _boundaryMargin(mapSize),
             onInteractionStart: (_) {
+              _interactionActive = true;
+              widget.onInteractionChanged?.call(true);
               if (_fitAnimation?.isAnimating ?? false) {
                 _fitAnimation?.stop();
                 _fitAnimationActive = false;
                 _syncSceneScale();
               }
             },
+            onInteractionEnd: (_) {
+              _interactionActive = false;
+              _syncSceneScale();
+              widget.onInteractionChanged?.call(false);
+            },
             child: map,
           );
         },
       );
     },
+  );
+
+  FlatMapPainter _mapPainter(
+    GeoJsonMapBundle data,
+    double sceneScale, {
+    required FlatMapPaintLayer layer,
+  }) => FlatMapPainter(
+    data: data,
+    airports: widget.airports,
+    routes: widget.routes,
+    places: widget.places,
+    mode: widget.mode,
+    showLabels: _showLabels,
+    showGrid: widget.showGrid,
+    minimalWorldStyle: widget.minimalWorldStyle,
+    transparentBackground: widget.transparentBackground,
+    bottomFade: widget.bottomFade,
+    excludePolarShelf: widget.excludePolarShelf,
+    routeRevealProgress:
+        widget.routeAnimationProgress ??
+        (widget.animateRouteReveal ? _routeRevealProgress : 1),
+    showRouteAnimationPlane: widget.showRouteAnimationPlane,
+    showPassportTexture: widget.showPassportTexture,
+    compactWorldViewport: widget.compactWorldViewport,
+    lightPalette:
+        widget.useLightPalette ??
+        Theme.of(context).brightness == Brightness.light,
+    visualScale: sceneScale,
+    horizontalPadding: widget.horizontalPadding,
+    verticalPadding: widget.verticalPadding,
+    horizontalWrap: widget.horizontalWrap,
+    paintLayer: layer,
   );
 
   Future<void> _handlePlaceLongPress(

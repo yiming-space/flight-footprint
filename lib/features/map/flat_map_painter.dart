@@ -9,6 +9,8 @@ import 'map_projection.dart';
 import 'map_models.dart';
 import '../../ui/theme/app_theme.dart';
 
+enum FlatMapPaintLayer { all, base, overlay }
+
 /// Paints the app's deliberately flat map language in either the dark or light
 /// product palette.
 ///
@@ -18,6 +20,7 @@ import '../../ui/theme/app_theme.dart';
 class FlatMapPainter extends CustomPainter {
   static final Expando<_ProjectedGeometryCache> _geometryCaches = Expando();
   static final Expando<_RouteGeometryCache> _routeGeometryCaches = Expando();
+  static final Expando<_RouteLookup> _routeLookups = Expando();
   static const _routeTravelShare = .86;
   static const _routeArrivalShare = .14;
 
@@ -42,6 +45,7 @@ class FlatMapPainter extends CustomPainter {
     this.verticalPadding = 14,
     this.horizontalWrap = false,
     this.lightPalette = false,
+    this.paintLayer = FlatMapPaintLayer.all,
   });
 
   final GeoJsonMapBundle data;
@@ -103,6 +107,7 @@ class FlatMapPainter extends CustomPainter {
   /// Dashboard maps inherit the app theme. Passport artwork explicitly keeps
   /// this false so its shareable card remains an independent dark composition.
   final bool lightPalette;
+  final FlatMapPaintLayer paintLayer;
 
   static const _darkRouteColors = <Color>[
     Color(0xffc6ff32),
@@ -200,7 +205,9 @@ class FlatMapPainter extends CustomPainter {
     // The passport card supplies its own dark surface. Leave the compact map
     // canvas untouched so only the world silhouette, routes, and markers
     // appear; dashboard maps retain their themed opaque map panel.
-    if (!minimalWorldStyle && !transparentBackground) {
+    if (paintLayer != FlatMapPaintLayer.overlay &&
+        !minimalWorldStyle &&
+        !transparentBackground) {
       canvas.drawColor(_mapBackground, BlendMode.src);
     }
     if (horizontalWrap) {
@@ -233,22 +240,28 @@ class FlatMapPainter extends CustomPainter {
       );
 
   void _paintWorld(Canvas canvas, Size size) {
-    if (showGrid && !minimalWorldStyle) _drawGrid(canvas, size);
-    if (minimalWorldStyle) {
-      _drawMinimalWorld(canvas, size);
-      if (showPassportTexture) _drawPassportTexture(canvas, size);
-    } else {
-      _drawPolygons(
-        canvas,
-        size,
-        data.land.polygons,
-        _landFill,
-        null,
-        fadeAntarctic: bottomFade,
-      );
+    final paintsBase = paintLayer != FlatMapPaintLayer.overlay;
+    final paintsOverlay = paintLayer != FlatMapPaintLayer.base;
+    if (paintsBase) {
+      if (showGrid && !minimalWorldStyle) _drawGrid(canvas, size);
+      if (minimalWorldStyle) {
+        _drawMinimalWorld(canvas, size);
+        if (showPassportTexture) _drawPassportTexture(canvas, size);
+      } else {
+        _drawPolygons(
+          canvas,
+          size,
+          data.land.polygons,
+          _landFill,
+          null,
+          fadeAntarctic: bottomFade,
+        );
+      }
     }
 
-    if (!minimalWorldStyle && mode == MapMode.travelFootprint) {
+    if (paintsOverlay &&
+        !minimalWorldStyle &&
+        mode == MapMode.travelFootprint) {
       _drawFootprintPolygons(
         canvas,
         size,
@@ -263,7 +276,12 @@ class FlatMapPainter extends CustomPainter {
       );
     }
 
-    if (!minimalWorldStyle) {
+    // Boundaries are static in flight mode and stay in the cached base layer.
+    // Travel fills must remain beneath them, so that mode keeps boundaries in
+    // the overlay where there is no per-frame route animation.
+    if (!minimalWorldStyle &&
+        ((paintsBase && mode == MapMode.flight) ||
+            (paintsOverlay && mode == MapMode.travelFootprint))) {
       _drawPolygons(
         canvas,
         size,
@@ -310,6 +328,7 @@ class FlatMapPainter extends CustomPainter {
       );
     }
 
+    if (!paintsOverlay) return;
     if (mode == MapMode.flight) {
       for (var index = 0; index < routes.length; index++) {
         final route = routes[index];
@@ -366,15 +385,8 @@ class FlatMapPainter extends CustomPainter {
   }
 
   double _routeOffsetForIndex(int index) {
-    final route = routes[index];
-    final reverseIndex = routes.indexWhere(
-      (other) =>
-          other.from.code == route.to.code &&
-          other.to.code == route.from.code &&
-          !identical(other, route),
-    );
-    if (reverseIndex < 0) return 0;
-    return index < reverseIndex ? -2.4 : 2.4;
+    if (index < 0 || index >= routes.length) return 0;
+    return (_routeLookups[routes] ??= _RouteLookup.from(routes)).offsets[index];
   }
 
   _ProjectedGeometry _geometryFor(Size size) {
@@ -1187,8 +1199,9 @@ class FlatMapPainter extends CustomPainter {
           : AppColors.lime;
       var hasIncomingRoute = false;
       if (showRouteAnimationPlane && routes.isNotEmpty) {
-        for (var routeIndex = 0; routeIndex < routes.length; routeIndex++) {
-          if (routes[routeIndex].to.code != airport.code) continue;
+        final lookup = _routeLookups[routes] ??= _RouteLookup.from(routes);
+        for (final routeIndex
+            in lookup.incomingByAirport[airport.code] ?? const <int>[]) {
           hasIncomingRoute = true;
           revealProgress = math.max(
             revealProgress,
@@ -1396,26 +1409,32 @@ class FlatMapPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant FlatMapPainter old) =>
-      old.data != data ||
-      old.airports != airports ||
-      old.routes != routes ||
-      old.places != places ||
-      old.mode != mode ||
-      old.showLabels != showLabels ||
-      old.minimalWorldStyle != minimalWorldStyle ||
-      old.transparentBackground != transparentBackground ||
-      old.bottomFade != bottomFade ||
-      old.excludePolarShelf != excludePolarShelf ||
-      old.routeRevealProgress != routeRevealProgress ||
-      old.showRouteAnimationPlane != showRouteAnimationPlane ||
-      old.showPassportTexture != showPassportTexture ||
-      old.compactWorldViewport != compactWorldViewport ||
-      old.visualScale != visualScale ||
-      old.horizontalPadding != horizontalPadding ||
-      old.verticalPadding != verticalPadding ||
-      old.horizontalWrap != horizontalWrap ||
-      old.lightPalette != lightPalette;
+  bool shouldRepaint(covariant FlatMapPainter old) {
+    if (old.paintLayer != paintLayer ||
+        old.data != data ||
+        old.mode != mode ||
+        old.showGrid != showGrid ||
+        old.minimalWorldStyle != minimalWorldStyle ||
+        old.transparentBackground != transparentBackground ||
+        old.bottomFade != bottomFade ||
+        old.excludePolarShelf != excludePolarShelf ||
+        old.showPassportTexture != showPassportTexture ||
+        old.compactWorldViewport != compactWorldViewport ||
+        old.visualScale != visualScale ||
+        old.horizontalPadding != horizontalPadding ||
+        old.verticalPadding != verticalPadding ||
+        old.horizontalWrap != horizontalWrap ||
+        old.lightPalette != lightPalette) {
+      return true;
+    }
+    if (paintLayer == FlatMapPaintLayer.base) return false;
+    return old.airports != airports ||
+        old.routes != routes ||
+        old.places != places ||
+        old.showLabels != showLabels ||
+        old.routeRevealProgress != routeRevealProgress ||
+        old.showRouteAnimationPlane != showRouteAnimationPlane;
+  }
 }
 
 class _MapLabelCandidate {
@@ -1430,6 +1449,44 @@ class _MapLabelCandidate {
   final Offset point;
   final int priority;
   final bool force;
+}
+
+class _RouteLookup {
+  const _RouteLookup({required this.offsets, required this.incomingByAirport});
+
+  factory _RouteLookup.from(List<MapRoute> routes) {
+    String key(String from, String to) => '$from\u0000$to';
+    final indicesByDirection = <String, List<int>>{};
+    final incomingByAirport = <String, List<int>>{};
+    for (var index = 0; index < routes.length; index++) {
+      final route = routes[index];
+      indicesByDirection
+          .putIfAbsent(key(route.from.code, route.to.code), () => <int>[])
+          .add(index);
+      incomingByAirport.putIfAbsent(route.to.code, () => <int>[]).add(index);
+    }
+    final offsets = List<double>.filled(routes.length, 0, growable: false);
+    for (var index = 0; index < routes.length; index++) {
+      final route = routes[index];
+      final reverseCandidates =
+          indicesByDirection[key(route.to.code, route.from.code)] ??
+          const <int>[];
+      var reverseIndex = -1;
+      for (final candidate in reverseCandidates) {
+        if (candidate != index) {
+          reverseIndex = candidate;
+          break;
+        }
+      }
+      if (reverseIndex >= 0) {
+        offsets[index] = index < reverseIndex ? -2.4 : 2.4;
+      }
+    }
+    return _RouteLookup(offsets: offsets, incomingByAirport: incomingByAirport);
+  }
+
+  final List<double> offsets;
+  final Map<String, List<int>> incomingByAirport;
 }
 
 /// Reprojects the static GeoJSON geometry only once for each recent canvas

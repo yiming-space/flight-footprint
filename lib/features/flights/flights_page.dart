@@ -88,9 +88,11 @@ class _FlightsPageState extends State<FlightsPage> {
     final status = _filter == 0
         ? FlightStatus.upcoming
         : FlightStatus.completed;
-    final source = widget.controller.flights
-        .where((flight) => flight.status == status)
-        .toList();
+    final source = widget.controller.flights.where((flight) {
+      return status == FlightStatus.upcoming
+          ? flight.isUpcoming
+          : flight.isCompleted;
+    }).toList();
     final flights = source.where((flight) {
       return (_selectedYear == null ||
               flight.departedAt.toLocal().year == _selectedYear) &&
@@ -109,7 +111,11 @@ class _FlightsPageState extends State<FlightsPage> {
         ? FlightStatus.upcoming
         : FlightStatus.completed;
     return widget.controller.flights
-        .where((flight) => flight.status == status)
+        .where(
+          (flight) => status == FlightStatus.upcoming
+              ? flight.isUpcoming
+              : flight.isCompleted,
+        )
         .map((flight) => flight.departedAt.toLocal().year)
         .toSet()
         .toList()

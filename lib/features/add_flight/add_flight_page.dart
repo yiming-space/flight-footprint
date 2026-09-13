@@ -1037,15 +1037,6 @@ class _AddFlightPageState extends State<AddFlightPage>
     return _date.add(Duration(minutes: minutes));
   }
 
-  FlightStatus _statusForDate(DateTime date) {
-    final today = DateTime.now();
-    final selectedDay = DateTime(date.year, date.month, date.day);
-    final currentDay = DateTime(today.year, today.month, today.day);
-    return selectedDay.isAfter(currentDay)
-        ? FlightStatus.upcoming
-        : FlightStatus.completed;
-  }
-
   Future<void> _save() async {
     final strings = context.strings;
     final parsed = _syncFlightIdentity();
@@ -1068,7 +1059,7 @@ class _AddFlightPageState extends State<AddFlightPage>
           : (durationMinutes != null && durationMinutes > 0
                 ? _date.add(Duration(minutes: durationMinutes))
                 : null);
-      final status = _statusForDate(_date);
+      final status = flightStatusForDeparture(_date, DateTime.now());
       if (initial == null) {
         await widget.controller.addFlight(
           departure: _departure!,

@@ -1,5 +1,25 @@
 enum FlightStatus { upcoming, completed }
 
+/// Derives the automatic two-state lifecycle from the departure's local day.
+///
+/// The app has historically treated a flight as completed from the start of
+/// its departure day. Keep that behavior in one place so manual entry,
+/// imports, and stored-flight reconciliation cannot drift apart.
+FlightStatus flightStatusForDeparture(DateTime departedAt, DateTime now) {
+  final departure = departedAt.toLocal();
+  final reference = now.toLocal();
+  final departureDay = DateTime(departure.year, departure.month, departure.day);
+  final currentDay = DateTime(reference.year, reference.month, reference.day);
+  return departureDay.isAfter(currentDay)
+      ? FlightStatus.upcoming
+      : FlightStatus.completed;
+}
+
+DateTime flightStatusTransitionAt(DateTime departedAt) {
+  final departure = departedAt.toLocal();
+  return DateTime(departure.year, departure.month, departure.day);
+}
+
 FlightStatus flightStatusFromStorage(Object? value) =>
     value?.toString().toLowerCase() == 'upcoming'
     ? FlightStatus.upcoming
@@ -81,6 +101,13 @@ class Flight {
     distanceKm: distanceKm ?? this.distanceKm,
     track: track ?? this.track,
   );
+
+  /// Completed records stay completed; upcoming records automatically mature
+  /// once their local departure day begins.
+  FlightStatus effectiveStatusAt(DateTime now) =>
+      status == FlightStatus.completed
+      ? FlightStatus.completed
+      : flightStatusForDeparture(departedAt, now);
 
   bool get isUpcoming => status == FlightStatus.upcoming;
   bool get isCompleted => status == FlightStatus.completed;

@@ -207,6 +207,23 @@ class FlightRepository {
     });
   }
 
+  Future<void> upsertFlights(Iterable<Flight> flights) async {
+    final values = flights.toList(growable: false);
+    if (values.isEmpty) return;
+    final database = await _databaseProvider();
+    await database.transaction((transaction) async {
+      final batch = transaction.batch();
+      for (final flight in values) {
+        batch.insert(
+          'flights',
+          _flightToRow(flight),
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+      }
+      await batch.commit(noResult: true);
+    });
+  }
+
   /// Returns how many rows would be added, updated or left unchanged.
   ///
   /// A flight is matched by local calendar day + flight number. This lets an

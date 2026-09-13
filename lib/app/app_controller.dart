@@ -145,6 +145,8 @@ class AppController extends ChangeNotifier {
     DateTime? end,
   }) => calendarImport.scan(start: start, end: end);
 
+  Future<void> refreshFlights() => data.refresh();
+
   Future<FlightImportPreview> previewCalendarFlights(
     Iterable<CalendarFlightDraft> drafts,
   ) => data.previewImportDetails(drafts.map((draft) => draft.toFlight()));

@@ -252,7 +252,7 @@ class CalendarImportService {
       flightNumber: flightNumber,
       departedAt: times.$1,
       arrivedAt: times.$2,
-      status: _statusForDate(times.$1, now ?? _clock()),
+      status: flightStatusForDeparture(times.$1, now ?? _clock()),
       distanceKm: airportDistance,
       durationMinutes: duration,
     );
@@ -433,14 +433,6 @@ class CalendarImportService {
       }
     }
     return null;
-  }
-
-  static FlightStatus _statusForDate(DateTime date, DateTime now) {
-    final flightDay = DateTime(date.year, date.month, date.day);
-    final today = DateTime(now.year, now.month, now.day);
-    return flightDay.isAfter(today)
-        ? FlightStatus.upcoming
-        : FlightStatus.completed;
   }
 
   static String _flightIdentityKey(CalendarFlightDraft draft) {

@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:archive/archive.dart';
 import 'package:flight_footprint/data/airport_catalog.dart';
 import 'package:flight_footprint/data/flight_spreadsheet_import_service.dart';
+import 'package:flight_footprint/domain/flight.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -35,6 +36,7 @@ void main() {
     expect(flight.durationMinutes, 100);
     expect(flight.distanceKm, 520);
     expect(flight.note, isNull);
+    expect(flight.status, FlightStatus.completed);
     expect(result.rows.single.departureAirportName, '深圳宝安T3');
     expect(result.rows.single.arrivalAirportName, '厦门高崎');
   });

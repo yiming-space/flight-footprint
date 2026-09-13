@@ -356,7 +356,7 @@ class FlightSpreadsheetImportService {
       arrivedAt: arrivedAt,
       createdAt: createdAt,
       updatedAt: createdAt,
-      status: _statusForDate(departedAt, now),
+      status: flightStatusForDeparture(departedAt, now),
       airline: airline,
       flightNumber: flightNumber,
       aircraftType: _cell(values, header.aircraft).nullIfEmpty,
@@ -427,14 +427,6 @@ class FlightSpreadsheetImportService {
       _airportResolutionCache.clear();
     }
     _airportResolutionCache[key] = match;
-  }
-
-  static FlightStatus _statusForDate(DateTime date, DateTime now) {
-    final flightDay = DateTime(date.year, date.month, date.day);
-    final today = DateTime(now.year, now.month, now.day);
-    return flightDay.isAfter(today)
-        ? FlightStatus.upcoming
-        : FlightStatus.completed;
   }
 }
 

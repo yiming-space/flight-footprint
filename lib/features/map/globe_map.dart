@@ -46,6 +46,49 @@ class GlobeMap extends StatefulWidget {
   State<GlobeMap> createState() => _GlobeMapState();
 }
 
+/// Mutable camera values used directly by [GlobePainter].
+///
+/// Keeping the camera in the painter's repaint listenable lets drag, momentum,
+/// entry, and idle-rotation frames repaint only the globe layer instead of
+/// rebuilding the surrounding [FutureBuilder], layout, and gesture widgets.
+class GlobeCamera extends ChangeNotifier {
+  GlobeCamera({
+    this.yaw = 0,
+    this.pitch = 0,
+    this.scale = 1,
+    this.entryScale = 1,
+  });
+
+  double yaw;
+  double pitch;
+  double scale;
+  double entryScale;
+
+  void update({
+    double? yaw,
+    double? pitch,
+    double? scale,
+    double? entryScale,
+    bool notify = true,
+  }) {
+    final nextYaw = yaw ?? this.yaw;
+    final nextPitch = pitch ?? this.pitch;
+    final nextScale = scale ?? this.scale;
+    final nextEntryScale = entryScale ?? this.entryScale;
+    if (nextYaw == this.yaw &&
+        nextPitch == this.pitch &&
+        nextScale == this.scale &&
+        nextEntryScale == this.entryScale) {
+      return;
+    }
+    this.yaw = nextYaw;
+    this.pitch = nextPitch;
+    this.scale = nextScale;
+    this.entryScale = nextEntryScale;
+    if (notify) notifyListeners();
+  }
+}
+
 class _GlobeMapState extends State<GlobeMap> with TickerProviderStateMixin {
   static const _entryDuration = Duration(milliseconds: 680);
   static const _autoRotationDuration = Duration(seconds: 120);
@@ -59,9 +102,7 @@ class _GlobeMapState extends State<GlobeMap> with TickerProviderStateMixin {
   double _releasePitch = 0;
   Offset _releaseVelocity = Offset.zero;
   bool _pinching = false;
-  double _yaw = -.35;
-  double _pitch = .12;
-  double _scale = 1;
+  late final GlobeCamera _camera;
   double _startYaw = 0;
   double _startPitch = 0;
   double _startScale = 1;
@@ -81,6 +122,7 @@ class _GlobeMapState extends State<GlobeMap> with TickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
+    _camera = GlobeCamera(yaw: -.35, pitch: .12, entryScale: .86);
     _future = _loadScene();
     _momentum =
         AnimationController(
@@ -89,12 +131,12 @@ class _GlobeMapState extends State<GlobeMap> with TickerProviderStateMixin {
           )
           ..addListener(() {
             final travel = (1 - math.exp(-6 * _momentum.value)) / 6;
-            setState(() {
-              _yaw = _releaseYaw + _releaseVelocity.dx * travel;
-              _pitch = (_releasePitch + _releaseVelocity.dy * travel)
+            _camera.update(
+              yaw: _releaseYaw + _releaseVelocity.dx * travel,
+              pitch: (_releasePitch + _releaseVelocity.dy * travel)
                   .clamp(-math.pi / 2, math.pi / 2)
-                  .toDouble();
-            });
+                  .toDouble(),
+            );
           })
           ..addStatusListener((status) {
             if (status == AnimationStatus.completed ||
@@ -134,7 +176,11 @@ class _GlobeMapState extends State<GlobeMap> with TickerProviderStateMixin {
       widget.showRouteAnimationPlane && widget.routeAnimationProgress < .999;
 
   void _handleEntryTick() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    final progress = Curves.easeOutCubic.transform(
+      _entryController.value.clamp(0.0, 1.0).toDouble(),
+    );
+    _camera.update(entryScale: .86 + progress * .14);
   }
 
   void _handleEntryStatus(AnimationStatus status) {
@@ -157,9 +203,7 @@ class _GlobeMapState extends State<GlobeMap> with TickerProviderStateMixin {
     if (delta < -.5) delta += 1;
     _autoRotationLastValue = value;
     if (delta <= 0) return;
-    setState(() {
-      _yaw = _wrappedAngle(_yaw + delta * math.pi * 2);
-    });
+    _camera.update(yaw: _wrappedAngle(_camera.yaw + delta * math.pi * 2));
   }
 
   void _startPresentationIfNeeded() {
@@ -212,8 +256,12 @@ class _GlobeMapState extends State<GlobeMap> with TickerProviderStateMixin {
 
   static double _wrappedAngle(double value) {
     var result = value;
-    while (result > math.pi) result -= math.pi * 2;
-    while (result < -math.pi) result += math.pi * 2;
+    while (result > math.pi) {
+      result -= math.pi * 2;
+    }
+    while (result < -math.pi) {
+      result += math.pi * 2;
+    }
     return result;
   }
 
@@ -227,6 +275,7 @@ class _GlobeMapState extends State<GlobeMap> with TickerProviderStateMixin {
       ?..removeListener(_handleAutoRotationTick)
       ..dispose();
     _momentum.dispose();
+    _camera.dispose();
     super.dispose();
   }
 
@@ -247,9 +296,7 @@ class _GlobeMapState extends State<GlobeMap> with TickerProviderStateMixin {
     }
     if ((oldWidget.resetSignal ?? 0) != (widget.resetSignal ?? 0)) {
       _momentum.stop();
-      _yaw = -.35;
-      _pitch = .12;
-      _scale = 1;
+      _camera.update(yaw: -.35, pitch: .12, scale: 1, entryScale: .86);
       _followYawOffset = 0;
       _followPitchOffset = 0;
       _showLabels = false;
@@ -278,9 +325,9 @@ class _GlobeMapState extends State<GlobeMap> with TickerProviderStateMixin {
     _reportInteraction(true);
     _momentum.stop();
     _pinching = false;
-    _startYaw = _yaw;
-    _startPitch = _pitch;
-    _startScale = _scale;
+    _startYaw = _camera.yaw;
+    _startPitch = _camera.pitch;
+    _startScale = _camera.scale;
     _startFocalPoint = details.focalPoint;
     _startFollowYawOffset = _followYawOffset;
     _startFollowPitchOffset = _followPitchOffset;
@@ -289,24 +336,34 @@ class _GlobeMapState extends State<GlobeMap> with TickerProviderStateMixin {
   void _onScaleUpdate(ScaleUpdateDetails details) {
     final delta = details.focalPoint - _startFocalPoint;
     _pinching = _pinching || details.pointerCount > 1;
-    setState(() {
-      if (_following) {
-        // Keep the aircraft follow camera adjustable without allowing a drag
-        // to push the active flight permanently behind the globe.
-        _followYawOffset = (_startFollowYawOffset + delta.dx / 240)
-            .clamp(-.62, .62)
-            .toDouble();
-        _followPitchOffset = (_startFollowPitchOffset + delta.dy / 240)
-            .clamp(-.48, .48)
-            .toDouble();
-      } else {
-        _yaw = _startYaw + delta.dx / 240;
-        _pitch = (_startPitch + delta.dy / 240)
-            .clamp(-math.pi / 2, math.pi / 2)
-            .toDouble();
-      }
-      _scale = (_startScale * details.scale).clamp(.82, 2.05).toDouble();
-    });
+    double? nextYaw;
+    double? nextPitch;
+    if (_following) {
+      // Keep the aircraft follow camera adjustable without allowing a drag
+      // to push the active flight permanently behind the globe.
+      final nextYawOffset = (_startFollowYawOffset + delta.dx / 240)
+          .clamp(-.62, .62)
+          .toDouble();
+      final nextPitchOffset = (_startFollowPitchOffset + delta.dy / 240)
+          .clamp(-.48, .48)
+          .toDouble();
+      nextYaw = _camera.yaw + nextYawOffset - _followYawOffset;
+      nextPitch = (_camera.pitch + nextPitchOffset - _followPitchOffset)
+          .clamp(-math.pi / 2, math.pi / 2)
+          .toDouble();
+      _followYawOffset = nextYawOffset;
+      _followPitchOffset = nextPitchOffset;
+    } else {
+      nextYaw = _startYaw + delta.dx / 240;
+      nextPitch = (_startPitch + delta.dy / 240)
+          .clamp(-math.pi / 2, math.pi / 2)
+          .toDouble();
+    }
+    _camera.update(
+      yaw: nextYaw,
+      pitch: nextPitch,
+      scale: (_startScale * details.scale).clamp(.82, 2.05).toDouble(),
+    );
   }
 
   void _onScaleEnd(ScaleEndDetails details) {
@@ -323,8 +380,8 @@ class _GlobeMapState extends State<GlobeMap> with TickerProviderStateMixin {
       velocity.dx.clamp(-5.0, 5.0),
       velocity.dy.clamp(-5.0, 5.0),
     );
-    _releaseYaw = _yaw;
-    _releasePitch = _pitch;
+    _releaseYaw = _camera.yaw;
+    _releasePitch = _camera.pitch;
     _momentum.forward(from: 0);
   }
 
@@ -363,10 +420,6 @@ class _GlobeMapState extends State<GlobeMap> with TickerProviderStateMixin {
       }
       _surfaceShader ??= snapshot.data!.surface.createShader();
       _startPresentationIfNeeded();
-      final entryProgress = Curves.easeOutCubic.transform(
-        _entryController.value.clamp(0.0, 1.0).toDouble(),
-      );
-      final entryScale = .86 + entryProgress * .14;
       final animationCamera = _following
           ? GlobePainter.animationCameraForProgress(
               widget.routes,
@@ -374,10 +427,14 @@ class _GlobeMapState extends State<GlobeMap> with TickerProviderStateMixin {
             )
           : null;
       if (animationCamera != null) {
-        _yaw = animationCamera.yaw + _followYawOffset;
-        _pitch = (animationCamera.pitch + _followPitchOffset)
-            .clamp(-math.pi / 2, math.pi / 2)
-            .toDouble();
+        _camera.update(
+          yaw: animationCamera.yaw + _followYawOffset,
+          pitch: (animationCamera.pitch + _followPitchOffset)
+              .clamp(-math.pi / 2, math.pi / 2)
+              .toDouble(),
+          // The parent route-animation frame already rebuilds this widget.
+          notify: false,
+        );
       }
       return LayoutBuilder(
         builder: (context, constraints) {
@@ -396,11 +453,10 @@ class _GlobeMapState extends State<GlobeMap> with TickerProviderStateMixin {
             airports: widget.airports,
             routes: widget.routes,
             places: widget.places,
-            yaw: _yaw,
-            pitch: _pitch,
-            scale: _scale * entryScale,
+            camera: _camera,
             routeAnimationProgress: widget.routeAnimationProgress,
             showRouteAnimationPlane: widget.showRouteAnimationPlane,
+            drawBackdrop: false,
             showLabels: _showLabels,
             selectedLabel: _selectedLabel,
             selectedCoordinate: _selectedCoordinate,
@@ -432,9 +488,19 @@ class _GlobeMapState extends State<GlobeMap> with TickerProviderStateMixin {
             onScaleStart: _onScaleStart,
             onScaleUpdate: _onScaleUpdate,
             onScaleEnd: _onScaleEnd,
-            child: CustomPaint(
-              painter: painter,
-              child: const SizedBox.expand(),
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                const RepaintBoundary(
+                  child: CustomPaint(painter: GlobeBackdropPainter()),
+                ),
+                RepaintBoundary(
+                  child: CustomPaint(
+                    painter: painter,
+                    child: const SizedBox.expand(),
+                  ),
+                ),
+              ],
             ),
           );
         },
@@ -453,15 +519,17 @@ class GlobePainter extends CustomPainter {
     this.airports = const [],
     this.routes = const [],
     this.places = const [],
+    this.camera,
     this.yaw = 0,
     this.pitch = 0,
     this.scale = 1,
     this.routeAnimationProgress = 1,
     this.showRouteAnimationPlane = false,
     this.showLabels = false,
+    this.drawBackdrop = true,
     this.selectedLabel,
     this.selectedCoordinate,
-  });
+  }) : super(repaint: camera);
 
   final GeoJsonMapBundle data;
   final ui.FragmentShader? surfaceShader;
@@ -469,14 +537,20 @@ class GlobePainter extends CustomPainter {
   final List<MapAirport> airports;
   final List<MapRoute> routes;
   final List<MapPlace> places;
+  final GlobeCamera? camera;
   final double yaw;
   final double pitch;
   final double scale;
   final double routeAnimationProgress;
   final bool showRouteAnimationPlane;
   final bool showLabels;
+  final bool drawBackdrop;
   final String? selectedLabel;
   final MapCoordinate? selectedCoordinate;
+
+  double get _yaw => camera?.yaw ?? yaw;
+  double get _pitch => camera?.pitch ?? pitch;
+  double get _scale => (camera?.scale ?? scale) * (camera?.entryScale ?? 1);
 
   // The fullscreen map receives both flight-derived airports and manually
   // visited places. In flight mode only airports that are actual endpoints
@@ -504,7 +578,32 @@ class GlobePainter extends CustomPainter {
     Color(0xfff6e68a),
   ];
 
-  static final _routeSamples = Expando<List<MapCoordinate>>();
+  static final _routeGeometries = Expando<_GlobeRouteGeometry>();
+
+  static _GlobeRouteGeometry _geometryFor(MapRoute route) {
+    final cached = _routeGeometries[route];
+    if (cached != null) return cached;
+    final start = _cameraVectorFor(route.from.latitude, route.from.longitude);
+    final end = _cameraVectorFor(route.to.latitude, route.to.longitude);
+    final dot = (start.x * end.x + start.y * end.y + start.z * end.z)
+        .clamp(-1.0, 1.0)
+        .toDouble();
+    final angle = math.acos(dot);
+    final sine = math.sin(angle);
+    final stepCount = math.max(
+      48,
+      math.min(180, (angle * 180 / math.pi).ceil()),
+    );
+    final height = (angle / math.pi * .10).clamp(.008, .075).toDouble();
+    return _routeGeometries[route] = _GlobeRouteGeometry(
+      start: start,
+      end: end,
+      angle: angle,
+      sine: sine,
+      stepCount: stepCount,
+      maxLift: height,
+    );
+  }
 
   /// Returns a camera target that keeps the animated aircraft near the centre
   /// of the globe. Both the yaw and pitch follow the same eased route position
@@ -540,13 +639,11 @@ class GlobePainter extends CustomPainter {
     MapRoute route,
     double progress,
   ) {
-    final start = _cameraVectorFor(route.from.latitude, route.from.longitude);
-    final end = _cameraVectorFor(route.to.latitude, route.to.longitude);
-    final dot = (start.x * end.x + start.y * end.y + start.z * end.z)
-        .clamp(-1.0, 1.0)
-        .toDouble();
-    final angle = math.acos(dot);
-    final sine = math.sin(angle);
+    final geometry = _geometryFor(route);
+    final start = geometry.start;
+    final end = geometry.end;
+    final angle = geometry.angle;
+    final sine = geometry.sine;
     if (sine.abs() < .000001) {
       return MapCoordinate(route.from.latitude, route.from.longitude);
     }
@@ -591,21 +688,13 @@ class GlobePainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    const GalaxyBackgroundPainter().paint(canvas, size);
-    canvas.drawRect(
-      Offset.zero & size,
-      Paint()
-        ..shader = const RadialGradient(
-          colors: [Color(0x9208182b), Color(0xF302050d)],
-          radius: .92,
-        ).createShader(Offset.zero & size),
-    );
-    final radius = math.min(size.width, size.height) * .39 * scale;
+    if (drawBackdrop) const GlobeBackdropPainter().paint(canvas, size);
+    final radius = math.min(size.width, size.height) * .39 * _scale;
     final projection = _GlobeProjection(
       center: size.center(Offset.zero),
       radius: radius,
-      yaw: yaw,
-      pitch: pitch,
+      yaw: _yaw,
+      pitch: _pitch,
     );
     final sphere = Path()..addOval(projection.bounds);
     // A small radial falloff keeps the atmosphere outside the surface and
@@ -635,8 +724,8 @@ class GlobePainter extends CustomPainter {
         shader: shader,
         center: projection.center,
         radius: radius,
-        yaw: yaw,
-        pitch: pitch,
+        yaw: _yaw,
+        pitch: _pitch,
       );
     } else {
       canvas.drawPath(sphere, Paint()..color = const Color(0xff102a3b));
@@ -702,9 +791,9 @@ class GlobePainter extends CustomPainter {
     for (var index = 0; index < routes.length; index++) {
       final route = routes[index];
       final progress = _routeProgressForIndex(index, routes.length);
-      final samples = _partialRoute(_greatCircleRoute(route), progress);
-      if (samples.length < 2) continue;
-      final path = _elevatedRoutePath(projection, samples, route);
+      final samples = _greatCircleRoute(route);
+      if (samples.length < 2 || progress <= 0) continue;
+      final path = _elevatedRoutePath(projection, samples, progress, route);
       if (path.getBounds().isEmpty) continue;
       canvas.drawPath(
         path,
@@ -1019,9 +1108,9 @@ class GlobePainter extends CustomPainter {
 
   _GlobeProjection _projectionFor(Size size) => _GlobeProjection(
     center: size.center(Offset.zero),
-    radius: math.min(size.width, size.height) * .39 * scale,
-    yaw: yaw,
-    pitch: pitch,
+    radius: math.min(size.width, size.height) * .39 * _scale,
+    yaw: _yaw,
+    pitch: _pitch,
   );
 
   void _drawRouteAnimationPlane(Canvas canvas, _GlobeProjection projection) {
@@ -1120,51 +1209,45 @@ class GlobePainter extends CustomPainter {
     return ((progress - start) * count).clamp(0.0, 1.0).toDouble();
   }
 
-  List<_GlobeRoutePoint> _partialRoute(
-    List<MapCoordinate> route,
-    double progress,
-  ) {
-    if (route.length < 2) return const [];
-    final normalized = progress.clamp(0.0, 1.0).toDouble();
-    final position = normalized * (route.length - 1);
-    final last = position.floor().clamp(0, route.length - 1).toInt();
-    final result = <_GlobeRoutePoint>[
-      for (var index = 0; index <= last; index++)
-        _GlobeRoutePoint(route[index], index / (route.length - 1)),
-    ];
-    if (last < route.length - 1) {
-      result.add(
-        _GlobeRoutePoint(_interpolateRoute(route, normalized), normalized),
-      );
-    }
-    return result;
-  }
-
   Path _elevatedRoutePath(
     _GlobeProjection projection,
-    List<_GlobeRoutePoint> points,
+    List<MapCoordinate> points,
+    double progress,
     MapRoute route,
   ) {
+    final normalized = progress.clamp(0.0, 1.0).toDouble();
+    final position = normalized * (points.length - 1);
+    final last = position.floor().clamp(0, points.length - 1).toInt();
+    final hasPartialEnd = last < points.length - 1;
+    final itemCount = last + 1 + (hasPartialEnd ? 1 : 0);
     final path = Path();
     var active = false;
-    _GlobeRoutePoint? previous;
+    MapCoordinate? previousCoordinate;
+    var previousProgress = 0.0;
     Offset? previousPoint;
-    Offset? project(_GlobeRoutePoint p) => projection.projectElevated(
-      p.coordinate.latitude,
-      p.coordinate.longitude,
-      _routeLift(p.progress, route),
-    );
-    for (final routePoint in points) {
-      final point = project(routePoint);
-      if (previous != null && (previousPoint == null) != (point == null)) {
-        var low = previous.progress;
-        var high = routePoint.progress;
+    Offset? project(MapCoordinate coordinate, double routeProgress) =>
+        projection.projectElevated(
+          coordinate.latitude,
+          coordinate.longitude,
+          _routeLift(routeProgress, route),
+        );
+    for (var index = 0; index < itemCount; index++) {
+      final isPartialEnd = hasPartialEnd && index == itemCount - 1;
+      final routeProgress = isPartialEnd
+          ? normalized
+          : index / (points.length - 1);
+      final coordinate = isPartialEnd
+          ? _interpolateRoute(points, normalized)
+          : points[index];
+      final point = project(coordinate, routeProgress);
+      if (previousCoordinate != null &&
+          (previousPoint == null) != (point == null)) {
+        var low = previousProgress;
+        var high = routeProgress;
         Offset? boundary = previousPoint ?? point;
         for (var iteration = 0; iteration < 16; iteration++) {
           final t = (low + high) / 2;
-          final sample = project(
-            _GlobeRoutePoint(_coordinateAtRouteProgress(route, t), t),
-          );
+          final sample = project(_coordinateAtRouteProgress(route, t), t);
           if (sample != null) boundary = sample;
           if ((sample != null) == (previousPoint != null)) {
             low = t;
@@ -1181,7 +1264,8 @@ class GlobePainter extends CustomPainter {
           }
         }
       }
-      previous = routePoint;
+      previousCoordinate = coordinate;
+      previousProgress = routeProgress;
       previousPoint = point;
       if (point == null) {
         active = false;
@@ -1198,11 +1282,7 @@ class GlobePainter extends CustomPainter {
   }
 
   double _routeLift(double progress, MapRoute route) {
-    final angle = _surfaceAngleDegrees(
-      _GlobeCoordinate(route.from.latitude, route.from.longitude),
-      _GlobeCoordinate(route.to.latitude, route.to.longitude),
-    );
-    final height = (angle / 180 * .10).clamp(.008, .075);
+    final height = _geometryFor(route).maxLift;
     return math.sin(progress.clamp(0.0, 1.0) * math.pi) * height;
   }
 
@@ -1221,18 +1301,16 @@ class GlobePainter extends CustomPainter {
   }
 
   List<MapCoordinate> _greatCircleRoute(MapRoute route) {
-    final cached = _routeSamples[route];
+    final geometry = _geometryFor(route);
+    final cached = geometry.samples;
     if (cached != null) return cached;
-    final start = _vectorFor(route.from.latitude, route.from.longitude);
-    final end = _vectorFor(route.to.latitude, route.to.longitude);
-    final dot = (start.x * end.x + start.y * end.y + start.z * end.z)
-        .clamp(-1.0, 1.0)
-        .toDouble();
-    final angle = math.acos(dot);
-    final steps = math.max(48, math.min(180, (angle * 180 / math.pi).ceil()));
-    final sinAngle = math.sin(angle);
-    return _routeSamples[route] = [
-      for (var index = 0; index <= steps; index++)
+    final start = geometry.start;
+    final end = geometry.end;
+    final angle = geometry.angle;
+    final steps = geometry.stepCount;
+    final sinAngle = geometry.sine;
+    return geometry.samples = [
+      for (var index = 0; index <= geometry.stepCount; index++)
         _coordinateFor(
           sinAngle.abs() < .000001
               ? start
@@ -1472,28 +1550,37 @@ class GlobePainter extends CustomPainter {
       old.airports != airports ||
       old.routes != routes ||
       old.places != places ||
+      old.camera != camera ||
       old.yaw != yaw ||
       old.pitch != pitch ||
       old.scale != scale ||
       old.routeAnimationProgress != routeAnimationProgress ||
       old.showRouteAnimationPlane != showRouteAnimationPlane ||
       old.showLabels != showLabels ||
+      old.drawBackdrop != drawBackdrop ||
       old.selectedLabel != selectedLabel ||
       old.selectedCoordinate != selectedCoordinate;
 }
 
 class _GlobeProjection {
-  const _GlobeProjection({
+  _GlobeProjection({
     required this.center,
     required this.radius,
     required this.yaw,
     required this.pitch,
-  });
+  }) : _cosYaw = math.cos(yaw),
+       _sinYaw = math.sin(yaw),
+       _cosPitch = math.cos(pitch),
+       _sinPitch = math.sin(pitch);
 
   final Offset center;
   final double radius;
   final double yaw;
   final double pitch;
+  final double _cosYaw;
+  final double _sinYaw;
+  final double _cosPitch;
+  final double _sinPitch;
 
   Rect get bounds => Rect.fromCircle(center: center, radius: radius);
 
@@ -1538,14 +1625,10 @@ class _GlobeProjection {
       y: math.sin(lat),
       z: cosLatitude * math.cos(lon),
     );
-    final cosYaw = math.cos(yaw);
-    final sinYaw = math.sin(yaw);
-    final rotatedX = original.x * cosYaw + original.z * sinYaw;
-    final rotatedZ = -original.x * sinYaw + original.z * cosYaw;
-    final cosPitch = math.cos(pitch);
-    final sinPitch = math.sin(pitch);
-    final rotatedY = original.y * cosPitch - rotatedZ * sinPitch;
-    final front = original.y * sinPitch + rotatedZ * cosPitch;
+    final rotatedX = original.x * _cosYaw + original.z * _sinYaw;
+    final rotatedZ = -original.x * _sinYaw + original.z * _cosYaw;
+    final rotatedY = original.y * _cosPitch - rotatedZ * _sinPitch;
+    final front = original.y * _sinPitch + rotatedZ * _cosPitch;
     final radial = 1 + elevation;
     return _GlobeProjectionValue(
       point: Offset(
@@ -1582,14 +1665,27 @@ class _GlobeVector {
   final double z;
 }
 
+class _GlobeRouteGeometry {
+  _GlobeRouteGeometry({
+    required this.start,
+    required this.end,
+    required this.angle,
+    required this.sine,
+    required this.stepCount,
+    required this.maxLift,
+  });
+
+  final _GlobeVector start;
+  final _GlobeVector end;
+  final double angle;
+  final double sine;
+  final int stepCount;
+  final double maxLift;
+  List<MapCoordinate>? samples;
+}
+
 class _GlobeCoordinate {
   const _GlobeCoordinate(this.latitude, this.longitude);
   final double latitude;
   final double longitude;
-}
-
-class _GlobeRoutePoint {
-  const _GlobeRoutePoint(this.coordinate, this.progress);
-  final MapCoordinate coordinate;
-  final double progress;
 }

@@ -24,6 +24,11 @@ class FlatMapPainter extends CustomPainter {
   static const _routeTravelShare = .86;
   static const _routeArrivalShare = .14;
 
+  Size? _projectionSize;
+  MillerProjectionViewport? _projectionViewport;
+  final Map<List<MapPolygon>, Map<int, List<int>>> _footprintIndexCache =
+      HashMap.identity();
+
   FlatMapPainter({
     required this.data,
     this.airports = const [],
@@ -183,21 +188,25 @@ class FlatMapPainter extends CustomPainter {
   /// Keeping this as the painter's single entry point prevents routes,
   /// markers, labels, and GeoJSON geometry from drifting apart.
   Offset project(double latitude, double longitude, Size size) {
-    final minLatitude = compactWorldViewport
-        ? MillerCylindricalProjection.passportMinLatitude
-        : -90.0;
-    final maxLatitude = compactWorldViewport
-        ? MillerCylindricalProjection.passportMaxLatitude
-        : 90.0;
-    return MillerCylindricalProjection.toOffset(
-      latitude,
-      longitude,
+    return _projectionFor(size).toOffset(latitude, longitude);
+  }
+
+  MillerProjectionViewport _projectionFor(Size size) {
+    final cached = _projectionViewport;
+    if (cached != null && _projectionSize == size) return cached;
+    final viewport = MillerCylindricalProjection.viewportForSize(
       size,
       horizontalPadding: horizontalPadding,
       verticalPadding: verticalPadding,
-      minLatitude: minLatitude,
-      maxLatitude: maxLatitude,
+      minLatitude: compactWorldViewport
+          ? MillerCylindricalProjection.passportMinLatitude
+          : -90.0,
+      maxLatitude: compactWorldViewport
+          ? MillerCylindricalProjection.passportMaxLatitude
+          : 90.0,
     );
+    _projectionSize = size;
+    return _projectionViewport = viewport;
   }
 
   @override
@@ -212,32 +221,30 @@ class FlatMapPainter extends CustomPainter {
     }
     if (horizontalWrap) {
       final worldWidth = _worldPixelWidth(size);
+      // Route playback used to repeat all route progress calculations, path
+      // extraction, marker layout, and label layout once per world copy. A
+      // recorded picture keeps those CPU-side operations to one pass while
+      // the canvas still draws the same three translated copies.
+      final recorder = ui.PictureRecorder();
+      final pictureCanvas = Canvas(recorder);
+      _paintWorld(pictureCanvas, size);
+      final picture = recorder.endRecording();
       // Three copies are sufficient for the full-screen viewport in both
       // orientations. The center copy remains the reference world; its
       // neighbours provide the seamless date-line continuation.
       for (final copy in const <int>[-1, 0, 1]) {
         canvas.save();
         canvas.translate(copy * worldWidth, 0);
-        _paintWorld(canvas, size);
+        canvas.drawPicture(picture);
         canvas.restore();
       }
+      picture.dispose();
       return;
     }
     _paintWorld(canvas, size);
   }
 
-  double _worldPixelWidth(Size size) =>
-      MillerCylindricalProjection.worldPixelWidthForSize(
-        size,
-        horizontalPadding: horizontalPadding,
-        verticalPadding: verticalPadding,
-        minLatitude: compactWorldViewport
-            ? MillerCylindricalProjection.passportMinLatitude
-            : -90.0,
-        maxLatitude: compactWorldViewport
-            ? MillerCylindricalProjection.passportMaxLatitude
-            : 90.0,
-      );
+  double _worldPixelWidth(Size size) => _projectionFor(size).worldPixelWidth;
 
   void _paintWorld(Canvas canvas, Size size) {
     final paintsBase = paintLayer != FlatMapPaintLayer.overlay;
@@ -330,6 +337,9 @@ class FlatMapPainter extends CustomPainter {
 
     if (!paintsOverlay) return;
     if (mode == MapMode.flight) {
+      final routeOffsets = (_routeLookups[routes] ??= _RouteLookup.from(
+        routes,
+      )).offsets;
       for (var index = 0; index < routes.length; index++) {
         final route = routes[index];
         _drawRoute(
@@ -337,7 +347,7 @@ class FlatMapPainter extends CustomPainter {
           size,
           route,
           index,
-          offset: _screen(_routeOffsetForIndex(index)),
+          offset: _screen(routeOffsets[index]),
           routeProgress: _routeProgressForIndex(index, routes.length),
         );
       }
@@ -469,14 +479,18 @@ class FlatMapPainter extends CustomPainter {
   }
 
   bool _isAntarctica(MapPolygon polygon) {
-    final points = [
-      for (final ring in polygon.rings)
-        for (final point in ring)
-          if (point.length > 1) point[1],
-    ];
-    if (points.isEmpty) return false;
-    final maxLatitude = points.reduce(math.max);
-    final minLatitude = points.reduce(math.min);
+    var hasPoint = false;
+    var maxLatitude = -double.infinity;
+    var minLatitude = double.infinity;
+    for (final ring in polygon.rings) {
+      for (final point in ring) {
+        if (point.length < 2) continue;
+        hasPoint = true;
+        maxLatitude = math.max(maxLatitude, point[1]);
+        minLatitude = math.min(minLatitude, point[1]);
+      }
+    }
+    if (!hasPoint) return false;
     // The Natural Earth land layer contains Antarctica as a detached polygon
     // below roughly 60°S. Keep southern islands separate from the Antarctic
     // mainland when deciding whether its outline should be suppressed.
@@ -602,29 +616,39 @@ class FlatMapPainter extends CustomPainter {
     bool skipChinaCountry = false,
   }) {
     final paths = _polygonPaths(polygons, size);
-    for (var index = 0; index < polygons.length; index++) {
-      final polygon = polygons[index];
-      var visited = false;
-      for (final place in places) {
-        if (!place.isVisited) continue;
-        if (skipChinaCountry &&
-            place.countryCode?.trim().toUpperCase() == 'CN' &&
-            _contains(polygon, place.longitude, place.latitude)) {
-          // China is intentionally rendered like the world base map here;
-          // only the visited province layer below receives a fill.
-          visited = false;
-          break;
+    final cacheKey = (china ? 1 : 0) | (skipChinaCountry ? 2 : 0);
+    final indicesByStyle = _footprintIndexCache.putIfAbsent(
+      polygons,
+      () => <int, List<int>>{},
+    );
+    final visitedIndices = indicesByStyle.putIfAbsent(cacheKey, () {
+      final result = <int>[];
+      for (var index = 0; index < polygons.length; index++) {
+        final polygon = polygons[index];
+        var visited = false;
+        for (final place in places) {
+          if (!place.isVisited) continue;
+          if (skipChinaCountry &&
+              place.countryCode?.trim().toUpperCase() == 'CN' &&
+              _contains(polygon, place.longitude, place.latitude)) {
+            // China is intentionally rendered like the world base map here;
+            // only the visited province layer below receives a fill.
+            visited = false;
+            break;
+          }
+          if (_contains(polygon, place.longitude, place.latitude)) {
+            visited = true;
+            break;
+          }
         }
-        if (_contains(polygon, place.longitude, place.latitude)) {
-          visited = true;
-          break;
-        }
+        if (visited) result.add(index);
       }
-      if (!visited) continue;
-      canvas.drawPath(
-        paths[index],
-        Paint()..color = _footprintFill.withValues(alpha: china ? .40 : .36),
-      );
+      return result;
+    });
+    final paint = Paint()
+      ..color = _footprintFill.withValues(alpha: china ? .40 : .36);
+    for (final index in visitedIndices) {
+      canvas.drawPath(paths[index], paint);
     }
   }
 
@@ -701,8 +725,13 @@ class FlatMapPainter extends CustomPainter {
 
   bool _isAntarcticaLine(MapLine line) {
     if (line.points.isEmpty) return false;
-    final latitudes = [for (final point in line.points) point[1]];
-    return latitudes.reduce(math.max) < -58 && latitudes.reduce(math.min) < -60;
+    var maxLatitude = -double.infinity;
+    var minLatitude = double.infinity;
+    for (final point in line.points) {
+      maxLatitude = math.max(maxLatitude, point[1]);
+      minLatitude = math.min(minLatitude, point[1]);
+    }
+    return maxLatitude < -58 && minLatitude < -60;
   }
 
   void _drawRoute(
@@ -713,6 +742,7 @@ class FlatMapPainter extends CustomPainter {
     double offset = 0,
     double routeProgress = 1,
   }) {
+    if (routeProgress <= 0) return;
     final geometry = _routeGeometryFor(route, size, offset);
     if (geometry == null) return;
     final color = _routeColors[index % _routeColors.length];
@@ -725,18 +755,22 @@ class FlatMapPainter extends CustomPainter {
       // opacity rather than a distracting change in line weight.
       ..strokeWidth = _screen(1.1);
 
-    final revealLength =
-        geometry.routeLength * routeProgress.clamp(0.0, 1.0).toDouble();
-    var remaining = revealLength;
-    outer:
-    for (final metrics in geometry.segmentMetrics) {
-      for (final metric in metrics) {
-        final visibleLength = math.min(remaining, metric.length).toDouble();
-        if (visibleLength > 0) {
-          canvas.drawPath(metric.extractPath(0, visibleLength), paint);
+    if (routeProgress >= 1) {
+      canvas.drawPath(geometry.completePath, paint);
+    } else {
+      final revealLength =
+          geometry.routeLength * routeProgress.clamp(0.0, 1.0).toDouble();
+      var remaining = revealLength;
+      outer:
+      for (final metrics in geometry.segmentMetrics) {
+        for (final metric in metrics) {
+          final visibleLength = math.min(remaining, metric.length).toDouble();
+          if (visibleLength > 0) {
+            canvas.drawPath(metric.extractPath(0, visibleLength), paint);
+          }
+          remaining -= visibleLength;
+          if (remaining <= 0) break outer;
         }
-        remaining -= visibleLength;
-        if (remaining <= 0) break outer;
       }
     }
 
@@ -748,19 +782,12 @@ class FlatMapPainter extends CustomPainter {
       _drawArrowhead(canvas, geometry.arrowBefore, geometry.arrowEnd, color);
     }
     final endpointRadius = showPassportTexture ? 1.92 : 3.2;
+    final endpointPaint = Paint()..color = color;
     if (routeProgress > 0) {
-      canvas.drawCircle(
-        geometry.start,
-        _screen(endpointRadius),
-        Paint()..color = color,
-      );
+      canvas.drawCircle(geometry.start, _screen(endpointRadius), endpointPaint);
     }
     if (routeProgress >= 1) {
-      canvas.drawCircle(
-        geometry.end,
-        _screen(endpointRadius),
-        Paint()..color = color,
-      );
+      canvas.drawCircle(geometry.end, _screen(endpointRadius), endpointPaint);
     }
   }
 
@@ -858,46 +885,37 @@ class FlatMapPainter extends CustomPainter {
     }
 
     if (mode == MapMode.travelFootprint) {
-      final hits =
-          places
-              .where(
-                (p) =>
-                    distanceTo(project(p.latitude, p.longitude, size)) <=
-                    tolerance,
-              )
-              .toList()
-            ..sort(
-              (a, b) => distanceTo(
-                project(a.latitude, a.longitude, size),
-              ).compareTo(distanceTo(project(b.latitude, b.longitude, size))),
-            );
-      if (hits.isNotEmpty) return MapSelection(places: hits);
+      final hits = <({MapPlace place, double distance})>[];
+      for (final place in places) {
+        final distance = distanceTo(
+          project(place.latitude, place.longitude, size),
+        );
+        if (distance <= tolerance) hits.add((place: place, distance: distance));
+      }
+      hits.sort((a, b) => a.distance.compareTo(b.distance));
+      if (hits.isNotEmpty) {
+        return MapSelection(places: [for (final hit in hits) hit.place]);
+      }
       return null;
     }
-    final hits =
-        airports
-            .where(
-              (a) =>
-                  distanceTo(project(a.latitude, a.longitude, size)) <=
-                  tolerance,
-            )
-            .toList()
-          ..sort(
-            (a, b) => distanceTo(project(a.latitude, a.longitude, size))
-                .compareTo(distanceTo(project(b.latitude, b.longitude, size))),
-          );
-    if (hits.isNotEmpty) return MapSelection(airports: hits);
+    final hits = <({MapAirport airport, double distance})>[];
+    for (final airport in airports) {
+      final distance = distanceTo(
+        project(airport.latitude, airport.longitude, size),
+      );
+      if (distance <= tolerance) {
+        hits.add((airport: airport, distance: distance));
+      }
+    }
+    hits.sort((a, b) => a.distance.compareTo(b.distance));
+    if (hits.isNotEmpty) {
+      return MapSelection(airports: [for (final hit in hits) hit.airport]);
+    }
     MapRoute? nearest;
     var best = tolerance;
     for (var index = 0; index < routes.length; index++) {
       final route = routes[index];
-      final reverse = routes.indexWhere(
-        (r) =>
-            r.from.code == route.to.code &&
-            r.to.code == route.from.code &&
-            !identical(r, route),
-      );
-      final offset = reverse < 0 ? 0.0 : _screen(index < reverse ? -2.4 : 2.4);
+      final offset = _screen(_routeOffsetForIndex(index));
       final geometry = _routeGeometryFor(route, size, offset);
       if (geometry == null) continue;
       for (final segment in geometry.segments) {
@@ -1190,6 +1208,11 @@ class FlatMapPainter extends CustomPainter {
     // half-size marker keeps the map legible without changing the shared
     // flight-map marker scale elsewhere in the app.
     final markerScale = showPassportTexture ? .6 : 1.0;
+    final markerOutlinePaint = Paint()..color = _markerOutline;
+    final markerPaint = Paint();
+    final arrivalPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = _screen(1.2);
     for (final airport in airports) {
       final point = project(airport.latitude, airport.longitude, size);
       var revealProgress = 0.0;
@@ -1233,21 +1256,14 @@ class FlatMapPainter extends CustomPainter {
         canvas.drawCircle(
           point,
           _screen((4.5 + 15 * wave) * markerScale),
-          Paint()
-            ..color = arrivalColor.withValues(alpha: .5 * (1 - wave))
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = _screen(1.2),
+          arrivalPaint..color = arrivalColor.withValues(alpha: .5 * (1 - wave)),
         );
       }
-      canvas.drawCircle(
-        point,
-        _screen(3.8 * markerScale),
-        Paint()..color = _markerOutline,
-      );
+      canvas.drawCircle(point, _screen(3.8 * markerScale), markerOutlinePaint);
       canvas.drawCircle(
         point,
         _screen(2.55 * markerScale),
-        Paint()..color = markerColor,
+        markerPaint..color = markerColor,
       );
       final showArrivalLabel =
           showRouteAnimationPlane && hasIncomingRoute && revealProgress >= .999;
@@ -1270,6 +1286,8 @@ class FlatMapPainter extends CustomPainter {
 
   void _drawPlaces(Canvas canvas, Size size) {
     final labels = <_MapLabelCandidate>[];
+    final outlinePaint = Paint()..color = _markerOutline;
+    final markerPaint = Paint();
     for (var index = 0; index < places.length; index++) {
       final place = places[index];
       if (!place.isVisited) continue;
@@ -1277,6 +1295,8 @@ class FlatMapPainter extends CustomPainter {
       _drawPlaceMarker(
         canvas,
         point,
+        outlinePaint,
+        markerPaint,
         _routeColors[index % _routeColors.length],
       );
       if (showLabels && place.name.trim().isNotEmpty) {
@@ -1298,9 +1318,15 @@ class FlatMapPainter extends CustomPainter {
     _drawLabels(canvas, labels);
   }
 
-  void _drawPlaceMarker(Canvas canvas, Offset point, Color color) {
-    canvas.drawCircle(point, _screen(4.15), Paint()..color = _markerOutline);
-    canvas.drawCircle(point, _screen(2.8), Paint()..color = color);
+  void _drawPlaceMarker(
+    Canvas canvas,
+    Offset point,
+    Paint outlinePaint,
+    Paint markerPaint,
+    Color color,
+  ) {
+    canvas.drawCircle(point, _screen(4.15), outlinePaint);
+    canvas.drawCircle(point, _screen(2.8), markerPaint..color = color);
   }
 
   /// Draw labels progressively: a world-fit view shows the clearest subset,
@@ -1612,6 +1638,7 @@ class _RouteGeometryCache {
     // copies, so a route never leaks through a neighbouring tile.
     final routeSegments = painter._splitRouteAtWorldSeam(offsetPoints, size);
     final segmentMetrics = <List<ui.PathMetric>>[];
+    final completePath = Path();
     var routeLength = 0.0;
     for (final segment in routeSegments) {
       if (segment.length < 2) continue;
@@ -1619,6 +1646,7 @@ class _RouteGeometryCache {
       for (final projected in segment.skip(1)) {
         path.lineTo(projected.dx, projected.dy);
       }
+      completePath.addPath(path, Offset.zero);
       final metrics = path.computeMetrics().toList(growable: false);
       if (metrics.isEmpty) continue;
       segmentMetrics.add(metrics);
@@ -1653,6 +1681,7 @@ class _RouteGeometryCache {
     final geometry = _ProjectedRoute(
       segments: routeSegments,
       segmentMetrics: segmentMetrics,
+      completePath: completePath,
       routeLength: routeLength,
       arrowBefore: arrowEnd - arrowDirection,
       arrowEnd: arrowEnd,
@@ -1671,6 +1700,7 @@ class _ProjectedRoute {
   const _ProjectedRoute({
     required this.segments,
     required this.segmentMetrics,
+    required this.completePath,
     required this.routeLength,
     required this.arrowBefore,
     required this.arrowEnd,
@@ -1679,6 +1709,7 @@ class _ProjectedRoute {
   });
 
   final List<List<ui.PathMetric>> segmentMetrics;
+  final Path completePath;
   final List<List<Offset>> segments;
   final double routeLength;
   final Offset arrowBefore;

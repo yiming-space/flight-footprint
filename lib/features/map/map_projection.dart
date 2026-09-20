@@ -35,6 +35,41 @@ class MapProjectionBounds {
   double get centerY => (minY + maxY) / 2;
 }
 
+/// Precomputed Miller projection values for one viewport.
+///
+/// A map paint projects thousands of points through the same canvas size and
+/// latitude window. Keeping the bounds and scale together avoids repeating
+/// logarithms and viewport-fit arithmetic for every point.
+class MillerProjectionViewport {
+  const MillerProjectionViewport({
+    required this.size,
+    required this.horizontalPadding,
+    required this.verticalPadding,
+    required this.minLatitude,
+    required this.maxLatitude,
+    required this.bounds,
+    required this.scale,
+  });
+
+  final Size size;
+  final double horizontalPadding;
+  final double verticalPadding;
+  final double minLatitude;
+  final double maxLatitude;
+  final MapProjectionBounds bounds;
+  final double scale;
+
+  double get worldPixelWidth => bounds.width * scale;
+
+  Offset toOffset(double latitude, double longitude) {
+    final point = MillerCylindricalProjection.project(latitude, longitude);
+    return Offset(
+      size.width / 2 + (point.x - bounds.centerX) * scale,
+      size.height / 2 - (point.y - bounds.centerY) * scale,
+    );
+  }
+}
+
 /// Equal Earth projection for the offline world map.
 ///
 /// Equal Earth is an equal-area, pseudocylindrical world projection. It is a
@@ -320,29 +355,20 @@ class MillerCylindricalProjection {
     double minLatitude = -90,
     double maxLatitude = 90,
   }) {
-    final bounds = boundsForLatitudeRange(
-      minLatitude: minLatitude,
-      maxLatitude: maxLatitude,
-    );
-    final scale = scaleForSize(
+    return viewportForSize(
       size,
       horizontalPadding: horizontalPadding,
       verticalPadding: verticalPadding,
       minLatitude: minLatitude,
       maxLatitude: maxLatitude,
-    );
-    final point = project(latitude, longitude);
-    return Offset(
-      size.width / 2 + (point.x - bounds.centerX) * scale,
-      size.height / 2 - (point.y - bounds.centerY) * scale,
-    );
+    ).toOffset(latitude, longitude);
   }
 
-  static double scaleForSize(
+  static MillerProjectionViewport viewportForSize(
     Size size, {
-      double horizontalPadding = 16,
-      double verticalPadding = 14,
-      double minLatitude = -90,
+    double horizontalPadding = 16,
+    double verticalPadding = 14,
+    double minLatitude = -90,
     double maxLatitude = 90,
   }) {
     final bounds = boundsForLatitudeRange(
@@ -351,7 +377,31 @@ class MillerCylindricalProjection {
     );
     final width = math.max(1.0, size.width - horizontalPadding);
     final height = math.max(1.0, size.height - verticalPadding);
-    return math.min(width / bounds.width, height / bounds.height);
+    return MillerProjectionViewport(
+      size: size,
+      horizontalPadding: horizontalPadding,
+      verticalPadding: verticalPadding,
+      minLatitude: minLatitude,
+      maxLatitude: maxLatitude,
+      bounds: bounds,
+      scale: math.min(width / bounds.width, height / bounds.height),
+    );
+  }
+
+  static double scaleForSize(
+    Size size, {
+    double horizontalPadding = 16,
+    double verticalPadding = 14,
+    double minLatitude = -90,
+    double maxLatitude = 90,
+  }) {
+    return viewportForSize(
+      size,
+      horizontalPadding: horizontalPadding,
+      verticalPadding: verticalPadding,
+      minLatitude: minLatitude,
+      maxLatitude: maxLatitude,
+    ).scale;
   }
 
   /// Returns the projected width of one complete world copy in logical
@@ -365,17 +415,13 @@ class MillerCylindricalProjection {
     double minLatitude = -90,
     double maxLatitude = 90,
   }) {
-    return boundsForLatitudeRange(
-          minLatitude: minLatitude,
-          maxLatitude: maxLatitude,
-        ).width *
-        scaleForSize(
-          size,
-          horizontalPadding: horizontalPadding,
-          verticalPadding: verticalPadding,
-          minLatitude: minLatitude,
-          maxLatitude: maxLatitude,
-        );
+    return viewportForSize(
+      size,
+      horizontalPadding: horizontalPadding,
+      verticalPadding: verticalPadding,
+      minLatitude: minLatitude,
+      maxLatitude: maxLatitude,
+    ).worldPixelWidth;
   }
 
   static double _y(double latitudeRadians) {

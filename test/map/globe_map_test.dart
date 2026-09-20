@@ -15,6 +15,38 @@ const _emptyMapBundle = GeoJsonMapBundle(
 );
 
 void main() {
+  test('globe camera repaints only when a rendered value changes', () {
+    final camera = GlobeCamera(yaw: -.35, pitch: .12, entryScale: .86);
+    var notifications = 0;
+    camera.addListener(() => notifications++);
+
+    camera.update(yaw: -.35, pitch: .12, scale: 1, entryScale: .86);
+    expect(notifications, 0);
+
+    camera.update(yaw: -.2);
+    expect(notifications, 1);
+
+    camera.update(pitch: .2, notify: false);
+    expect(notifications, 1);
+    expect(camera.pitch, .2);
+
+    camera.dispose();
+  });
+
+  test('route-follow camera preserves great-circle endpoints', () {
+    const from = MapAirport(code: 'AAA', name: 'A', latitude: 0, longitude: 0);
+    const to = MapAirport(code: 'BBB', name: 'B', latitude: 0, longitude: 90);
+    const routes = [MapRoute(from: from, to: to)];
+
+    final start = GlobePainter.animationCameraForProgress(routes, 0);
+    final end = GlobePainter.animationCameraForProgress(routes, 1);
+
+    expect(start.yaw, closeTo(0, 1e-9));
+    expect(start.pitch, closeTo(0, 1e-9));
+    expect(end.yaw, closeTo(-3.141592653589793 / 2, 1e-9));
+    expect(end.pitch, closeTo(0, 1e-9));
+  });
+
   test('globe selects a visible airport and exposes its compact label', () {
     const airport = MapAirport(
       code: 'CPT',

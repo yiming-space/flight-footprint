@@ -4,6 +4,31 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/rendering.dart';
 
+/// Static backdrop kept in its own repaint boundary by [GlobeMap].
+///
+/// The galaxy and vignette do not depend on camera movement, so rasterizing
+/// this layer once prevents the full-screen background from being replayed on
+/// every drag, momentum, and idle-rotation frame.
+class GlobeBackdropPainter extends CustomPainter {
+  const GlobeBackdropPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    const GalaxyBackgroundPainter().paint(canvas, size);
+    canvas.drawRect(
+      Offset.zero & size,
+      Paint()
+        ..shader = const RadialGradient(
+          colors: [Color(0x9208182b), Color(0xF302050d)],
+          radius: .92,
+        ).createShader(Offset.zero & size),
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant GlobeBackdropPainter oldDelegate) => false;
+}
+
 /// Quiet, offline starlight for painting underneath an opaque globe.
 ///
 /// Call `const GalaxyBackgroundPainter().paint(canvas, size)` in the parent's

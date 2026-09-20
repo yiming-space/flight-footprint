@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/services.dart';
@@ -15,6 +16,9 @@ class GlobeSurface {
   final ui.Image landMask;
   final ui.FragmentProgram program;
   static final _cache = Expando<Future<GlobeSurface>>();
+  static final _landMaskCache = Expando<Future<ui.Image>>();
+  static Future<ui.FragmentProgram>? _programFuture;
+  static Future<ui.Image>? _atlasFuture;
 
   static Future<GlobeSurface> load(
     GeoJsonMapData land, {
@@ -35,15 +39,19 @@ class GlobeSurface {
     GeoJsonMapData countries,
     List<MapPlace> places,
   ) async {
-    final program = await ui.FragmentProgram.fromAsset(
-      'shaders/globe_surface.frag',
-    );
     const width = 2048.0;
     const height = 1024.0;
     // NASA Black Marble is resized offline. The vector mask preserves a
     // controllable ocean palette without adding another texture sampler.
-    final atlas = await _loadRasterAtlas();
-    final landMask = await _buildLandMask(land, width, height);
+    final program = await (_programFuture ??= ui.FragmentProgram.fromAsset(
+      'shaders/globe_surface.frag',
+    ));
+    final atlas = await (_atlasFuture ??= _loadRasterAtlas());
+    final landMask = await (_landMaskCache[land] ??= _buildLandMask(
+      land,
+      width,
+      height,
+    ));
     final visitMask = await _buildVisitMask(countries, places, width, height);
     return GlobeSurface._(atlas, visitMask, landMask, program);
   }
@@ -177,12 +185,18 @@ class GlobeSurface {
     required double yaw,
     required double pitch,
   }) {
+    final yawCos = math.cos(yaw);
+    final yawSin = math.sin(yaw);
+    final pitchCos = math.cos(pitch);
+    final pitchSin = math.sin(pitch);
     shader
       ..setFloat(0, center.dx)
       ..setFloat(1, center.dy)
       ..setFloat(2, radius)
-      ..setFloat(3, yaw)
-      ..setFloat(4, pitch);
+      ..setFloat(3, yawCos)
+      ..setFloat(4, yawSin)
+      ..setFloat(5, pitchCos)
+      ..setFloat(6, pitchSin);
     canvas.drawRect(
       ui.Rect.fromCircle(center: center, radius: radius),
       ui.Paint()..shader = shader,

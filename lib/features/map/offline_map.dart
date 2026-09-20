@@ -223,14 +223,14 @@ class _MapFullscreenPageState extends State<MapFullscreenPage>
   bool _mapInteracting = false;
   int _viewReset = 0;
   late List<MapPlace> _places;
+  late List<MapRoute> _animationRoutes;
+  late String _animationRouteSignature;
   AnimationController? _routeAnimation;
 
   /// Fullscreen animation treats repeated records with the same directed
   /// airport pair as one visual leg. The underlying flight list stays intact
   /// elsewhere in the app; this only prevents a duplicate flyover in the
   /// presentation map.
-  List<MapRoute> get _animationRoutes => _deduplicateRoutes(widget.routes);
-
   static List<MapRoute> _deduplicateRoutes(List<MapRoute> routes) {
     final seen = <String>{};
     final result = <MapRoute>[];
@@ -244,7 +244,7 @@ class _MapFullscreenPageState extends State<MapFullscreenPage>
   }
 
   static String _routeSignature(List<MapRoute> routes) => [
-    for (final route in _deduplicateRoutes(routes))
+    for (final route in routes)
       '${route.from.code.trim().toUpperCase()}->${route.to.code.trim().toUpperCase()}',
   ].join('|');
 
@@ -253,6 +253,8 @@ class _MapFullscreenPageState extends State<MapFullscreenPage>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _places = widget.places;
+    _animationRoutes = _deduplicateRoutes(widget.routes);
+    _animationRouteSignature = _routeSignature(_animationRoutes);
     _routeController;
     widget.placesListenable?.addListener(_refreshPlaces);
   }
@@ -283,12 +285,16 @@ class _MapFullscreenPageState extends State<MapFullscreenPage>
     if (!identical(oldWidget.places, widget.places)) {
       _places = widget.places;
     }
-    if (_routeSignature(oldWidget.routes) != _routeSignature(widget.routes)) {
-      _routeController.duration = _routeAnimationDuration(
-        _animationRoutes.length,
-      );
-      _routeController.value = 1;
-      _routeAnimationStarted = false;
+    if (!identical(oldWidget.routes, widget.routes)) {
+      final routes = _deduplicateRoutes(widget.routes);
+      final signature = _routeSignature(routes);
+      _animationRoutes = routes;
+      if (_animationRouteSignature != signature) {
+        _animationRouteSignature = signature;
+        _routeController.duration = _routeAnimationDuration(routes.length);
+        _routeController.value = 1;
+        _routeAnimationStarted = false;
+      }
     }
   }
 
@@ -623,13 +629,15 @@ class _OfflineMapState extends State<OfflineMap> with TickerProviderStateMixin {
   AnimationController? _routeRevealAnimation;
   CurvedAnimation? _routeRevealCurve;
   Matrix4Tween? _fitTween;
-  String _fitKey = '';
+  int _fitRevision = 0;
+  int _scheduledFitRevision = -1;
   bool _showLabels = false;
   double _sceneScale = 1;
   // The interaction floor belongs to the complete map viewport, not to the
   // currently visited routes or cities. It is refreshed for each orientation.
   double _minScale = 1;
   Size? _lastMapSize;
+  MillerProjectionViewport? _projectionViewport;
   FlatMapPainter? _lastPainter;
   Size? _lastFittedMapSize;
   bool _normalizingHorizontalPan = false;
@@ -819,10 +827,14 @@ class _OfflineMapState extends State<OfflineMap> with TickerProviderStateMixin {
     if (oldWidget.assetPath != widget.assetPath ||
         oldWidget.loader != widget.loader) {
       _future = _loadBundle();
-      _fitKey = '';
+      _invalidateFit();
       _hasPresentedFit = false;
     }
-    if (oldWidget.fitZoomMultiplier != widget.fitZoomMultiplier ||
+    if (oldWidget.mode != widget.mode ||
+        !identical(oldWidget.fitPoints, widget.fitPoints) ||
+        !identical(oldWidget.airports, widget.airports) ||
+        !identical(oldWidget.places, widget.places) ||
+        oldWidget.fitZoomMultiplier != widget.fitZoomMultiplier ||
         oldWidget.fitVerticalBias != widget.fitVerticalBias ||
         oldWidget.fitDataHeightFactor != widget.fitDataHeightFactor ||
         oldWidget.fitDataCenterY != widget.fitDataCenterY ||
@@ -833,7 +845,7 @@ class _OfflineMapState extends State<OfflineMap> with TickerProviderStateMixin {
         oldWidget.horizontalPadding != widget.horizontalPadding ||
         oldWidget.verticalPadding != widget.verticalPadding ||
         oldWidget.horizontalWrap != widget.horizontalWrap) {
-      _fitKey = '';
+      _invalidateFit();
     }
     final shouldRevealRoutes =
         widget.animateRouteReveal &&
@@ -1051,9 +1063,8 @@ class _OfflineMapState extends State<OfflineMap> with TickerProviderStateMixin {
         dx = _wrappedDeltaX(dx, _worldPixelWidth(mapSize));
       }
       dx = dx.abs();
-      final distance = math.sqrt(
-        dx * dx + math.pow(projected.dy - position.dy, 2),
-      );
+      final dy = projected.dy - position.dy;
+      final distance = math.sqrt(dx * dx + dy * dy);
       if (distance <= hitRadius) {
         candidates.add((place: place, distance: distance));
       }
@@ -1066,9 +1077,20 @@ class _OfflineMapState extends State<OfflineMap> with TickerProviderStateMixin {
       _projectCoordinate(place.latitude, place.longitude, size);
 
   Offset _projectCoordinate(double latitude, double longitude, Size size) {
-    return MillerCylindricalProjection.toOffset(
-      latitude,
-      longitude,
+    return _projectionFor(size).toOffset(latitude, longitude);
+  }
+
+  MillerProjectionViewport _projectionFor(Size size) {
+    final cached = _projectionViewport;
+    if (cached != null &&
+        cached.size == size &&
+        cached.horizontalPadding == widget.horizontalPadding &&
+        cached.verticalPadding == widget.verticalPadding &&
+        cached.minLatitude == _viewportMinLatitude &&
+        cached.maxLatitude == _viewportMaxLatitude) {
+      return cached;
+    }
+    return _projectionViewport = MillerCylindricalProjection.viewportForSize(
       size,
       horizontalPadding: widget.horizontalPadding,
       verticalPadding: widget.verticalPadding,
@@ -1077,24 +1099,12 @@ class _OfflineMapState extends State<OfflineMap> with TickerProviderStateMixin {
     );
   }
 
-  double _worldPixelWidth(Size size) =>
-      MillerCylindricalProjection.worldPixelWidthForSize(
-        size,
-        horizontalPadding: widget.horizontalPadding,
-        verticalPadding: widget.verticalPadding,
-        minLatitude: _viewportMinLatitude,
-        maxLatitude: _viewportMaxLatitude,
-      );
+  double _worldPixelWidth(Size size) => _projectionFor(size).worldPixelWidth;
 
   double _wrappedDeltaX(double delta, double worldWidth) {
     if (worldWidth <= 0) return delta;
-    while (delta > worldWidth / 2) {
-      delta -= worldWidth;
-    }
-    while (delta < -worldWidth / 2) {
-      delta += worldWidth;
-    }
-    return delta;
+    if (delta <= worldWidth / 2 && delta >= -worldWidth / 2) return delta;
+    return (delta + worldWidth / 2) % worldWidth - worldWidth / 2;
   }
 
   EdgeInsets _boundaryMargin(Size size) {
@@ -1119,13 +1129,9 @@ class _OfflineMapState extends State<OfflineMap> with TickerProviderStateMixin {
     var pan = matrix.storage[12] - baseTranslation;
     final cycle = worldWidth * scale;
     if (!cycle.isFinite || cycle <= 0) return;
-    var normalizedPan = pan;
-    while (normalizedPan > cycle / 2) {
-      normalizedPan -= cycle;
-    }
-    while (normalizedPan < -cycle / 2) {
-      normalizedPan += cycle;
-    }
+    final normalizedPan = pan <= cycle / 2 && pan >= -cycle / 2
+        ? pan
+        : (pan + cycle / 2) % cycle - cycle / 2;
     if ((normalizedPan - pan).abs() < .5) return;
     final normalized = Matrix4.copy(matrix);
     normalized.storage[12] = baseTranslation + normalizedPan;
@@ -1135,6 +1141,8 @@ class _OfflineMapState extends State<OfflineMap> with TickerProviderStateMixin {
   }
 
   void _scheduleFit(Size size) {
+    final revision = _fitRevision;
+    if (_scheduledFitRevision == revision && _lastFittedMapSize == size) return;
     final points = !widget.fitToData
         ? const <MapCoordinate>[]
         : widget.fitPoints ??
@@ -1149,25 +1157,7 @@ class _OfflineMapState extends State<OfflineMap> with TickerProviderStateMixin {
                               MapCoordinate(place.latitude, place.longitude),
                         )
                         .toList(growable: false));
-    final fitSource = widget.fitPoints == null ? widget.mode.name : 'shared';
-    final key = [
-      fitSource,
-      size.width.toStringAsFixed(1),
-      size.height.toStringAsFixed(1),
-      for (final point in points)
-        '${point.latitude.toStringAsFixed(3)},${point.longitude.toStringAsFixed(3)}',
-      widget.fitZoomMultiplier.toStringAsFixed(2),
-      widget.fitVerticalBias.toStringAsFixed(2),
-      widget.fitDataHeightFactor.toStringAsFixed(2),
-      widget.fitDataCenterY.toStringAsFixed(2),
-      widget.fitToData,
-      widget.horizontalPadding.toStringAsFixed(1),
-      widget.verticalPadding.toStringAsFixed(1),
-      widget.coverViewport,
-      widget.compactWorldViewport,
-    ].join('|');
-    if (_fitKey == key) return;
-    _fitKey = key;
+    _scheduledFitRevision = revision;
     // Fullscreen maps use the complete world's vertical extent as the floor.
     // This deliberately allows horizontal cropping in portrait orientation:
     // the user's requested reference is a map that reaches both top and
@@ -1178,7 +1168,7 @@ class _OfflineMapState extends State<OfflineMap> with TickerProviderStateMixin {
     final viewportChanged = previousSize != null && previousSize != size;
     final matrix = _fitMatrix(size, points);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && _fitKey == key) {
+      if (mounted && _fitRevision == revision && _lastFittedMapSize == size) {
         // During a rotation Android is already animating the window bounds.
         // Do not add a second camera interpolation between portrait and
         // landscape matrices; the old matrix can temporarily leave the map
@@ -1210,13 +1200,8 @@ class _OfflineMapState extends State<OfflineMap> with TickerProviderStateMixin {
         verticalOffset: verticalOffset,
       );
     }
-    final projectionScale = MillerCylindricalProjection.scaleForSize(
-      size,
-      horizontalPadding: widget.horizontalPadding,
-      verticalPadding: widget.verticalPadding,
-      minLatitude: _viewportMinLatitude,
-      maxLatitude: _viewportMaxLatitude,
-    );
+    final projection = _projectionFor(size);
+    final projectionScale = projection.scale;
     final requestedZoom = math.min(
       30.0,
       math.max(1.0, widget.fitZoomMultiplier),
@@ -1236,12 +1221,12 @@ class _OfflineMapState extends State<OfflineMap> with TickerProviderStateMixin {
       final maxPanX = (size.width * (initialZoom - 1)) / 2;
       final maxPanY = (size.height * (initialZoom - 1)) / 2;
       final panX =
-          ((_viewportBounds.centerX - projected.x) *
+          ((projection.bounds.centerX - projected.x) *
                   projectionScale *
                   initialZoom)
               .clamp(-maxPanX, maxPanX);
       final panY =
-          ((projected.y - _viewportBounds.centerY) *
+          ((projected.y - projection.bounds.centerY) *
                       projectionScale *
                       initialZoom +
                   fitCenterOffsetY +
@@ -1325,10 +1310,14 @@ class _OfflineMapState extends State<OfflineMap> with TickerProviderStateMixin {
     final maxPanX = (size.width * (zoom - 1)) / 2;
     final maxPanY = (size.height * (zoom - 1)) / 2;
     final panX =
-        ((_viewportBounds.centerX - projectedCenterX) * projectionScale * zoom)
+        ((projection.bounds.centerX - projectedCenterX) *
+                projectionScale *
+                zoom)
             .clamp(-maxPanX, maxPanX);
     final panY =
-        ((projectedCenterY - _viewportBounds.centerY) * projectionScale * zoom)
+        ((projectedCenterY - projection.bounds.centerY) *
+                projectionScale *
+                zoom)
             .clamp(-maxPanY, maxPanY) +
         fitCenterOffsetY +
         size.height * widget.fitVerticalBias;
@@ -1348,15 +1337,9 @@ class _OfflineMapState extends State<OfflineMap> with TickerProviderStateMixin {
     ..translateByDouble(-size.width / 2, -size.height / 2, 0, 1);
 
   double _interactionFloor(Size size) {
-    final projectionScale = MillerCylindricalProjection.scaleForSize(
-      size,
-      horizontalPadding: widget.horizontalPadding,
-      verticalPadding: widget.verticalPadding,
-      minLatitude: _viewportMinLatitude,
-      maxLatitude: _viewportMaxLatitude,
-    );
-    final worldHeight = _viewportBounds.height * projectionScale;
-    final worldWidth = _viewportBounds.width * projectionScale;
+    final projection = _projectionFor(size);
+    final worldHeight = projection.bounds.height * projection.scale;
+    final worldWidth = projection.worldPixelWidth;
     var floor = 1.0;
     if (widget.fillViewportHeight && worldHeight > 0) {
       floor = math.max(floor, size.height / worldHeight);
@@ -1375,9 +1358,8 @@ class _OfflineMapState extends State<OfflineMap> with TickerProviderStateMixin {
       ? MillerCylindricalProjection.passportMaxLatitude
       : 90.0;
 
-  MapProjectionBounds get _viewportBounds =>
-      MillerCylindricalProjection.boundsForLatitudeRange(
-        minLatitude: _viewportMinLatitude,
-        maxLatitude: _viewportMaxLatitude,
-      );
+  void _invalidateFit() {
+    _fitRevision++;
+    _scheduledFitRevision = -1;
+  }
 }

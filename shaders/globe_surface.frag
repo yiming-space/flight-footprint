@@ -3,8 +3,8 @@
 
 uniform vec2 uCenter;
 uniform float uRadius;
-uniform float uYaw;
-uniform float uPitch;
+uniform vec2 uYawRotation;
+uniform vec2 uPitchRotation;
 uniform sampler2D uAtlas;
 uniform sampler2D uVisitMask;
 uniform sampler2D uLandMask;
@@ -20,10 +20,10 @@ void main() {
   // Inverse orthographic projection: every fragment has exactly one visible
   // surface location. No clipped polygon is closed across the globe's face.
   vec3 normal = vec3(p.x, -p.y, sqrt(max(0.0, 1.0 - r2)));
-  float y = normal.y * cos(uPitch) + normal.z * sin(uPitch);
-  float z = -normal.y * sin(uPitch) + normal.z * cos(uPitch);
-  float x = normal.x * cos(uYaw) - z * sin(uYaw);
-  z = normal.x * sin(uYaw) + z * cos(uYaw);
+  float y = normal.y * uPitchRotation.x + normal.z * uPitchRotation.y;
+  float z = -normal.y * uPitchRotation.y + normal.z * uPitchRotation.x;
+  float x = normal.x * uYawRotation.x - z * uYawRotation.y;
+  z = normal.x * uYawRotation.y + z * uYawRotation.x;
   const float pi = 3.141592653589793;
   vec2 uv = vec2(fract(atan(x, z) / (2.0 * pi) + 0.5),
                  clamp(0.5 - asin(clamp(y, -1.0, 1.0)) / pi, 0.00025, 0.99975));

@@ -10,7 +10,6 @@ import '../../domain/flight.dart';
 import '../../ui/theme/app_theme.dart';
 import '../../ui/widgets/country_flag.dart';
 import '../../ui/widgets/widgets.dart';
-import '../map/add_visited_place_sheet.dart';
 import '../map/map_models.dart';
 import 'flight_passport_card.dart';
 
@@ -381,14 +380,6 @@ class _StatsPageState extends State<StatsPage> {
                   color: chinaAccent,
                   detail: s.t('visitedRegions'),
                 ),
-                const SizedBox(height: 18),
-                PrimaryButton(
-                  label: s.t('addPlace'),
-                  icon: Icons.add_location_alt_rounded,
-                  onPressed: _openAddPlace,
-                  backgroundColor: isLight ? colors.lime : null,
-                  foregroundColor: isLight ? colors.cardText : null,
-                ),
               ],
             ),
           ),
@@ -634,25 +625,6 @@ class _StatsPageState extends State<StatsPage> {
       ),
     ),
   );
-
-  Future<void> _openAddPlace() async {
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      requestFocus: false,
-      backgroundColor: Colors.transparent,
-      barrierColor: Colors.black.withValues(alpha: .68),
-      builder: (_) => FractionallySizedBox(
-        heightFactor: .9,
-        child: ClipPath(
-          clipper: const ShapeBorderClipper(shape: AppShapes.sheet),
-          child: AddVisitedPlaceSheet(controller: widget.controller),
-        ),
-      ),
-    );
-    if (mounted) setState(() {});
-  }
 
   List<(String, int)> _counts(Iterable<String?> values) {
     final counts = <String, int>{};

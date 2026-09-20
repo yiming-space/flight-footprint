@@ -11,6 +11,8 @@ import '../core/localization/app_strings.dart';
 import '../features/add_flight/add_flight_page.dart';
 import '../features/flights/flights_page.dart';
 import '../features/home/home_page.dart';
+import '../features/map/add_visited_place_sheet.dart';
+import '../features/map/map_models.dart';
 import '../features/profile/profile_page.dart';
 import '../features/stats/stats_page.dart';
 import '../ui/theme/app_theme.dart';
@@ -26,6 +28,7 @@ class AppShell extends StatefulWidget {
 class _AppShellState extends State<AppShell>
     with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   int _index = 0;
+  MapMode _homeMapMode = MapMode.travelFootprint;
   late final AnimationController _addAnimation = AnimationController(
     vsync: this,
     duration: AppMotion.short,
@@ -74,6 +77,10 @@ class _AppShellState extends State<AppShell>
 
   void _openAdd() {
     unawaited(_playAddAnimation());
+    if (_index == 0 && _homeMapMode == MapMode.travelFootprint) {
+      unawaited(_openAddPlace());
+      return;
+    }
     if (_isDesktopWindow(context)) {
       showDialog<void>(
         context: context,
@@ -116,6 +123,52 @@ class _AppShellState extends State<AppShell>
     );
   }
 
+  Future<void> _openAddPlace() async {
+    if (_isDesktopWindow(context)) {
+      await showDialog<void>(
+        context: context,
+        barrierColor: Colors.black.withValues(alpha: .62),
+        builder: (_) => Dialog(
+          backgroundColor: Colors.transparent,
+          insetPadding: const EdgeInsets.symmetric(
+            horizontal: 72,
+            vertical: 32,
+          ),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 760, maxHeight: 820),
+            child: ClipRRect(
+              borderRadius: AppRadii.large,
+              child: AddVisitedPlaceSheet(controller: widget.controller),
+            ),
+          ),
+        ),
+      );
+      return;
+    }
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      requestFocus: false,
+      backgroundColor: Colors.transparent,
+      barrierColor: Colors.black.withValues(alpha: .68),
+      builder: (_) => FractionallySizedBox(
+        heightFactor: .9,
+        child: ClipPath(
+          clipper: const ShapeBorderClipper(shape: AppShapes.sheet),
+          child: RepaintBoundary(
+            child: AddVisitedPlaceSheet(controller: widget.controller),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _setHomeMapMode(MapMode mode) {
+    if (_homeMapMode == mode) return;
+    setState(() => _homeMapMode = mode);
+  }
+
   Future<void> _playAddAnimation() async {
     if (!mounted) return;
     if (MediaQuery.disableAnimationsOf(context)) {
@@ -156,11 +209,13 @@ class _AppShellState extends State<AppShell>
       '$devicePixelRatio',
     );
     final isDesktop = _isDesktopWindow(context);
+    final addLabel = _index == 0 && _homeMapMode == MapMode.travelFootprint
+        ? strings.t('addPlace')
+        : strings.t('addFlight');
     final pages = [
       HomePage(
         controller: widget.controller,
-        onShowFlights: () => setState(() => _index = 1),
-        onAdd: _openAdd,
+        onMapModeChanged: _setHomeMapMode,
       ),
       FlightsPage(controller: widget.controller, onAdd: _openAdd),
       StatsPage(controller: widget.controller),
@@ -184,6 +239,7 @@ class _AppShellState extends State<AppShell>
               addAnimation: _addAnimation,
               onChanged: (value) => setState(() => _index = value),
               onAdd: _openAdd,
+              addLabel: addLabel,
             )
           : Scaffold(
               // The modal sheet owns IME avoidance through its viewInsets-aware
@@ -224,6 +280,7 @@ class _AppShellState extends State<AppShell>
                         addAnimation: _addAnimation,
                         onChanged: (value) => setState(() => _index = value),
                         onAdd: _openAdd,
+                        addLabel: addLabel,
                       ),
                     ),
                   ),
@@ -256,6 +313,7 @@ class _DesktopWorkspace extends StatelessWidget {
     required this.addAnimation,
     required this.onChanged,
     required this.onAdd,
+    required this.addLabel,
   });
 
   final int index;
@@ -264,6 +322,7 @@ class _DesktopWorkspace extends StatelessWidget {
   final Animation<double> addAnimation;
   final ValueChanged<int> onChanged;
   final VoidCallback onAdd;
+  final String addLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -281,6 +340,7 @@ class _DesktopWorkspace extends StatelessWidget {
               addAnimation: addAnimation,
               onChanged: onChanged,
               onAdd: onAdd,
+              addLabel: addLabel,
             ),
             const SizedBox(width: 16),
             Expanded(
@@ -321,6 +381,7 @@ class _DesktopSidebar extends StatelessWidget {
     required this.addAnimation,
     required this.onChanged,
     required this.onAdd,
+    required this.addLabel,
   });
 
   final int index;
@@ -328,11 +389,11 @@ class _DesktopSidebar extends StatelessWidget {
   final Animation<double> addAnimation;
   final ValueChanged<int> onChanged;
   final VoidCallback onAdd;
+  final String addLabel;
 
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
-    final s = context.strings;
     const icons = [
       Icons.home_rounded,
       Icons.flight_rounded,
@@ -414,7 +475,7 @@ class _DesktopSidebar extends StatelessWidget {
               const SizedBox(height: 12),
               ScaleTransition(
                 scale: addAnimation,
-                child: _DesktopAddButton(label: s.t('addFlight'), onTap: onAdd),
+                child: _DesktopAddButton(label: addLabel, onTap: onAdd),
               ),
             ],
           ),
@@ -600,12 +661,14 @@ class _BottomBar extends StatefulWidget {
     required this.addAnimation,
     required this.onChanged,
     required this.onAdd,
+    required this.addLabel,
   });
   final int index;
   final List<String> labels;
   final Animation<double> addAnimation;
   final ValueChanged<int> onChanged;
   final VoidCallback onAdd;
+  final String addLabel;
 
   @override
   State<_BottomBar> createState() => _BottomBarState();
@@ -759,7 +822,7 @@ class _BottomBarState extends State<_BottomBar>
                                 dimension: 64,
                                 child: Semantics(
                                   button: true,
-                                  label: context.strings.t('addFlight'),
+                                  label: widget.addLabel,
                                   child: Material(
                                     color: colors.purple,
                                     shape: const CircleBorder(),

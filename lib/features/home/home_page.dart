@@ -16,15 +16,9 @@ import '../../ui/theme/app_theme.dart';
 import '../../ui/widgets/widgets.dart';
 
 class HomePage extends StatefulWidget {
-  const HomePage({
-    super.key,
-    required this.controller,
-    required this.onShowFlights,
-    required this.onAdd,
-  });
+  const HomePage({super.key, required this.controller, this.onMapModeChanged});
   final AppController controller;
-  final VoidCallback onShowFlights;
-  final VoidCallback onAdd;
+  final ValueChanged<MapMode>? onMapModeChanged;
   @override
   State<HomePage> createState() => _HomePageState();
 }
@@ -158,11 +152,13 @@ class _HomePageState extends State<HomePage> {
                 mode: _mode,
                 globeMode: _globeMode,
                 mapInteracting: _mapInteracting,
-                onToggleMode: () => setState(() {
-                  _mode = _mode == MapMode.flight
+                onToggleMode: () {
+                  final nextMode = _mode == MapMode.flight
                       ? MapMode.travelFootprint
                       : MapMode.flight;
-                }),
+                  setState(() => _mode = nextMode);
+                  widget.onMapModeChanged?.call(nextMode);
+                },
                 onToggleProjection: () => setState(() {
                   _globeMode = !_globeMode;
                   _mapResetSignal++;

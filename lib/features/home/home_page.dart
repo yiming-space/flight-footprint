@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -12,12 +11,9 @@ import '../../data/airport_localization.dart';
 import '../../data/city_catalog.dart';
 import '../../domain/visited_place.dart';
 import '../../features/map/map.dart';
-import '../../features/map/add_visited_place_sheet.dart';
 import '../map/map_records_sheet.dart';
 import '../../ui/theme/app_theme.dart';
 import '../../ui/widgets/widgets.dart';
-import '../flights/flight_card.dart';
-import 'home_map_records_pane.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({
@@ -34,13 +30,16 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
-  static const _wideMapBreakpoint = 760.0;
-  MapMode _mode = MapMode.flight;
-  late final Future<CityCatalog> _chinaCatalog = CityCatalog.loadChina();
+  // The first frame is the user's world. Flight arcs remain one tap away.
+  MapMode _mode = MapMode.travelFootprint;
+  // Flat map is the practical daily view; globe remains the immersive
+  // presentation behind the second round control.
+  bool _globeMode = false;
+  bool _mapInteracting = false;
+  int _mapResetSignal = 0;
   CityCatalog? _mapCatalog;
   final _mapPreviewKey = GlobalKey();
-  bool _openingMapFullscreen = false;
-  MapSelection? _selectedMapRecord;
+  bool _openingHorizontalMap = false;
 
   @override
   void initState() {
@@ -56,19 +55,8 @@ class _HomePageState extends State<HomePage> {
 
   @override
   Widget build(BuildContext context) {
-    final s = context.strings;
-    final colors = context.appColors;
     final allFlights = widget.controller.flights;
-    final hasAnyFlights = allFlights.isNotEmpty;
     final flights = allFlights.where((flight) => flight.isCompleted).toList();
-    final upcomingFlights =
-        allFlights.where((flight) => flight.isUpcoming).toList()
-          ..sort((a, b) => a.departedAt.compareTo(b.departedAt));
-    final nextFlight = upcomingFlights.isEmpty ? null : upcomingFlights.first;
-    final totalDistance = flights.fold<double>(
-      0,
-      (sum, flight) => sum + (flight.distanceKm ?? 0),
-    );
     final mapAirports = <String, MapAirport>{};
     final routes = <MapRoute>[];
     final places = <String, MapPlace>{};
@@ -140,208 +128,54 @@ class _HomePageState extends State<HomePage> {
             for (final place in mapPlaces)
               MapCoordinate(place.latitude, place.longitude),
           ];
-    final travellerName = widget.controller.travellerName.trim().isEmpty
-        ? 'TRAVELER'
-        : widget.controller.travellerName.trim();
-    return SafeArea(
-      top: false,
-      left: false,
-      right: false,
-      child: CustomScrollView(
-        slivers: [
-          SliverToBoxAdapter(child: _HomeGreeting(name: travellerName)),
-          SliverPadding(
-            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.page),
-            sliver: SliverList.list(
-              children: [
-                AppSegmentedControl(
-                  labels: [s.t('flightMap'), s.t('travelMap')],
-                  selectedIndex: _mode == MapMode.flight ? 0 : 1,
-                  pill: true,
-                  height: 52,
-                  onChanged: (value) => setState(() {
-                    _mode = value == 0
-                        ? MapMode.flight
-                        : MapMode.travelFootprint;
-                    _selectedMapRecord = null;
-                  }),
-                ),
-                const SizedBox(height: 18),
-                LayoutBuilder(
-                  builder: (context, constraints) => _mapAndRecordsSection(
-                    context,
-                    availableWidth: constraints.maxWidth,
-                    airports: mapAirports.values.toList(),
-                    routes: routes,
-                    places: mapPlaces,
-                    fitPoints: mapFitPoints,
-                  ),
-                ),
-                const SizedBox(height: 20),
-                if (_mode == MapMode.travelFootprint)
-                  _explorationProgressCard(
-                    context,
-                    places: mapPlaces,
-                    onAdd: _openAddPlace,
-                  )
-                else
-                  _totalDistanceCard(context, totalDistance: totalDistance),
-                const SizedBox(height: AppSpacing.section),
-                Text(
-                  s.t('nextTrip'),
-                  style: AppTextStyles.sectionTitle.copyWith(
-                    color: colors.textPrimary,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                if (nextFlight == null)
-                  SurfaceCard(
-                    color: colors.surfaceElevated,
-                    borderRadius: AppRadii.large,
-                    showBorder: false,
-                    boxShadow: _cardShadow(),
-                    child: EmptyState(
-                      title: s.t(
-                        hasAnyFlights ? 'noUpcomingFlights' : 'noFlights',
-                      ),
-                      message: s.t(
-                        hasAnyFlights
-                            ? 'noUpcomingFlightsHint'
-                            : 'noFlightsHint',
-                      ),
-                      action: PrimaryButton(
-                        label: s.t('startRecord'),
-                        onPressed: widget.onAdd,
-                        expand: false,
-                      ),
-                    ),
-                  )
-                else
-                  FlightCard(flight: nextFlight, controller: widget.controller),
-                SizedBox(height: AppSpacing.bottomBarClearance(context)),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _mapAndRecordsSection(
-    BuildContext context, {
-    required double availableWidth,
-    required List<MapAirport> airports,
-    required List<MapRoute> routes,
-    required List<MapPlace> places,
-    required List<MapCoordinate> fitPoints,
-  }) {
-    final wide = availableWidth >= _wideMapBreakpoint;
-    final mapHeight = wide
-        ? 430.0
-        : (MediaQuery.sizeOf(context).width * .70)
-              .clamp(250.0, 320.0)
-              .toDouble();
-    final selection = _selectedMapRecord;
-    final map = _homeMapSurface(
-      context,
-      height: mapHeight,
-      wide: wide,
-      airports: airports,
-      routes: routes,
-      places: places,
-      fitPoints: fitPoints,
-    );
-
-    if (!wide || selection == null) return map;
-    return SizedBox(
-      height: mapHeight,
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Expanded(flex: 3, child: map),
-          const SizedBox(width: AppSpacing.cardGap),
-          Expanded(
-            flex: 2,
-            child: HomeMapRecordsPane(
-              controller: widget.controller,
-              selection: selection,
-              onClose: () => setState(() => _selectedMapRecord = null),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _homeMapSurface(
-    BuildContext context, {
-    required double height,
-    required bool wide,
-    required List<MapAirport> airports,
-    required List<MapRoute> routes,
-    required List<MapPlace> places,
-    required List<MapCoordinate> fitPoints,
-  }) {
-    final colors = context.appColors;
-    final strings = context.strings;
-    return Container(
-      key: _mapPreviewKey,
-      height: height,
-      clipBehavior: Clip.antiAlias,
-      decoration: ShapeDecoration(
-        color: colors.surface,
-        shape: AppShapes.large,
-        shadows: _cardShadow(),
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: const SystemUiOverlayStyle(
+        statusBarColor: Colors.transparent,
+        statusBarIconBrightness: Brightness.light,
+        statusBarBrightness: Brightness.dark,
+        systemNavigationBarColor: Colors.transparent,
+        systemNavigationBarIconBrightness: Brightness.light,
+        systemNavigationBarDividerColor: Colors.transparent,
+        systemNavigationBarContrastEnforced: false,
       ),
       child: Stack(
         fit: StackFit.expand,
         children: [
-          RepaintBoundary(
-            child: LayoutBuilder(
-              builder: (context, constraints) => OfflineMap(
-                mode: _mode,
-                airports: airports,
-                routes: routes,
-                places: places,
-                fitPoints: fitPoints,
-                fitToData: true,
-                fitZoomMultiplier: 1,
-                coverViewport: true,
-                useLightPalette: false,
-                fillViewportHeight: true,
-                horizontalWrap: constraints.maxWidth >= 600,
-                horizontalPadding: 0,
-                verticalPadding: 0,
-                onPlaceLongPress: _handlePlaceLongPress,
-                onSelection: (selection) {
-                  if (wide) {
-                    setState(() => _selectedMapRecord = selection);
-                  } else {
-                    _openMapRecords(context, selection);
-                  }
-                },
-              ),
-            ),
+          _homeMapExperience(
+            airports: mapAirports.values.toList(growable: false),
+            routes: routes,
+            places: mapPlaces,
+            fitPoints: mapFitPoints,
           ),
           Positioned(
-            bottom: 14,
-            right: 14,
-            child: Semantics(
-              button: true,
-              label: strings.t('fullscreen'),
-              child: LiquidGlassIconButton(
-                tooltip: strings.t('fullscreen'),
-                onPressed: () => unawaited(
-                  _openMapFullscreen(
+            top: 0,
+            right: 0,
+            child: SafeArea(
+              left: false,
+              bottom: false,
+              minimum: const EdgeInsets.fromLTRB(0, 12, 16, 0),
+              child: _HomeMapControls(
+                mode: _mode,
+                globeMode: _globeMode,
+                mapInteracting: _mapInteracting,
+                onToggleMode: () => setState(() {
+                  _mode = _mode == MapMode.flight
+                      ? MapMode.travelFootprint
+                      : MapMode.flight;
+                }),
+                onToggleProjection: () => setState(() {
+                  _globeMode = !_globeMode;
+                  _mapResetSignal++;
+                }),
+                onFullscreen: () => unawaited(
+                  _openHorizontalMap(
                     mode: _mode,
-                    airports: airports,
+                    globeMode: _globeMode,
+                    airports: mapAirports.values.toList(growable: false),
                     routes: routes,
-                    places: places,
-                    onPlaceLongPress: _handlePlaceLongPress,
+                    places: mapPlaces,
                   ),
                 ),
-                size: 46,
-                icon: Icons.fullscreen_rounded,
               ),
             ),
           ),
@@ -350,292 +184,114 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  String _formatNumber(int value) {
-    final raw = value.toString();
-    return raw.replaceAllMapped(
-      RegExp(r'\B(?=(\d{3})+(?!\d))'),
-      (match) => ',',
-    );
-  }
-
-  Widget _totalDistanceCard(
-    BuildContext context, {
-    required double totalDistance,
+  Widget _homeMapExperience({
+    required List<MapAirport> airports,
+    required List<MapRoute> routes,
+    required List<MapPlace> places,
+    required List<MapCoordinate> fitPoints,
   }) {
-    final s = context.strings;
-    final colors = context.appColors;
-    final isLight = Theme.of(context).brightness == Brightness.light;
-    final metricCardColor = isLight ? colors.cardBlue : colors.surfaceElevated;
-    final metricTextColor = isLight ? colors.cardText : colors.lime;
-    final metricSecondaryTextColor = isLight
-        ? colors.cardText.withValues(alpha: .62)
-        : colors.textSecondary;
-    final value = _formatNumber(totalDistance.round());
-    return Semantics(
-      label: '${s.t('totalDistance')} $value ${s.t('km')}',
-      container: true,
-      child: SurfaceCard(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
-        color: metricCardColor,
-        borderRadius: AppRadii.large,
-        showBorder: false,
-        boxShadow: _cardShadow(),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
+    final mapRoutes = _mode == MapMode.flight ? routes : const <MapRoute>[];
+    return RepaintBoundary(
+      key: _mapPreviewKey,
+      child: AnimatedSwitcher(
+        duration: MediaQuery.disableAnimationsOf(context)
+            ? Duration.zero
+            : const Duration(milliseconds: 260),
+        switchInCurve: Curves.easeOutCubic,
+        switchOutCurve: Curves.easeInCubic,
+        layoutBuilder: (currentChild, previousChildren) => Stack(
+          fit: StackFit.expand,
           children: [
-            Container(
-              width: 52,
-              height: 52,
-              decoration: BoxDecoration(
-                color: metricTextColor.withValues(alpha: isLight ? .14 : .10),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(Icons.radar_rounded, color: metricTextColor),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    s.t('totalDistance'),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: metricSecondaryTextColor,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  SizedBox(
-                    height: 46,
-                    width: double.infinity,
-                    child: FittedBox(
-                      fit: BoxFit.scaleDown,
-                      alignment: Alignment.centerLeft,
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.baseline,
-                        textBaseline: TextBaseline.alphabetic,
-                        children: [
-                          Text(
-                            value,
-                            maxLines: 1,
-                            style: TextStyle(
-                              color: metricTextColor,
-                              fontSize: _distanceFontSize(value),
-                              height: 1,
-                              fontWeight: FontWeight.w700,
-                              letterSpacing: -1.4,
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            'KM',
-                            style: TextStyle(
-                              color: metricTextColor,
-                              fontSize: 14,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
+            ...previousChildren,
+            if (currentChild != null) currentChild,
           ],
         ),
+        child: _globeMode
+            ? GlobeMap(
+                key: const ValueKey('home-globe'),
+                resetSignal: _mapResetSignal,
+                mode: _mode,
+                routes: mapRoutes,
+                airports: airports,
+                places: places,
+                onInteractionChanged: (active) {
+                  if (mounted && _mapInteracting != active) {
+                    setState(() => _mapInteracting = active);
+                  }
+                },
+                onSelection: _handleMapSelection,
+              )
+            : OfflineMap(
+                key: const ValueKey('home-flat-map'),
+                mode: _mode,
+                airports: airports,
+                routes: mapRoutes,
+                places: places,
+                fitPoints: fitPoints,
+                fitToData: true,
+                fillViewportHeight: true,
+                coverViewport: true,
+                enableInteraction: true,
+                horizontalWrap: true,
+                horizontalPadding: 0,
+                verticalPadding: 0,
+                useLightPalette: false,
+                onInteractionChanged: (active) {
+                  if (mounted && _mapInteracting != active) {
+                    setState(() => _mapInteracting = active);
+                  }
+                },
+                onPlaceLongPress: _handlePlaceLongPress,
+                onSelection: _handleMapSelection,
+              ),
       ),
     );
   }
 
-  double _distanceFontSize(String value) {
-    final digits = value.replaceAll(',', '').length;
-    return switch (digits) {
-      <= 3 => 42,
-      <= 5 => 39,
-      <= 7 => 36,
-      _ => 32,
-    };
+  void _handleMapSelection(MapSelection selection) {
+    _openMapRecords(context, selection);
   }
 
-  Widget _explorationProgressCard(
-    BuildContext context, {
+  Future<void> _openHorizontalMap({
+    required MapMode mode,
+    required bool globeMode,
+    required List<MapAirport> airports,
+    required List<MapRoute> routes,
     required List<MapPlace> places,
-    required VoidCallback onAdd,
-  }) {
-    final s = context.strings;
-    final visited = places
-        .where((place) => place.isVisited && place.name.trim().isNotEmpty)
-        .toList(growable: false);
-    final countryCount = visited
-        .map((place) => canonicalWorldCountryCode(place.countryCode))
-        .where((code) => code.isNotEmpty)
-        .toSet()
-        .length;
-    final chinaPlaces = visited
-        .where((place) => place.countryCode?.trim().toUpperCase() == 'CN')
-        .toList(growable: false);
-
-    return FutureBuilder<CityCatalog>(
-      future: _chinaCatalog,
-      builder: (context, snapshot) {
-        final colors = context.appColors;
-        final isLight = Theme.of(context).brightness == Brightness.light;
-        final provinceNames = <String>{};
-        final catalog = snapshot.data;
-        if (catalog != null) {
-          for (final place in chinaPlaces) {
-            final province = catalog.provinceFor(
-              place.name,
-              longitude: place.longitude,
-              latitude: place.latitude,
-            );
-            if (province != null && province.trim().isNotEmpty) {
-              provinceNames.add(province.trim());
-            }
-          }
-        }
-        // Until the catalogue finishes loading, keep the card useful with a
-        // conservative city count; it is replaced by province count once the
-        // exact offline resolver is ready.
-        final chinaCount = provinceNames.isNotEmpty
-            ? provinceNames.length
-            : chinaPlaces.map((place) => place.name.trim()).toSet().length;
-        final worldProgress = (countryCount / 195).clamp(0.0, 1.0).toDouble();
-        final chinaProgress = (chinaCount / 34).clamp(0.0, 1.0).toDouble();
-        // Keep the two primary home metrics on the same light-theme card
-        // surface; progress colors provide the internal hierarchy.
-        final explorationCardColor = isLight
-            ? colors.cardBlue
-            : colors.surfaceElevated;
-        // Use the same saturated UI accents as the action controls. Blending
-        // them too far toward the card ink made the progress UI look gray.
-        final worldAccent = isLight
-            ? HSLColor.fromColor(colors.lime)
-                  .withSaturation(.66)
-                  .withLightness(.40)
-                  .toColor()
-            : colors.lime;
-        final chinaAccent = isLight ? const Color(0xFF8067C7) : colors.purple;
-        return Container(
-          padding: const EdgeInsets.fromLTRB(22, 22, 22, 20),
-          decoration: ShapeDecoration(
-            color: explorationCardColor,
-            shape: RoundedSuperellipseBorder(
-              borderRadius: AppRadii.large,
-              side: BorderSide.none,
-            ),
-            shadows: _cardShadow(),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // The page title and map already establish the context, so the
-              // card starts directly with its two progress sections.
-              _progressSection(
-                context: context,
-                title: s.t('worldExplorer'),
-                count: countryCount,
-                total: 195,
-                progress: worldProgress,
-                color: worldAccent,
-                detail: s.t('visitedCountriesAndRegions'),
-              ),
-              const SizedBox(height: 20),
-              _progressSection(
-                context: context,
-                title: s.t('chinaExplorer'),
-                count: chinaCount,
-                total: 34,
-                progress: chinaProgress,
-                color: chinaAccent,
-                detail: s.t('visitedRegions'),
-              ),
-              const SizedBox(height: 18),
-              PrimaryButton(
-                label: s.t('addPlace'),
-                icon: Icons.add_location_alt_rounded,
-                onPressed: onAdd,
-                backgroundColor: isLight ? colors.lime : null,
-                foregroundColor: isLight ? colors.cardText : null,
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _progressSection({
-    required BuildContext context,
-    required String title,
-    required int count,
-    required int total,
-    required double progress,
-    required Color color,
-    required String detail,
-  }) {
-    final colors = context.appColors;
-    final percent =
-        '${(progress * 100).toStringAsFixed(progress * 100 < 10 ? 1 : 0)}%';
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: AppTextStyles.sectionTitle.copyWith(
-                      color: colors.textPrimary,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            Text(
-              percent,
-              style: TextStyle(
-                color: color,
-                fontSize: 30,
-                fontWeight: FontWeight.w700,
-                letterSpacing: -1,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 12),
-        ClipRRect(
-          borderRadius: AppRadii.pill,
-          child: SizedBox(
-            height: 10,
-            child: LinearProgressIndicator(
-              value: progress,
-              backgroundColor: colors.background.withValues(alpha: .72),
-              valueColor: AlwaysStoppedAnimation<Color>(color),
-            ),
+  }) async {
+    if (_openingHorizontalMap) return;
+    _openingHorizontalMap = true;
+    try {
+      if (Platform.isAndroid || Platform.isIOS) {
+        await SystemChrome.setPreferredOrientations(const [
+          DeviceOrientation.landscapeLeft,
+          DeviceOrientation.landscapeRight,
+        ]);
+        await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+      }
+      if (!mounted) return;
+      await Navigator.of(context).push<void>(
+        MaterialPageRoute(
+          fullscreenDialog: true,
+          builder: (_) => MapFullscreenPage(
+            mode: mode,
+            initialGlobeMode: globeMode,
+            airports: airports,
+            routes: routes,
+            places: places,
+            onPlaceLongPress: _handlePlaceLongPress,
+            restoreWindowOnDispose: false,
+            onSelection: _openMapRecords,
           ),
         ),
-        const SizedBox(height: 8),
-        Text(
-          '$count / $total · $detail',
-          style: AppTextStyles.bodySecondary.copyWith(
-            color: Theme.of(context).brightness == Brightness.light
-                ? colors.textPrimary
-                : colors.textSecondary,
-          ),
-        ),
-      ],
-    );
+      );
+    } finally {
+      if (Platform.isAndroid || Platform.isIOS) {
+        await SystemChrome.setPreferredOrientations(const []);
+        await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+      }
+      _openingHorizontalMap = false;
+    }
   }
 
   Future<void> _handlePlaceLongPress(List<MapPlace> candidates) async {
@@ -692,84 +348,7 @@ class _HomePageState extends State<HomePage> {
       );
   }
 
-  Future<void> _openMapFullscreen({
-    required MapMode mode,
-    required List<MapAirport> airports,
-    required List<MapRoute> routes,
-    required List<MapPlace> places,
-    required Future<void> Function(List<MapPlace> candidates) onPlaceLongPress,
-  }) async {
-    if (_openingMapFullscreen) return;
-    _openingMapFullscreen = true;
-    final reduceMotion = MediaQuery.disableAnimationsOf(context);
-    try {
-      if (Platform.isAndroid || Platform.isIOS) {
-        await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
-      }
-      if (!mounted) return;
-
-      final viewport = Offset.zero & MediaQuery.sizeOf(context);
-      final previewRect = _mapPreviewRect();
-      final mapPreviewRect =
-          previewRect != null && previewRect.overlaps(viewport)
-          ? previewRect
-          : null;
-      final route = PageRouteBuilder<void>(
-        // Let the preview remain visible around the expanding map. The route
-        // itself fills the window by the end of the transition.
-        opaque: false,
-        fullscreenDialog: true,
-        transitionDuration: reduceMotion
-            ? Duration.zero
-            : const Duration(milliseconds: 300),
-        reverseTransitionDuration: reduceMotion
-            ? Duration.zero
-            : const Duration(milliseconds: 240),
-        pageBuilder: (_, animation, secondaryAnimation) => MapFullscreenPage(
-          mode: mode,
-          airports: airports,
-          routes: routes,
-          places: places,
-          onPlaceLongPress: onPlaceLongPress,
-          placesListenable: widget.controller,
-          placesProvider: _mapPlacesSnapshot,
-          restoreWindowOnDispose: false,
-          onSelection: _openMapRecords,
-          onAddPlace: mode == MapMode.travelFootprint
-              ? (hostContext) => _openAddPlace(hostContext)
-              : null,
-        ),
-        transitionsBuilder: (_, animation, secondaryAnimation, child) {
-          final curve = CurvedAnimation(
-            parent: animation,
-            curve: Curves.easeOutCubic,
-            reverseCurve: Curves.easeInCubic,
-          );
-          return _MapFullscreenTransition(
-            animation: curve,
-            sourceRect: mapPreviewRect,
-            child: child,
-          );
-        },
-      );
-      unawaited(Navigator.of(context).push(route));
-      // `completed` includes the exit animation and overlay disposal. Keep
-      // the entry guard until then so an old route cannot rotate a new one.
-      await route.completed;
-    } finally {
-      // Return to the shell's responsive orientation policy. This matters on
-      // a foldable when the fullscreen map was opened from the unfolded page:
-      // restoring a hard portrait lock would letterbox the dashboard again.
-      if (Platform.isAndroid || Platform.isIOS) {
-        await SystemChrome.setPreferredOrientations(const []);
-        await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
-      }
-      _openingMapFullscreen = false;
-    }
-  }
-
   void _openMapRecords(BuildContext hostContext, MapSelection selection) {
-    if (mounted) setState(() => _selectedMapRecord = selection);
     unawaited(
       showModalBottomSheet<void>(
         context: hostContext,
@@ -789,51 +368,6 @@ class _HomePageState extends State<HomePage> {
         ),
       ),
     );
-  }
-
-  Rect? _mapPreviewRect() {
-    final renderObject = _mapPreviewKey.currentContext?.findRenderObject();
-    if (renderObject is! RenderBox || !renderObject.hasSize) return null;
-    return renderObject.localToGlobal(Offset.zero) & renderObject.size;
-  }
-
-  List<MapPlace> _mapPlacesSnapshot() {
-    final places = <String, MapPlace>{};
-    final completedFlights = widget.controller.flights.where(
-      (flight) => flight.isCompleted,
-    );
-    for (final flight in completedFlights) {
-      final departure = widget.controller.airportFor(flight.departureIata);
-      final arrival = widget.controller.airportFor(flight.arrivalIata);
-      if (departure != null) {
-        places[departure.iataCode] = MapPlace(
-          name: localizedAirportCity(departure),
-          latitude: departure.latitude,
-          longitude: departure.longitude,
-          countryCode: departure.countryCode,
-        );
-      }
-      if (arrival != null) {
-        places[arrival.iataCode] = MapPlace(
-          name: localizedAirportCity(arrival),
-          latitude: arrival.latitude,
-          longitude: arrival.longitude,
-          countryCode: arrival.countryCode,
-        );
-      }
-    }
-    for (final place in widget.controller.visitedPlaces) {
-      places['visited:${place.id}'] = MapPlace(
-        name: place.name,
-        latitude: place.latitude,
-        longitude: place.longitude,
-        countryCode: place.countryCode,
-        id: place.id,
-        visitedAt: place.visitedAt,
-        isDeletable: true,
-      );
-    }
-    return _normalizeAndDedupeMapPlaces(places.values);
   }
 
   List<MapPlace> _normalizeAndDedupeMapPlaces(Iterable<MapPlace> source) {
@@ -908,168 +442,91 @@ class _HomePageState extends State<HomePage> {
     ).trim().toLowerCase();
     return '$country|$name';
   }
+}
 
-  List<BoxShadow> _cardShadow() {
-    final isLight = Theme.of(context).brightness == Brightness.light;
-    if (isLight) return const <BoxShadow>[];
-    return [
-      BoxShadow(
-        color: Colors.black.withValues(alpha: .22),
-        blurRadius: 24,
-        offset: const Offset(0, 12),
-      ),
-    ];
-  }
+/// Home map controls stay deliberately icon-only so the artwork remains the
+/// first thing the user reads. Each button changes one map dimension: data
+/// layer or projection.
+class _HomeMapControls extends StatelessWidget {
+  const _HomeMapControls({
+    required this.mode,
+    required this.globeMode,
+    required this.mapInteracting,
+    required this.onToggleMode,
+    required this.onToggleProjection,
+    required this.onFullscreen,
+  });
 
-  Future<void> _openAddPlace([BuildContext? hostContext]) async {
-    await showModalBottomSheet<bool>(
-      // When launched from the fullscreen map, use that route's navigator so
-      // the sheet transition starts on the visible page immediately.
-      context: hostContext ?? context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      // The city search field requests focus after the sheet entrance settles;
-      // opening the IME from the route itself causes a visible hitch on real
-      // Android hardware.
-      requestFocus: false,
-      backgroundColor: Colors.transparent,
-      barrierColor: Colors.black.withValues(alpha: .68),
-      builder: (_) => FractionallySizedBox(
-        heightFactor: .9,
-        child: ClipPath(
-          clipper: ShapeBorderClipper(shape: AppShapes.sheet),
-          child: RepaintBoundary(
-            child: AddVisitedPlaceSheet(controller: widget.controller),
+  final MapMode mode;
+  final bool globeMode;
+  final bool mapInteracting;
+  final VoidCallback onToggleMode;
+  final VoidCallback onToggleProjection;
+  final VoidCallback onFullscreen;
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = context.strings;
+    final modeIsFlight = mode == MapMode.flight;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Semantics(
+          button: true,
+          label: modeIsFlight
+              ? '${strings.t('flightMap')}，点击切换'
+              : '${strings.t('travelMap')}，点击切换',
+          child: LiquidGlassIconButton(
+            tooltip: modeIsFlight
+                ? strings.t('travelMap')
+                : strings.t('flightMap'),
+            icon: modeIsFlight
+                ? Icons.flight_rounded
+                : Icons.directions_walk_rounded,
+            size: 48,
+            iconSize: 22,
+            blurEnabled: !mapInteracting,
+            tintColor: Colors.black,
+            tintOpacity: mapInteracting ? .70 : .42,
+            borderColor: Colors.white.withValues(alpha: .20),
+            onPressed: onToggleMode,
           ),
         ),
-      ),
-    );
-  }
-}
-
-class _MapFullscreenTransition extends AnimatedWidget {
-  const _MapFullscreenTransition({
-    required Animation<double> animation,
-    required this.sourceRect,
-    required this.child,
-  }) : super(listenable: animation);
-
-  static const _cardRadius = 44.0;
-
-  final Rect? sourceRect;
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    final animation = listenable as Animation<double>;
-    final progress = animation.value.clamp(0.0, 1.0).toDouble();
-    final viewport = MediaQuery.sizeOf(context);
-    final destinationRect = Offset.zero & viewport;
-    final startRect =
-        sourceRect ??
-        Rect.fromCenter(
-          center: destinationRect.center,
-          width: viewport.width * .96,
-          height: viewport.height * .96,
-        );
-    final visibleRect = Rect.lerp(startRect, destinationRect, progress)!;
-
-    // Use one uniform scale so the map never stretches while it grows from
-    // the portrait preview into the full-screen surface. The clip reveals a
-    // cover crop at the first frame, then releases it as the surface expands.
-    final startScale = math.max(
-      startRect.width / viewport.width,
-      startRect.height / viewport.height,
-    );
-    final scale = startScale + (1 - startScale) * progress;
-    final viewportCenter = Offset(viewport.width / 2, viewport.height / 2);
-    final startDx = startRect.center.dx - viewportCenter.dx * startScale;
-    final startDy = startRect.center.dy - viewportCenter.dy * startScale;
-    final dx = startDx * (1 - progress);
-    final dy = startDy * (1 - progress);
-    final transform = Matrix4.identity()
-      ..translateByDouble(dx, dy, 0, 1)
-      ..scaleByDouble(scale, scale, 1, 1);
-
-    return ClipPath(
-      clipper: _MapFullscreenClipper(
-        rect: visibleRect,
-        radius: _cardRadius * (1 - progress),
-      ),
-      child: Transform(
-        alignment: Alignment.topLeft,
-        transform: transform,
-        // Cache the complete destination page as one layer. During this
-        // transition only the outer transform and clip should animate; the
-        // expensive map painter must not repaint for every route frame.
-        child: RepaintBoundary(child: child),
-      ),
-    );
-  }
-}
-
-class _MapFullscreenClipper extends CustomClipper<Path> {
-  const _MapFullscreenClipper({required this.rect, required this.radius});
-
-  final Rect rect;
-  final double radius;
-
-  @override
-  Path getClip(Size size) =>
-      RoundedSuperellipseBorder(borderRadius: BorderRadius.circular(radius))
-          .getOuterPath(rect);
-
-  @override
-  bool shouldReclip(covariant _MapFullscreenClipper oldClipper) =>
-      oldClipper.rect != rect || oldClipper.radius != radius;
-}
-
-class _HomeGreeting extends StatelessWidget {
-  const _HomeGreeting({required this.name});
-
-  final String name;
-
-  @override
-  Widget build(BuildContext context) {
-    final displayName = name.trim().isEmpty ? 'TRAVELER' : name.trim();
-    final colors = context.appColors;
-    return Semantics(
-      header: true,
-      label: 'HELLO, $displayName',
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(
-          AppSpacing.page,
-          AppSpacing.lg,
-          AppSpacing.page,
-          AppSpacing.md,
+        const SizedBox(height: 10),
+        Semantics(
+          button: true,
+          label: globeMode ? '地球模式，点击切换' : '平面地图，点击切换',
+          child: LiquidGlassIconButton(
+            tooltip: globeMode
+                ? strings.t('flatMapMode')
+                : strings.t('globeMode'),
+            icon: globeMode ? Icons.public_rounded : Icons.map_outlined,
+            size: 48,
+            iconSize: 22,
+            blurEnabled: !mapInteracting,
+            tintColor: Colors.black,
+            tintOpacity: mapInteracting ? .70 : .42,
+            borderColor: Colors.white.withValues(alpha: .20),
+            onPressed: onToggleProjection,
+          ),
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'HELLO,',
-              style: TextStyle(
-                color: colors.lime,
-                fontSize: 22,
-                height: 1.1,
-                fontWeight: FontWeight.w700,
-                letterSpacing: 1.8,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              displayName,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: AppTextStyles.pageTitle.copyWith(
-                color: colors.textPrimary,
-                fontSize: 36,
-                letterSpacing: -1.1,
-              ),
-            ),
-          ],
+        const SizedBox(height: 10),
+        Semantics(
+          button: true,
+          label: '横向全屏地图',
+          child: LiquidGlassIconButton(
+            tooltip: '横向全屏地图',
+            icon: Icons.screen_rotation_alt_rounded,
+            size: 48,
+            iconSize: 22,
+            blurEnabled: !mapInteracting,
+            tintColor: Colors.black,
+            tintOpacity: mapInteracting ? .70 : .42,
+            borderColor: Colors.white.withValues(alpha: .20),
+            onPressed: onFullscreen,
+          ),
         ),
-      ),
+      ],
     );
   }
 }

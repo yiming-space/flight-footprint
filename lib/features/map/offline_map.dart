@@ -188,6 +188,7 @@ class MapFullscreenPage extends StatefulWidget {
     required this.airports,
     required this.routes,
     required this.places,
+    this.initialGlobeMode = false,
     this.onAddPlace,
     this.onPlaceLongPress,
     this.placesListenable,
@@ -200,6 +201,7 @@ class MapFullscreenPage extends StatefulWidget {
   final List<MapAirport> airports;
   final List<MapRoute> routes;
   final List<MapPlace> places;
+  final bool initialGlobeMode;
   final Future<void> Function(BuildContext context)? onAddPlace;
   final Future<void> Function(List<MapPlace> candidates)? onPlaceLongPress;
   final Listenable? placesListenable;
@@ -252,6 +254,7 @@ class _MapFullscreenPageState extends State<MapFullscreenPage>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _globeMode = widget.initialGlobeMode;
     _places = widget.places;
     _animationRoutes = _deduplicateRoutes(widget.routes);
     _animationRouteSignature = _routeSignature(_animationRoutes);

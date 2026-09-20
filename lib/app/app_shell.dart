@@ -198,7 +198,10 @@ class _AppShellState extends State<AppShell>
                 fit: StackFit.expand,
                 children: [
                   SafeArea(
-                    top: true,
+                    // The home surface is an edge-to-edge map. Other tabs
+                    // retain the shell-level status-bar inset and keep their
+                    // existing page rhythm.
+                    top: _index != 0,
                     bottom: false,
                     left: false,
                     right: false,

@@ -78,6 +78,7 @@ class LiquidGlassIconButton extends StatelessWidget {
     this.tintOpacity = .18,
     this.foregroundColor = Colors.white,
     this.borderColor = const Color(0x4DFFFFFF),
+    this.blurEnabled = true,
   });
 
   final IconData icon;
@@ -89,6 +90,7 @@ class LiquidGlassIconButton extends StatelessWidget {
   final double tintOpacity;
   final Color foregroundColor;
   final Color borderColor;
+  final bool blurEnabled;
 
   @override
   Widget build(BuildContext context) {
@@ -102,6 +104,7 @@ class LiquidGlassIconButton extends StatelessWidget {
         clipper: ShapeBorderClipper(shape: shape),
         child: BackdropFilter(
           filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+          enabled: blurEnabled,
           child: DecoratedBox(
             decoration: ShapeDecoration(
               color: tintColor.withValues(alpha: tintOpacity),

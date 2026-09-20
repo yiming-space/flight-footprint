@@ -5,13 +5,14 @@ import 'package:flutter/material.dart';
 import '../../app/app_controller.dart';
 import '../../core/localization/app_strings.dart';
 import '../../data/airport_localization.dart';
+import '../../data/city_catalog.dart';
 import '../../domain/flight.dart';
 import '../../ui/theme/app_theme.dart';
 import '../../ui/widgets/country_flag.dart';
 import '../../ui/widgets/widgets.dart';
+import '../map/add_visited_place_sheet.dart';
 import '../map/map_models.dart';
 import 'flight_passport_card.dart';
-import 'travel_milestones.dart';
 
 class StatsPage extends StatefulWidget {
   const StatsPage({super.key, required this.controller});
@@ -23,6 +24,7 @@ class StatsPage extends StatefulWidget {
 class _StatsPageState extends State<StatsPage> {
   static const _wideLayoutBreakpoint = 700.0;
   int? _passportYear;
+  late final Future<CityCatalog> _chinaCatalog = CityCatalog.loadChina();
 
   @override
   Widget build(BuildContext context) {
@@ -62,10 +64,7 @@ class _StatsPageState extends State<StatsPage> {
     final passportFlightTimeMinutes = _flightTimeMinutes(passportFlights);
     final passportRouteCount = _routeKeys(passportFlights).length;
     final aircraftSummaries = _aircraftSummaries(flights);
-    final milestones = TravelMilestones.fromFlights(
-      flights,
-      cityNameFor: _cityName,
-    );
+    final footprintPlaces = _footprintPlaces(flights);
     final data = _StatsViewData(
       hasAnyFlights: hasAnyFlights,
       flights: flights,
@@ -80,7 +79,7 @@ class _StatsPageState extends State<StatsPage> {
       passportFlightTimeMinutes: passportFlightTimeMinutes,
       passportRouteCount: passportRouteCount,
       aircraftSummaries: aircraftSummaries,
-      milestones: milestones,
+      footprintPlaces: footprintPlaces,
     );
     return SafeArea(
       top: false,
@@ -131,7 +130,7 @@ class _StatsPageState extends State<StatsPage> {
       if (data.flights.isEmpty)
         _emptyStats(data)
       else ...[
-        _milestonesCard(data.milestones),
+        _footprintStatsCard(data.footprintPlaces),
         const SizedBox(height: AppSpacing.cardGap),
         _aircraftCollectionCard(data.aircraftSummaries),
         const SizedBox(height: AppSpacing.cardGap),
@@ -203,7 +202,7 @@ class _StatsPageState extends State<StatsPage> {
     final s = context.strings;
     return Column(
       children: [
-        _milestonesCard(data.milestones),
+        _footprintStatsCard(data.footprintPlaces),
         const SizedBox(height: AppSpacing.cardGap),
         _aircraftCollectionCard(data.aircraftSummaries),
         const SizedBox(height: AppSpacing.cardGap),
@@ -302,93 +301,161 @@ class _StatsPageState extends State<StatsPage> {
     );
   }
 
-  Widget _milestonesCard(TravelMilestones milestones) {
+  Widget _footprintStatsCard(List<MapPlace> places) {
     final s = context.strings;
-    final colors = context.appColors;
-    final firstArrival = milestones.firstArrival;
-    final latestCities = milestones.latestNewCities;
-    final frequentRoute = milestones.frequentRoute;
-    return SurfaceCard(
-      padding: const EdgeInsets.fromLTRB(18, 18, 18, 10),
-      color: _statsCardSurface(colors.cardCoral),
-      showBorder: false,
-      boxShadow: _statsCardShadow(context),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            s.t('travelMilestones'),
-            style: TextStyle(
-              color: colors.textPrimary,
-              fontSize: 21,
-              height: 1.15,
-              fontWeight: FontWeight.w700,
-              letterSpacing: -.25,
+    return FutureBuilder<CityCatalog>(
+      future: _chinaCatalog,
+      builder: (context, snapshot) {
+        final colors = context.appColors;
+        final isLight = Theme.of(context).brightness == Brightness.light;
+        final visited = places
+            .where((place) => place.isVisited && place.name.trim().isNotEmpty)
+            .toList(growable: false);
+        final countryCount = visited
+            .map((place) => canonicalWorldCountryCode(place.countryCode))
+            .where((code) => code.isNotEmpty)
+            .toSet()
+            .length;
+        final chinaPlaces = visited
+            .where((place) => place.countryCode?.trim().toUpperCase() == 'CN')
+            .toList(growable: false);
+        final provinceNames = <String>{};
+        final catalog = snapshot.data;
+        if (catalog != null) {
+          for (final place in chinaPlaces) {
+            final province = catalog.provinceFor(
+              place.name,
+              longitude: place.longitude,
+              latitude: place.latitude,
+            );
+            if (province != null && province.trim().isNotEmpty) {
+              provinceNames.add(province.trim());
+            }
+          }
+        }
+        // Before the offline catalogue resolves, show a useful city fallback;
+        // the exact province count replaces it once the bundled data is ready.
+        final chinaCount = provinceNames.isNotEmpty
+            ? provinceNames.length
+            : chinaPlaces.map((place) => place.name.trim()).toSet().length;
+        final worldProgress = (countryCount / 195).clamp(0.0, 1.0).toDouble();
+        final chinaProgress = (chinaCount / 34).clamp(0.0, 1.0).toDouble();
+        final cardColor = isLight ? colors.cardBlue : colors.surfaceElevated;
+        final worldAccent = isLight
+            ? HSLColor.fromColor(colors.lime)
+                  .withSaturation(.66)
+                  .withLightness(.40)
+                  .toColor()
+            : colors.lime;
+        final chinaAccent = isLight ? const Color(0xFF8067C7) : colors.purple;
+        return Semantics(
+          container: true,
+          label: '${s.t('worldExplorer')} · ${s.t('chinaExplorer')}',
+          child: Container(
+            padding: const EdgeInsets.fromLTRB(22, 22, 22, 20),
+            decoration: ShapeDecoration(
+              color: cardColor,
+              shape: RoundedSuperellipseBorder(
+                borderRadius: AppRadii.large,
+                side: BorderSide.none,
+              ),
+              shadows: _statsCardShadow(context),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _progressSection(
+                  title: s.t('worldExplorer'),
+                  count: countryCount,
+                  total: 195,
+                  progress: worldProgress,
+                  color: worldAccent,
+                  detail: s.t('visitedCountriesAndRegions'),
+                ),
+                const SizedBox(height: 20),
+                _progressSection(
+                  title: s.t('chinaExplorer'),
+                  count: chinaCount,
+                  total: 34,
+                  progress: chinaProgress,
+                  color: chinaAccent,
+                  detail: s.t('visitedRegions'),
+                ),
+                const SizedBox(height: 18),
+                PrimaryButton(
+                  label: s.t('addPlace'),
+                  icon: Icons.add_location_alt_rounded,
+                  onPressed: _openAddPlace,
+                  backgroundColor: isLight ? colors.lime : null,
+                  foregroundColor: isLight ? colors.cardText : null,
+                ),
+              ],
             ),
           ),
-          const SizedBox(height: 14),
-          if (firstArrival != null)
-            _MilestoneRow(
-              icon: Icons.flag_rounded,
-              title: s.t('firstArrival'),
-              value: firstArrival.city,
-              detail: _formatMilestoneDate(firstArrival.flight.departedAt),
-              onTap: () => _openRankingDetail(
-                title: s.t('firstArrival'),
-                icon: Icons.flag_rounded,
-                subtitle: s.t('firstArrivalDetail'),
-                items: [(firstArrival.city, 1)],
-                secondaryByName: {
-                  firstArrival.city:
-                      '${firstArrival.flight.departureIata} → ${firstArrival.flight.arrivalIata} · ${_formatMilestoneDate(firstArrival.flight.departedAt)}',
-                },
-              ),
-            ),
-          if (latestCities != null)
-            _MilestoneRow(
-              icon: Icons.location_city_rounded,
-              title: s
-                  .t('yearNewCities')
-                  .replaceFirst('{year}', '${latestCities.year}'),
-              value: s
-                  .t('newCitiesCount')
-                  .replaceFirst('{count}', '${latestCities.cities.length}'),
-              detail: latestCities.cities.take(3).join(' · '),
-              onTap: () => _openRankingDetail(
-                title: s
-                    .t('yearNewCities')
-                    .replaceFirst('{year}', '${latestCities.year}'),
-                icon: Icons.location_city_rounded,
-                subtitle: s.t('yearNewCitiesDetail'),
-                items: [for (final city in latestCities.cities) (city, 1)],
-              ),
-            ),
-          if (frequentRoute != null)
-            _MilestoneRow(
-              icon: Icons.route_rounded,
-              title: s.t('frequentRoute'),
-              value: frequentRoute.label,
-              detail: s
-                  .t('routeFlightsCount')
-                  .replaceFirst('{count}', '${frequentRoute.flights.length}'),
-              onTap: () => _openRankingDetail(
-                title: s.t('frequentRoute'),
-                icon: Icons.route_rounded,
-                subtitle: s.t('frequentRouteDetail'),
-                items: [
-                  for (final route in milestones.routes)
-                    (route.label, route.flights.length),
-                ],
-              ),
-            ),
-        ],
-      ),
+        );
+      },
     );
   }
 
-  String _formatMilestoneDate(DateTime value) {
-    final local = value.toLocal();
-    return '${local.year}.${local.month.toString().padLeft(2, '0')}.${local.day.toString().padLeft(2, '0')}';
+  Widget _progressSection({
+    required String title,
+    required int count,
+    required int total,
+    required double progress,
+    required Color color,
+    required String detail,
+  }) {
+    final colors = context.appColors;
+    final percent =
+        '${(progress * 100).toStringAsFixed(progress * 100 < 10 ? 1 : 0)}%';
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Expanded(
+              child: Text(
+                title,
+                style: AppTextStyles.sectionTitle.copyWith(
+                  color: colors.textPrimary,
+                ),
+              ),
+            ),
+            Text(
+              percent,
+              style: TextStyle(
+                color: color,
+                fontSize: 30,
+                fontWeight: FontWeight.w700,
+                letterSpacing: -1,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        ClipRRect(
+          borderRadius: AppRadii.pill,
+          child: SizedBox(
+            height: 10,
+            child: LinearProgressIndicator(
+              value: progress,
+              backgroundColor: colors.background.withValues(alpha: .72),
+              valueColor: AlwaysStoppedAnimation<Color>(color),
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          '$count / $total · $detail',
+          style: AppTextStyles.bodySecondary.copyWith(
+            color: Theme.of(context).brightness == Brightness.light
+                ? colors.textPrimary
+                : colors.textSecondary,
+          ),
+        ),
+      ],
+    );
   }
 
   Widget _rankingCardHeader({
@@ -568,6 +635,25 @@ class _StatsPageState extends State<StatsPage> {
     ),
   );
 
+  Future<void> _openAddPlace() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      requestFocus: false,
+      backgroundColor: Colors.transparent,
+      barrierColor: Colors.black.withValues(alpha: .68),
+      builder: (_) => FractionallySizedBox(
+        heightFactor: .9,
+        child: ClipPath(
+          clipper: const ShapeBorderClipper(shape: AppShapes.sheet),
+          child: AddVisitedPlaceSheet(controller: widget.controller),
+        ),
+      ),
+    );
+    if (mounted) setState(() {});
+  }
+
   List<(String, int)> _counts(Iterable<String?> values) {
     final counts = <String, int>{};
     for (final value in values) {
@@ -605,6 +691,36 @@ class _StatsPageState extends State<StatsPage> {
       return count == 0 ? a.type.compareTo(b.type) : count;
     });
     return summaries;
+  }
+
+  List<MapPlace> _footprintPlaces(List<Flight> flights) {
+    final places = <String, MapPlace>{};
+    for (final flight in flights) {
+      for (final code in [flight.departureIata, flight.arrivalIata]) {
+        final airport = widget.controller.airportFor(code);
+        if (airport == null) continue;
+        final name = localizedAirportCity(airport).trim();
+        if (name.isEmpty) continue;
+        places[airport.iataCode] = MapPlace(
+          name: name,
+          latitude: airport.latitude,
+          longitude: airport.longitude,
+          countryCode: airport.countryCode,
+        );
+      }
+    }
+    for (final place in widget.controller.visitedPlaces) {
+      places['visited:${place.id}'] = MapPlace(
+        name: place.name,
+        latitude: place.latitude,
+        longitude: place.longitude,
+        countryCode: place.countryCode,
+        id: place.id,
+        visitedAt: place.visitedAt,
+        isDeletable: true,
+      );
+    }
+    return places.values.toList(growable: false);
   }
 
   String? _cityName(String code) {
@@ -731,7 +847,7 @@ class _StatsViewData {
     required this.passportFlightTimeMinutes,
     required this.passportRouteCount,
     required this.aircraftSummaries,
-    required this.milestones,
+    required this.footprintPlaces,
   });
 
   final bool hasAnyFlights;
@@ -747,93 +863,7 @@ class _StatsViewData {
   final int passportFlightTimeMinutes;
   final int passportRouteCount;
   final List<_AircraftSummary> aircraftSummaries;
-  final TravelMilestones milestones;
-}
-
-class _MilestoneRow extends StatelessWidget {
-  const _MilestoneRow({
-    required this.icon,
-    required this.title,
-    required this.value,
-    required this.detail,
-    required this.onTap,
-  });
-
-  final IconData icon;
-  final String title;
-  final String value;
-  final String detail;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.appColors;
-    return Semantics(
-      button: true,
-      label: '$title, $value, $detail',
-      child: InkWell(
-        borderRadius: AppRadii.medium,
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 10),
-          child: Row(
-            children: [
-              Container(
-                width: 38,
-                height: 38,
-                decoration: BoxDecoration(
-                  color: colors.cardCoral.withValues(alpha: .18),
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(icon, color: colors.purple, size: 20),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      style: TextStyle(
-                        color: colors.textTertiary,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      value,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: colors.textPrimary,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    if (detail.isNotEmpty) ...[
-                      const SizedBox(height: 2),
-                      Text(
-                        detail,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: colors.textSecondary,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-              Icon(Icons.chevron_right_rounded, color: colors.textTertiary),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
+  final List<MapPlace> footprintPlaces;
 }
 
 class _PassportYearFilterBar extends StatelessWidget {

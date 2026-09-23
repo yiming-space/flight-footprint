@@ -1,9 +1,9 @@
 {
-  "version": "1.1.7",
-  "build": 14,
-  "releaseUrl": "https://github.com/yiming-space/flight-footprint/releases/tag/v1.1.7",
-  "apkUrl": "https://github.com/yiming-space/flight-footprint/releases/download/v1.1.7/app-release.apk",
-  "apkSize": 68905959,
-  "apkSha256": "b2ccf092e091346493d19c2a16e7e34f077a01e22ceb762b269f85b5388414e5",
-  "notes": "Android 优化版：修复待出行航班在出行当天不会自动变为已出行；支持启动、回到前台及跨日期自动刷新状态。"
+  "version": "1.2.0",
+  "build": 15,
+  "releaseUrl": "https://github.com/yiming-space/flight-footprint/releases/tag/v1.2.0",
+  "apkUrl": "https://github.com/yiming-space/flight-footprint/releases/download/v1.2.0/app-release.apk",
+  "apkSize": 70285766,
+  "apkSha256": "f7a94528aeb4e23e0ecf8cdb1762def65ec2c6b191533d7f4b0fda75e63af335",
+  "notes": "地图与界面升级：优化地球昼夜、星空和航线，修复地图定位与切换位移；护照卡复用首页地图，并改进飞行记录和统计界面。"
 }

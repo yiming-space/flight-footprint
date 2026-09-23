@@ -9,6 +9,8 @@ import '../../app/app_controller.dart';
 import '../../core/localization/app_strings.dart';
 import '../../data/airport_localization.dart';
 import '../../data/city_catalog.dart';
+import '../../data/device_location_service.dart';
+import '../../domain/flight.dart';
 import '../../domain/visited_place.dart';
 import '../../features/map/map.dart';
 import '../map/map_records_sheet.dart';
@@ -24,16 +26,18 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
-  // The first frame is the user's world. Flight arcs remain one tap away.
-  MapMode _mode = MapMode.travelFootprint;
+  // The first frame opens on the itinerary; the footprint remains one tap
+  // away through the map mode control.
+  MapMode _mode = MapMode.flight;
   // Flat map is the practical daily view; globe remains the immersive
   // presentation behind the second round control.
   bool _globeMode = false;
-  bool _mapInteracting = false;
-  int _mapResetSignal = 0;
   CityCatalog? _mapCatalog;
+  _HomeMapData? _mapDataCache;
   final _mapPreviewKey = GlobalKey();
   bool _openingHorizontalMap = false;
+  MapCoordinate? _userLocation;
+  bool _locating = false;
 
   @override
   void initState() {
@@ -48,10 +52,162 @@ class _HomePageState extends State<HomePage> {
   }
 
   @override
+  void dispose() {
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final mapData = _homeMapData();
+    final mapAirports = mapData.airports;
+    final routes = mapData.routes;
+    final mapPlaces = mapData.places;
+    final mapFitPoints = mapData.fitPoints;
+    final lightTheme = Theme.of(context).brightness == Brightness.light;
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: SystemUiOverlayStyle(
+        statusBarColor: Colors.transparent,
+        statusBarIconBrightness: lightTheme
+            ? Brightness.dark
+            : Brightness.light,
+        statusBarBrightness: lightTheme ? Brightness.light : Brightness.dark,
+        systemNavigationBarColor: Colors.transparent,
+        systemNavigationBarIconBrightness: lightTheme
+            ? Brightness.dark
+            : Brightness.light,
+        systemNavigationBarDividerColor: Colors.transparent,
+        systemNavigationBarContrastEnforced: false,
+      ),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          _homeMapExperience(
+            airports: mapAirports,
+            routes: routes,
+            places: mapPlaces,
+            fitPoints: mapFitPoints,
+            userLocation: _userLocation,
+          ),
+          Positioned(
+            top: 0,
+            right: 0,
+            child: SafeArea(
+              left: false,
+              bottom: false,
+              minimum: const EdgeInsets.fromLTRB(0, 12, 16, 0),
+              child: _HomeMapControls(
+                mode: _mode,
+                globeMode: _globeMode,
+                onToggleMode: () {
+                  final nextMode = _mode == MapMode.flight
+                      ? MapMode.travelFootprint
+                      : MapMode.flight;
+                  setState(() => _mode = nextMode);
+                  widget.onMapModeChanged?.call(nextMode);
+                },
+                onToggleProjection: () => setState(() {
+                  _globeMode = !_globeMode;
+                }),
+                onLocate: _locateUser,
+                locating: _locating,
+                onFullscreen: () => unawaited(
+                  _openHorizontalMap(
+                    mode: _mode,
+                    globeMode: _globeMode,
+                    airports: mapAirports,
+                    routes: routes,
+                    places: mapPlaces,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _homeMapExperience({
+    required List<MapAirport> airports,
+    required List<MapRoute> routes,
+    required List<MapPlace> places,
+    required List<MapCoordinate> fitPoints,
+    required MapCoordinate? userLocation,
+  }) {
+    final mapRoutes = _mode == MapMode.flight ? routes : const <MapRoute>[];
+    return RepaintBoundary(
+      key: _mapPreviewKey,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          Offstage(
+            offstage: _globeMode,
+            child: TickerMode(
+              enabled: !_globeMode,
+              child: IgnorePointer(
+                ignoring: _globeMode,
+                child: OfflineMap(
+                  key: const ValueKey('home-flat-map'),
+                  mode: _mode,
+                  airports: airports,
+                  routes: mapRoutes,
+                  places: places,
+                  fitPoints: fitPoints,
+                  fitToData: true,
+                  fillViewportHeight: true,
+                  coverViewport: true,
+                  enableInteraction: true,
+                  horizontalWrap: true,
+                  horizontalPadding: 0,
+                  verticalPadding: 0,
+                  userLocation: userLocation,
+                  // The cartographic colors follow the selected app theme.
+                  // In dark mode this keeps the existing deep map; Ice White
+                  // gets a cool, low-contrast map with glacier-blue routes.
+                  useLightPalette: null,
+                  onPlaceLongPress: _handlePlaceLongPress,
+                  onSelection: _handleMapSelection,
+                ),
+              ),
+            ),
+          ),
+          Offstage(
+            offstage: !_globeMode,
+            child: TickerMode(
+              enabled: _globeMode,
+              child: IgnorePointer(
+                ignoring: !_globeMode,
+                child: GlobeMap(
+                  key: const ValueKey('home-globe'),
+                  active: _globeMode,
+                  mode: _mode,
+                  routes: mapRoutes,
+                  airports: airports,
+                  places: places,
+                  userLocation: userLocation,
+                  onSelection: _handleMapSelection,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  _HomeMapData _homeMapData() {
     final allFlights = widget.controller.flights;
+    final visitedPlaces = widget.controller.visitedPlaces;
+    final cached = _mapDataCache;
+    if (cached != null &&
+        identical(cached.flightsSource, allFlights) &&
+        identical(cached.visitedPlacesSource, visitedPlaces) &&
+        identical(cached.catalog, _mapCatalog)) {
+      return cached;
+    }
+
     final flights = allFlights.where((flight) => flight.isCompleted).toList();
-    final mapAirports = <String, MapAirport>{};
+    final mapAirportsByCode = <String, MapAirport>{};
     final routes = <MapRoute>[];
     final places = <String, MapPlace>{};
     for (final flight in flights) {
@@ -70,8 +226,8 @@ class _HomePageState extends State<HomePage> {
         latitude: to.latitude,
         longitude: to.longitude,
       );
-      mapAirports[a.code] = a;
-      mapAirports[b.code] = b;
+      mapAirportsByCode[a.code] = a;
+      mapAirportsByCode[b.code] = b;
       places[a.code] = MapPlace(
         name: localizedAirportCity(from),
         latitude: from.latitude,
@@ -97,7 +253,7 @@ class _HomePageState extends State<HomePage> {
         ),
       );
     }
-    for (final place in widget.controller.visitedPlaces) {
+    for (final place in visitedPlaces) {
       places['visited:${place.id}'] = MapPlace(
         name: place.name,
         latitude: place.latitude,
@@ -109,11 +265,11 @@ class _HomePageState extends State<HomePage> {
       );
     }
     final mapPlaces = _normalizeAndDedupeMapPlaces(places.values);
-    // The home map owns one camera for both layers. Flights are the primary
-    // viewport source; if there are no flights yet, use the available travel
-    // footprints so a newly started user still gets a useful first frame.
+    final airports = mapAirportsByCode.values.toList(growable: false);
+    // Flights are the primary viewport source; if there are no flights yet,
+    // use the available travel footprints for a useful first frame.
     final flightFitPoints = [
-      for (final airport in mapAirports.values)
+      for (final airport in airports)
         MapCoordinate(airport.latitude, airport.longitude),
     ];
     final mapFitPoints = flightFitPoints.isNotEmpty
@@ -122,130 +278,46 @@ class _HomePageState extends State<HomePage> {
             for (final place in mapPlaces)
               MapCoordinate(place.latitude, place.longitude),
           ];
-    return AnnotatedRegion<SystemUiOverlayStyle>(
-      value: const SystemUiOverlayStyle(
-        statusBarColor: Colors.transparent,
-        statusBarIconBrightness: Brightness.light,
-        statusBarBrightness: Brightness.dark,
-        systemNavigationBarColor: Colors.transparent,
-        systemNavigationBarIconBrightness: Brightness.light,
-        systemNavigationBarDividerColor: Colors.transparent,
-        systemNavigationBarContrastEnforced: false,
-      ),
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          _homeMapExperience(
-            airports: mapAirports.values.toList(growable: false),
-            routes: routes,
-            places: mapPlaces,
-            fitPoints: mapFitPoints,
-          ),
-          Positioned(
-            top: 0,
-            right: 0,
-            child: SafeArea(
-              left: false,
-              bottom: false,
-              minimum: const EdgeInsets.fromLTRB(0, 12, 16, 0),
-              child: _HomeMapControls(
-                mode: _mode,
-                globeMode: _globeMode,
-                mapInteracting: _mapInteracting,
-                onToggleMode: () {
-                  final nextMode = _mode == MapMode.flight
-                      ? MapMode.travelFootprint
-                      : MapMode.flight;
-                  setState(() => _mode = nextMode);
-                  widget.onMapModeChanged?.call(nextMode);
-                },
-                onToggleProjection: () => setState(() {
-                  _globeMode = !_globeMode;
-                  _mapResetSignal++;
-                }),
-                onFullscreen: () => unawaited(
-                  _openHorizontalMap(
-                    mode: _mode,
-                    globeMode: _globeMode,
-                    airports: mapAirports.values.toList(growable: false),
-                    routes: routes,
-                    places: mapPlaces,
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _homeMapExperience({
-    required List<MapAirport> airports,
-    required List<MapRoute> routes,
-    required List<MapPlace> places,
-    required List<MapCoordinate> fitPoints,
-  }) {
-    final mapRoutes = _mode == MapMode.flight ? routes : const <MapRoute>[];
-    return RepaintBoundary(
-      key: _mapPreviewKey,
-      child: AnimatedSwitcher(
-        duration: MediaQuery.disableAnimationsOf(context)
-            ? Duration.zero
-            : const Duration(milliseconds: 260),
-        switchInCurve: Curves.easeOutCubic,
-        switchOutCurve: Curves.easeInCubic,
-        layoutBuilder: (currentChild, previousChildren) => Stack(
-          fit: StackFit.expand,
-          children: [
-            ...previousChildren,
-            if (currentChild != null) currentChild,
-          ],
-        ),
-        child: _globeMode
-            ? GlobeMap(
-                key: const ValueKey('home-globe'),
-                resetSignal: _mapResetSignal,
-                mode: _mode,
-                routes: mapRoutes,
-                airports: airports,
-                places: places,
-                onInteractionChanged: (active) {
-                  if (mounted && _mapInteracting != active) {
-                    setState(() => _mapInteracting = active);
-                  }
-                },
-                onSelection: _handleMapSelection,
-              )
-            : OfflineMap(
-                key: const ValueKey('home-flat-map'),
-                mode: _mode,
-                airports: airports,
-                routes: mapRoutes,
-                places: places,
-                fitPoints: fitPoints,
-                fitToData: true,
-                fillViewportHeight: true,
-                coverViewport: true,
-                enableInteraction: true,
-                horizontalWrap: true,
-                horizontalPadding: 0,
-                verticalPadding: 0,
-                useLightPalette: false,
-                onInteractionChanged: (active) {
-                  if (mounted && _mapInteracting != active) {
-                    setState(() => _mapInteracting = active);
-                  }
-                },
-                onPlaceLongPress: _handlePlaceLongPress,
-                onSelection: _handleMapSelection,
-              ),
-      ),
+    return _mapDataCache = _HomeMapData(
+      flightsSource: allFlights,
+      visitedPlacesSource: visitedPlaces,
+      catalog: _mapCatalog,
+      airports: airports,
+      routes: List.unmodifiable(routes),
+      places: mapPlaces,
+      fitPoints: List.unmodifiable(mapFitPoints),
     );
   }
 
   void _handleMapSelection(MapSelection selection) {
     _openMapRecords(context, selection);
+  }
+
+  Future<void> _locateUser() async {
+    if (_locating) return;
+    setState(() => _locating = true);
+    try {
+      final coordinate = await DeviceLocationService.readOnce();
+      if (!mounted) return;
+      setState(() {
+        _userLocation = MapCoordinate(
+          coordinate.latitude,
+          coordinate.longitude,
+        );
+      });
+    } on DeviceLocationException catch (error) {
+      if (!mounted) return;
+      final key = switch (error.reason) {
+        DeviceLocationFailure.serviceDisabled => 'locationServiceDisabled',
+        DeviceLocationFailure.permissionDenied => 'locationPermissionDenied',
+        DeviceLocationFailure.unavailable => 'locationUnavailable',
+      };
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(content: Text(context.strings.t(key))));
+    } finally {
+      if (mounted) setState(() => _locating = false);
+    }
   }
 
   Future<void> _openHorizontalMap({
@@ -440,6 +512,30 @@ class _HomePageState extends State<HomePage> {
   }
 }
 
+/// Derived map inputs are intentionally kept stable between widget rebuilds.
+/// Reusing the same list instances lets the map painters retain their cached
+/// geometry while the surrounding page responds to theme, menu, or gesture
+/// state changes.
+class _HomeMapData {
+  const _HomeMapData({
+    required this.flightsSource,
+    required this.visitedPlacesSource,
+    required this.catalog,
+    required this.airports,
+    required this.routes,
+    required this.places,
+    required this.fitPoints,
+  });
+
+  final List<Flight> flightsSource;
+  final List<VisitedPlace> visitedPlacesSource;
+  final CityCatalog? catalog;
+  final List<MapAirport> airports;
+  final List<MapRoute> routes;
+  final List<MapPlace> places;
+  final List<MapCoordinate> fitPoints;
+}
+
 /// Home map controls stay deliberately icon-only so the artwork remains the
 /// first thing the user reads. Each button changes one map dimension: data
 /// layer or projection.
@@ -447,23 +543,36 @@ class _HomeMapControls extends StatelessWidget {
   const _HomeMapControls({
     required this.mode,
     required this.globeMode,
-    required this.mapInteracting,
     required this.onToggleMode,
     required this.onToggleProjection,
+    required this.onLocate,
+    required this.locating,
     required this.onFullscreen,
   });
 
   final MapMode mode;
   final bool globeMode;
-  final bool mapInteracting;
   final VoidCallback onToggleMode;
   final VoidCallback onToggleProjection;
+  final VoidCallback onLocate;
+  final bool locating;
   final VoidCallback onFullscreen;
 
   @override
   Widget build(BuildContext context) {
     final strings = context.strings;
+    final colors = context.appColors;
+    final lightTheme = Theme.of(context).brightness == Brightness.light;
     final modeIsFlight = mode == MapMode.flight;
+    final controlTint = lightTheme ? colors.surface : colors.surfaceElevated;
+    // Keep the control surface visually stable while the map moves. A
+    // translucent tint plus a live BackdropFilter made the circles change
+    // brightness whenever land/routes passed underneath them.
+    final controlTintOpacity = 1.0;
+    final controlForeground = colors.textPrimary;
+    final controlBorder = lightTheme
+        ? colors.border.withValues(alpha: .88)
+        : Colors.transparent;
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -481,10 +590,11 @@ class _HomeMapControls extends StatelessWidget {
                 : Icons.directions_walk_rounded,
             size: 48,
             iconSize: 22,
-            blurEnabled: !mapInteracting,
-            tintColor: Colors.black,
-            tintOpacity: mapInteracting ? .70 : .42,
-            borderColor: Colors.white.withValues(alpha: .20),
+            blurEnabled: false,
+            tintColor: controlTint,
+            tintOpacity: controlTintOpacity,
+            foregroundColor: controlForeground,
+            borderColor: controlBorder,
             onPressed: onToggleMode,
           ),
         ),
@@ -499,11 +609,31 @@ class _HomeMapControls extends StatelessWidget {
             icon: globeMode ? Icons.public_rounded : Icons.map_outlined,
             size: 48,
             iconSize: 22,
-            blurEnabled: !mapInteracting,
-            tintColor: Colors.black,
-            tintOpacity: mapInteracting ? .70 : .42,
-            borderColor: Colors.white.withValues(alpha: .20),
+            blurEnabled: false,
+            tintColor: controlTint,
+            tintOpacity: controlTintOpacity,
+            foregroundColor: controlForeground,
+            borderColor: controlBorder,
             onPressed: onToggleProjection,
+          ),
+        ),
+        const SizedBox(height: 10),
+        Semantics(
+          button: true,
+          label: locating ? strings.t('locating') : strings.t('locateMe'),
+          child: LiquidGlassIconButton(
+            tooltip: locating ? strings.t('locating') : strings.t('locateMe'),
+            icon: locating
+                ? Icons.hourglass_top_rounded
+                : Icons.my_location_rounded,
+            size: 48,
+            iconSize: 22,
+            blurEnabled: false,
+            tintColor: controlTint,
+            tintOpacity: controlTintOpacity,
+            foregroundColor: controlForeground,
+            borderColor: controlBorder,
+            onPressed: locating ? null : onLocate,
           ),
         ),
         const SizedBox(height: 10),
@@ -515,10 +645,11 @@ class _HomeMapControls extends StatelessWidget {
             icon: Icons.screen_rotation_alt_rounded,
             size: 48,
             iconSize: 22,
-            blurEnabled: !mapInteracting,
-            tintColor: Colors.black,
-            tintOpacity: mapInteracting ? .70 : .42,
-            borderColor: Colors.white.withValues(alpha: .20),
+            blurEnabled: false,
+            tintColor: controlTint,
+            tintOpacity: controlTintOpacity,
+            foregroundColor: controlForeground,
+            borderColor: controlBorder,
             onPressed: onFullscreen,
           ),
         ),

@@ -33,27 +33,46 @@ class FlightCard extends StatelessWidget {
     final isLight = Theme.of(context).brightness == Brightness.light;
     final from = controller.airportFor(flight.departureIata);
     final to = controller.airportFor(flight.arrivalIata);
-    final color = switch (index % 5) {
-      0 => colors.cardLavender,
-      1 => colors.cardBlue,
-      2 => colors.cardMint,
-      3 => colors.cardCoral,
-      _ => colors.cardYellow,
-    };
-    final arrivalAt = flight.arrivedAt ?? _estimatedArrival(flight);
-    final flightLabel = [flight.airline, flight.flightNumber]
-        .whereType<String>()
-        .map((value) => value.trim())
-        .where((value) => value.isNotEmpty)
-        .join('  ');
+    // Keep the card surface quiet; in the dark theme, a slightly brighter
+    // edge and semantic route colors make each boarding pass easier to scan.
+    final color = colors.surface;
+    final departureAccent = isLight
+        ? Color.lerp(AppColors.mapBlueDeep, colors.textPrimary, .36)!
+        : colors.lime;
+    final arrivalAccent = isLight
+        ? AppColors.flightArrival
+        : AppColors.routePurple;
+    final cardTint = isLight ? colors.iceTint : colors.surfaceElevated;
+    // Keep an overnight arrival on the following calendar day. Imported
+    // records already carry the explicit arrival timestamp; for older/manual
+    // records whose arrival clock was stored before departure, prefer the
+    // known duration and otherwise roll the display date forward by one day.
+    final arrivalAt = _arrivalForDisplay(flight);
+    final arrivalDayOffset = _calendarDayOffset(flight.departedAt, arrivalAt);
+    final arrivalDayOffsetLabel = arrivalDayOffset > 0
+        ? context.strings.isZh
+              ? arrivalDayOffset == 1
+                    ? '次日'
+                    : '+$arrivalDayOffset天'
+              : arrivalDayOffset == 1
+              ? '+1 day'
+              : '+$arrivalDayOffset days'
+        : null;
+    final airline = flight.airline?.trim() ?? '';
+    final flightNumber = flight.flightNumber?.trim() ?? '';
     final aircraft = flight.aircraftType?.trim() ?? '';
+    final flightCode = flightNumber.isEmpty ? '航班记录' : flightNumber;
+    final topMeta = [
+      if (airline.isNotEmpty) airline,
+      if (aircraft.isNotEmpty) aircraft,
+    ].join(' · ');
     final content = Semantics(
       button: onLongPress != null,
-      label: '${flight.departureIata} to ${flight.arrivalIata}',
+      label: '$flightCode, ${flight.departureIata} to ${flight.arrivalIata}',
       child: GestureDetector(
         onLongPress: onLongPress,
         child: Container(
-          padding: const EdgeInsets.fromLTRB(22, 20, 22, 20),
+          padding: const EdgeInsets.fromLTRB(22, 14, 22, 16),
           decoration: ShapeDecoration(
             gradient: LinearGradient(
               begin: Alignment.topLeft,
@@ -61,79 +80,105 @@ class FlightCard extends StatelessWidget {
               stops: isLight ? const [0, .68, 1] : const [0, .7, 1],
               colors: [
                 color,
-                Color.lerp(color, Colors.white, isLight ? .025 : .035)!,
-                Color.lerp(color, Colors.white, isLight ? .075 : .10)!,
+                Color.lerp(color, cardTint, isLight ? .08 : .16)!,
+                Color.lerp(color, cardTint, isLight ? .18 : .3)!,
               ],
             ),
-            shape: AppShapes.large,
-          ),
-          child: DefaultTextStyle(
-            style: TextStyle(color: colors.cardText),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    Expanded(
-                      child: Text(
-                        flightLabel.isEmpty ? '航班记录' : flightLabel,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: .05,
+            // A slightly tighter corner keeps the card's generous layout
+            // while matching the compact boarding-pass reference.
+            shape:
+                const RoundedSuperellipseBorder(
+                  borderRadius: BorderRadius.all(Radius.circular(32)),
+                ).copyWith(
+                  side: isLight
+                      ? BorderSide(
+                          color: colors.iceTint.withValues(alpha: .68),
+                          width: .8,
+                        )
+                      : BorderSide(
+                          color: colors.border.withValues(alpha: .42),
+                          width: .8,
                         ),
-                      ),
-                    ),
-                    if (aircraft.isNotEmpty) ...[
-                      const SizedBox(width: 10),
-                      ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 132),
-                        child: _MetaPill(label: aircraft),
-                      ),
-                    ],
-                  ],
                 ),
-                const SizedBox(height: 17),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.center,
+          ),
+          child: Stack(
+            children: [
+              DefaultTextStyle(
+                style: TextStyle(color: colors.cardText),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Expanded(
-                      child: _Airport(
-                        label: '出发',
-                        code: flight.departureIata,
-                        city: from == null
-                            ? '机场'
-                            : localizedAirportCardDisplayName(from),
-                      ),
+                    _FlightCardHeader(
+                      flightCode: flightCode,
+                      topMeta: topMeta,
+                      color: colors.cardText,
                     ),
-                    const SizedBox(width: 10),
-                    SizedBox(
-                      width: 76,
-                      child: _FlightDuration(minutes: flight.durationMinutes),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: _Airport(
-                        label: '抵达',
-                        code: flight.arrivalIata,
-                        city: to == null
-                            ? '机场'
-                            : localizedAirportCardDisplayName(to),
-                        alignEnd: true,
-                      ),
+                    const SizedBox(height: 14),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        Expanded(
+                          child: _AirportStop(
+                            code: flight.departureIata,
+                            city: from == null
+                                ? '机场'
+                                : localizedAirportCardDisplayName(from),
+                            value: flight.departedAt,
+                            accentColor: departureAccent,
+                          ),
+                        ),
+                        const SizedBox(width: 20),
+                        Expanded(
+                          child: _AirportStop(
+                            code: flight.arrivalIata,
+                            city: to == null
+                                ? '机场'
+                                : localizedAirportCardDisplayName(to),
+                            value: arrivalAt,
+                            alignEnd: true,
+                            accentColor: arrivalAccent,
+                            dayOffsetLabel: arrivalDayOffsetLabel,
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),
-                const SizedBox(height: 16),
-                _DateTimeStrip(
-                  departure: flight.departedAt,
-                  arrival: arrivalAt,
+              ),
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        RotatedBox(
+                          quarterTurns: 1,
+                          child: Icon(
+                            Icons.flight_rounded,
+                            size: 26,
+                            color: colors.cardText.withValues(alpha: .58),
+                          ),
+                        ),
+                        if (flight.durationMinutes != null &&
+                            flight.durationMinutes! > 0) ...[
+                          const SizedBox(height: 5),
+                          Text(
+                            _formatDuration(flight.durationMinutes!),
+                            style: TextStyle(
+                              color: colors.cardText.withValues(alpha: .62),
+                              fontSize: 10,
+                              height: 1,
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: -.1,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ),
@@ -148,6 +193,33 @@ class FlightCard extends StatelessWidget {
     return flight.departedAt.add(Duration(minutes: duration));
   }
 
+  static DateTime? _arrivalForDisplay(Flight flight) {
+    final arrival = flight.arrivedAt ?? _estimatedArrival(flight);
+    if (arrival == null || arrival.isAfter(flight.departedAt)) return arrival;
+    final duration = flight.durationMinutes;
+    if (duration != null && duration > 0) {
+      return flight.departedAt.add(Duration(minutes: duration));
+    }
+    return arrival.add(const Duration(days: 1));
+  }
+
+  static int _calendarDayOffset(DateTime departure, DateTime? arrival) {
+    if (arrival == null) return 0;
+    final localDeparture = departure.toLocal();
+    final localArrival = arrival.toLocal();
+    final departureDate = DateTime.utc(
+      localDeparture.year,
+      localDeparture.month,
+      localDeparture.day,
+    );
+    final arrivalDate = DateTime.utc(
+      localArrival.year,
+      localArrival.month,
+      localArrival.day,
+    );
+    return arrivalDate.difference(departureDate).inDays;
+  }
+
   static String _formatDuration(int minutes) {
     if (minutes < 60) return '${minutes}m';
     final hours = minutes ~/ 60;
@@ -156,107 +228,123 @@ class FlightCard extends StatelessWidget {
   }
 }
 
-class _FlightDuration extends StatelessWidget {
-  const _FlightDuration({this.minutes});
+class _FlightCardHeader extends StatelessWidget {
+  const _FlightCardHeader({
+    required this.flightCode,
+    required this.topMeta,
+    required this.color,
+  });
 
-  final int? minutes;
+  final String flightCode;
+  final String topMeta;
+  final Color color;
+
+  static const _codeStyle = TextStyle(
+    fontSize: 15,
+    fontWeight: FontWeight.w700,
+    letterSpacing: .05,
+  );
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.appColors;
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          width: 42,
-          height: 42,
-          decoration: ShapeDecoration(
-            color: colors.cardText.withValues(alpha: .08),
-            shape: AppShapes.pill,
-          ),
-          child: Icon(
-            Icons.flight_takeoff_rounded,
-            color: colors.cardText,
-            size: 23,
-          ),
-        ),
-        if (minutes != null) ...[
-          const SizedBox(height: 5),
-          Text(
-            FlightCard._formatDuration(minutes!),
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              fontSize: 11,
-              height: 1,
-              fontWeight: FontWeight.w700,
-              letterSpacing: -.1,
-            ),
-          ),
-        ],
-      ],
+    final metaStyle = TextStyle(
+      color: color,
+      fontSize: 12,
+      fontWeight: FontWeight.w700,
+      letterSpacing: .05,
     );
-  }
-}
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final direction = Directionality.of(context);
+        final codeWidth = _textWidth(
+          flightCode,
+          _codeStyle.copyWith(color: color),
+          direction,
+        );
+        final metaWidth = topMeta.isEmpty
+            ? 0.0
+            : _textWidth(topMeta, metaStyle, direction);
+        const iconAndGapWidth = 26.0;
+        const textGap = 8.0;
+        final availableTextWidth = constraints.maxWidth - iconAndGapWidth;
+        final fitsOnOneLine =
+            topMeta.isEmpty ||
+            codeWidth + textGap + metaWidth <= availableTextWidth;
 
-class _MetaPill extends StatelessWidget {
-  const _MetaPill({required this.label});
+        if (!fitsOnOneLine && topMeta.isNotEmpty) {
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(Icons.flight_takeoff_rounded, size: 18, color: color),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      flightCode,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: _codeStyle.copyWith(color: color),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      topMeta,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.end,
+                      style: metaStyle,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          );
+        }
 
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.appColors;
-    final isLight = Theme.of(context).brightness == Brightness.light;
-    return DecoratedBox(
-      decoration: ShapeDecoration(
-        color: colors.cardText.withValues(alpha: .08),
-        shape: AppShapes.pill,
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-        child: Text(
-          label,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(
-            color: colors.cardText.withValues(alpha: isLight ? .70 : 1),
-            fontSize: 10,
-            height: 1,
-            fontWeight: FontWeight.w700,
-            letterSpacing: .15,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _DateTimeStrip extends StatelessWidget {
-  const _DateTimeStrip({required this.departure, required this.arrival});
-
-  final DateTime? departure;
-  final DateTime? arrival;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.appColors;
-    return DecoratedBox(
-      decoration: ShapeDecoration(
-        color: colors.cardText.withValues(alpha: .075),
-        shape: AppShapes.medium,
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        child: Row(
+        return Row(
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            Expanded(child: _DateTimeInfo(value: departure)),
-            const SizedBox(width: 24),
-            Expanded(child: _DateTimeInfo(value: arrival, alignEnd: true)),
+            Icon(Icons.flight_takeoff_rounded, size: 18, color: color),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                flightCode,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: _codeStyle.copyWith(color: color),
+              ),
+            ),
+            if (topMeta.isNotEmpty) ...[
+              const SizedBox(width: textGap),
+              SizedBox(
+                width: metaWidth,
+                child: Text(
+                  topMeta,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.end,
+                  style: metaStyle,
+                ),
+              ),
+            ],
           ],
-        ),
-      ),
+        );
+      },
     );
+  }
+
+  static double _textWidth(
+    String value,
+    TextStyle style,
+    ui.TextDirection direction,
+  ) {
+    final painter = TextPainter(
+      text: TextSpan(text: value, style: style),
+      textDirection: direction,
+      maxLines: 1,
+    )..layout();
+    return painter.width;
   }
 }
 
@@ -433,89 +521,33 @@ class _SwipeActionButton extends StatelessWidget {
   );
 }
 
-class _Airport extends StatelessWidget {
-  const _Airport({
-    required this.label,
+class _AirportStop extends StatelessWidget {
+  const _AirportStop({
     required this.code,
     required this.city,
+    required this.value,
     this.alignEnd = false,
+    this.accentColor,
+    this.dayOffsetLabel,
   });
-  final String label;
   final String code;
   final String city;
-  final bool alignEnd;
-  @override
-  Widget build(BuildContext context) => Column(
-    crossAxisAlignment: alignEnd
-        ? CrossAxisAlignment.end
-        : CrossAxisAlignment.start,
-    children: [
-      Text(
-        label,
-        style: TextStyle(
-          color: context.appColors.cardText.withValues(alpha: .47),
-          fontSize: 10,
-          height: 1,
-          fontWeight: FontWeight.w700,
-          letterSpacing: .8,
-        ),
-      ),
-      const SizedBox(height: 7),
-      SizedBox(
-        width: double.infinity,
-        height: 38,
-        child: FittedBox(
-          fit: BoxFit.scaleDown,
-          alignment: alignEnd ? Alignment.centerRight : Alignment.centerLeft,
-          child: Text(
-            code,
-            style: const TextStyle(
-              fontSize: 37,
-              height: 1,
-              fontWeight: FontWeight.w700,
-              letterSpacing: -1.7,
-            ),
-          ),
-        ),
-      ),
-      const SizedBox(height: 3),
-      SizedBox(
-        width: double.infinity,
-        height: 29,
-        child: Text(
-          city,
-          textAlign: alignEnd ? TextAlign.end : TextAlign.start,
-          maxLines: 2,
-          softWrap: true,
-          overflow: TextOverflow.ellipsis,
-          style: const TextStyle(
-            fontSize: 12,
-            height: 1.15,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-      ),
-    ],
-  );
-}
-
-class _DateTimeInfo extends StatelessWidget {
-  const _DateTimeInfo({required this.value, this.alignEnd = false});
-
   final DateTime? value;
   final bool alignEnd;
+  final Color? accentColor;
+  final String? dayOffsetLabel;
 
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
     final isLight = Theme.of(context).brightness == Brightness.light;
-    final date = value == null
-        ? '—'
-        : DateFormat('yyyy-MM-dd').format(value!.toLocal());
     final time = value == null
         ? '—:—'
         : DateFormat('HH:mm').format(value!.toLocal());
-    final alignment = alignEnd ? TextAlign.end : TextAlign.start;
+    final date = value == null
+        ? '—'
+        : DateFormat('yyyy.M.d').format(value!.toLocal());
+    final textAlign = alignEnd ? TextAlign.end : TextAlign.start;
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: alignEnd
@@ -528,39 +560,97 @@ class _DateTimeInfo extends StatelessWidget {
             fit: BoxFit.scaleDown,
             alignment: alignEnd ? Alignment.centerRight : Alignment.centerLeft,
             child: Text(
-              date,
-              textAlign: alignment,
+              code,
+              textAlign: textAlign,
               maxLines: 1,
-              style: TextStyle(
-                color: colors.cardText.withValues(alpha: isLight ? .68 : .58),
-                fontSize: 10.5,
+              style: const TextStyle(
+                fontSize: 36,
                 height: 1,
-                fontWeight: FontWeight.w700,
-                letterSpacing: .1,
-                fontFeatures: const [ui.FontFeature.tabularFigures()],
+                fontWeight: FontWeight.w800,
+                letterSpacing: -1.5,
+              ).copyWith(color: accentColor ?? colors.cardText),
+            ),
+          ),
+        ),
+        const SizedBox(height: 4),
+        Padding(
+          padding: EdgeInsetsDirectional.only(
+            start: alignEnd ? 32 : 0,
+            end: alignEnd ? 0 : 32,
+          ),
+          child: SizedBox(
+            width: double.infinity,
+            child: Text(
+              city,
+              textAlign: textAlign,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: colors.cardText.withValues(alpha: isLight ? .72 : .68),
+                fontSize: 12,
+                height: 1.1,
+                fontWeight: FontWeight.w600,
               ),
             ),
           ),
         ),
-        const SizedBox(height: 6),
-        SizedBox(
-          width: double.infinity,
-          child: FittedBox(
-            fit: BoxFit.scaleDown,
-            alignment: alignEnd ? Alignment.centerRight : Alignment.centerLeft,
-            child: Text(
-              time,
-              textAlign: alignment,
+        const SizedBox(height: 13),
+        Text(
+          time,
+          textAlign: textAlign,
+          style: TextStyle(
+            fontSize: 18,
+            height: 1,
+            fontWeight: FontWeight.w800,
+            letterSpacing: -.25,
+            color: accentColor ?? colors.cardText,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Row(
+          mainAxisSize: MainAxisSize.max,
+          mainAxisAlignment: alignEnd
+              ? MainAxisAlignment.end
+              : MainAxisAlignment.start,
+          children: [
+            if (dayOffsetLabel != null) ...[
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  color: (accentColor ?? colors.textSecondary).withValues(
+                    alpha: isLight ? .13 : .18,
+                  ),
+                  borderRadius: BorderRadius.circular(5),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 5,
+                    vertical: 3,
+                  ),
+                  child: Text(
+                    dayOffsetLabel!,
+                    style: TextStyle(
+                      color: accentColor ?? colors.textSecondary,
+                      fontSize: 9,
+                      height: 1,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 6),
+            ],
+            Text(
+              date,
+              textAlign: textAlign,
               style: TextStyle(
-                color: context.appColors.cardText,
-                fontSize: 21,
+                color: colors.cardText.withValues(alpha: isLight ? .68 : .58),
+                fontSize: 11,
                 height: 1,
-                fontWeight: FontWeight.w700,
-                letterSpacing: -.45,
-                fontFeatures: [ui.FontFeature.tabularFigures()],
+                fontWeight: FontWeight.w600,
+                letterSpacing: .05,
               ),
             ),
-          ),
+          ],
         ),
       ],
     );

@@ -3,6 +3,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 
 import '../../core/localization/app_strings.dart';
+import '../../ui/theme/app_theme.dart';
 
 /// Floating fullscreen chrome; the map keeps the entire gesture surface.
 class MapExplorerControls extends StatelessWidget {
@@ -43,8 +44,17 @@ class MapExplorerControls extends StatelessWidget {
   Widget build(BuildContext context) {
     final strings = context.strings;
     final zh = strings.isZh;
+    final colors = context.appColors;
     final size = MediaQuery.sizeOf(context);
     final isWide = size.width > size.height;
+    final lightTheme = Theme.of(context).brightness == Brightness.light;
+    final progressColor = lightTheme
+        ? AppColors.routePurpleDeep
+        : AppColors.routePurple;
+    final progressTrack = lightTheme
+        ? colors.border.withValues(alpha: .82)
+        : colors.border.withValues(alpha: .88);
+    final progressText = colors.textPrimary;
     final actions = <Widget>[
       MapExplorerButton(
         label: zh ? '平面地图' : 'Flat map',
@@ -99,35 +109,42 @@ class MapExplorerControls extends StatelessWidget {
               if (routeCaption != null && progress != null) ...[
                 MapExplorerGlass(
                   blurEnabled: !mapInteracting,
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(11, 8, 11, 9),
+                  child: Semantics(
+                    container: true,
+                    label: zh ? '航线播放进度' : 'Route progress',
+                    value: '${(progress!.clamp(0, 1) * 100).round()}%',
                     child: SizedBox(
                       width: isWide ? 240 : 190,
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          Text(
-                            routeCaption!,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(
-                              color: Color(0xffe0e6ed),
-                              fontSize: 10,
-                              fontWeight: FontWeight.w600,
+                      height: 42,
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(999),
+                        child: Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            ColoredBox(color: progressTrack),
+                            Align(
+                              alignment: Alignment.centerLeft,
+                              child: FractionallySizedBox(
+                                widthFactor: progress!.clamp(0, 1),
+                                heightFactor: 1,
+                                child: ColoredBox(color: progressColor),
+                              ),
                             ),
-                          ),
-                          const SizedBox(height: 6),
-                          LinearProgressIndicator(
-                            value: progress!.clamp(0, 1),
-                            minHeight: 2,
-                            borderRadius: BorderRadius.circular(2),
-                            color: const Color(0xffd5e5f4),
-                            backgroundColor: Colors.white12,
-                            semanticsLabel: zh ? '航线播放进度' : 'Route progress',
-                          ),
-                        ],
+                            Center(
+                              child: Text(
+                                routeCaption!,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  color: progressText,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ),
@@ -169,6 +186,8 @@ class MapExplorerGlass extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final highContrast = MediaQuery.highContrastOf(context);
+    final colors = context.appColors;
+    final lightTheme = Theme.of(context).brightness == Brightness.light;
     final useBlur = blurEnabled && !highContrast;
     return ClipRRect(
       borderRadius: BorderRadius.circular(24),
@@ -181,11 +200,17 @@ class MapExplorerGlass extends StatelessWidget {
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
               colors: highContrast
-                  ? const [Color(0xff18212c), Color(0xff18212c)]
+                  ? [colors.surfaceDeep, colors.surfaceDeep]
+                  : lightTheme
+                  ? [
+                      colors.surface.withValues(alpha: .90),
+                      colors.iceTint.withValues(alpha: .78),
+                      colors.surface.withValues(alpha: .94),
+                    ]
                   : [
-                      const Color(0xffdbe9f6).withValues(alpha: .17),
-                      const Color(0xff6d88a4).withValues(alpha: .11),
-                      const Color(0xff101a26).withValues(alpha: .66),
+                      colors.surfaceElevated.withValues(alpha: .96),
+                      colors.surface.withValues(alpha: .90),
+                      colors.background.withValues(alpha: .94),
                     ],
             ),
             borderRadius: BorderRadius.circular(24),
@@ -193,7 +218,9 @@ class MapExplorerGlass extends StatelessWidget {
                 ? const []
                 : [
                     BoxShadow(
-                      color: Colors.black.withValues(alpha: .28),
+                      color: Colors.black.withValues(
+                        alpha: lightTheme ? .12 : .28,
+                      ),
                       blurRadius: 28,
                       offset: const Offset(0, 14),
                     ),
@@ -244,22 +271,28 @@ class MapExplorerButton extends StatelessWidget {
   final bool selected;
 
   @override
-  Widget build(BuildContext context) => IconButton(
-    tooltip: label,
-    onPressed: onPressed,
-    icon: Icon(icon, size: 22),
-    style: IconButton.styleFrom(
-      foregroundColor: emphasized ? const Color(0xff17212b) : Colors.white,
-      disabledForegroundColor: Colors.white38,
-      backgroundColor: emphasized
-          ? const Color(0xffe5edf5)
-          : selected
-          ? Colors.white.withValues(alpha: .23)
-          : Colors.white.withValues(alpha: .08),
-      shape: const CircleBorder(),
-      minimumSize: const Size(48, 48),
-      fixedSize: const Size(48, 48),
-      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-    ),
-  );
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    final lightTheme = Theme.of(context).brightness == Brightness.light;
+    return IconButton(
+      tooltip: label,
+      onPressed: onPressed,
+      icon: Icon(icon, size: 22),
+      style: IconButton.styleFrom(
+        foregroundColor: emphasized ? colors.onPrimary : colors.textPrimary,
+        disabledForegroundColor: colors.textTertiary,
+        backgroundColor: emphasized
+            ? colors.lime
+            : selected
+            ? colors.iceTint
+            : lightTheme
+            ? colors.surface
+            : colors.surfaceElevated,
+        shape: const CircleBorder(),
+        minimumSize: const Size(48, 48),
+        fixedSize: const Size(48, 48),
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      ),
+    );
+  }
 }

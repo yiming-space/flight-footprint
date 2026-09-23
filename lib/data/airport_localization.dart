@@ -77,6 +77,8 @@ const _airportCityNames = <String, String>{
   'LGA': '纽约',
   'LAX': '洛杉矶',
   'SFO': '旧金山',
+  'ACA': '阿卡普尔科',
+  'BER': '柏林',
   'MEX': '墨西哥城',
   'PIT': '匹兹堡',
   'GRU': '圣保罗',
@@ -256,6 +258,8 @@ const _airportNames = <String, String>{
   'LGW': '伦敦盖特威克机场',
   'JFK': '纽约肯尼迪国际机场',
   'LAX': '洛杉矶国际机场',
+  'ACA': '阿卡普尔科国际机场',
+  'BER': '柏林勃兰登堡机场',
   'DWC': '迪拜阿勒马克图姆国际机场',
   'SAW': '伊斯坦布尔萨比哈·格克琴国际机场',
   'MXP': '米兰马尔彭萨机场',
@@ -1262,17 +1266,22 @@ String localizedAirportCardName(Airport airport) {
   return '$name$terminal';
 }
 
-/// A two-line airport name for the compact flight record card.
+/// A compact airport label for the flight record card.
 ///
-/// The stored/card name remains the complete compact Chinese name so imports
-/// and edit screens keep their existing values. The route card is a summary,
-/// however, so long foreign airport names are split into a city line and a
-/// short landmark line. IATA still carries the unambiguous identity.
+/// Prefer the curated Chinese city and airport names. When a city has not yet
+/// been localized, show the catalogue's shorter city field instead of its
+/// potentially long official airport name; the IATA code already identifies
+/// the airport unambiguously on this summary card.
 String localizedAirportCardDisplayName(Airport airport) {
   final compact = localizedAirportCardName(airport).trim();
   final city = localizedAirportCity(airport).trim();
-  if (compact.isEmpty || city.isEmpty || !compact.startsWith(city)) {
-    return compact;
+  if (city.isEmpty) {
+    if (_containsChinese(compact)) return compact;
+    final sourceCity = airport.city.trim();
+    return sourceCity.isNotEmpty ? sourceCity : compact;
+  }
+  if (compact.isEmpty || !compact.startsWith(city)) {
+    return city;
   }
 
   // The route card has a compact two-column slot. Short Chinese labels fit

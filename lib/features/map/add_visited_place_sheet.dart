@@ -67,15 +67,13 @@ class _AddVisitedPlaceSheetState extends State<AddVisitedPlaceSheet> {
     final s = context.strings;
     final colors = context.appColors;
     final isLight = Theme.of(context).brightness == Brightness.light;
-    final actionInk = isLight
-        ? Color.lerp(colors.cardText, colors.cardLavender, .18)!
-        : colors.textPrimary;
-    final searchFill = isLight
-        ? Color.alphaBlend(
-            colors.cardBlue.withValues(alpha: .72),
-            colors.surface,
-          )
-        : colors.surface;
+    // Keep controls distinct from the white sheet while staying inside the
+    // Ice White palette. The old card tokens intentionally resolve to white
+    // in this theme, which made both the photo action and search field appear
+    // visually unstyled.
+    final actionInk = isLight ? colors.onPrimary : colors.lime;
+    final actionFill = isLight ? colors.iceTint : colors.surfaceElevated;
+    final searchFill = isLight ? colors.surfaceElevated : colors.surface;
     return Material(
       color: isLight ? colors.surface : colors.background,
       child: SafeArea(
@@ -116,12 +114,7 @@ class _AddVisitedPlaceSheetState extends State<AddVisitedPlaceSheet> {
                 label: Text(s.t('addFromPhotos')),
                 style: FilledButton.styleFrom(
                   minimumSize: const Size.fromHeight(52),
-                  backgroundColor: isLight
-                      ? Color.alphaBlend(
-                          colors.cardLavender.withValues(alpha: .74),
-                          colors.surface,
-                        )
-                      : colors.surfaceElevated,
+                  backgroundColor: actionFill,
                   foregroundColor: actionInk,
                   shape: AppShapes.medium,
                   side: BorderSide.none,
@@ -137,13 +130,14 @@ class _AddVisitedPlaceSheetState extends State<AddVisitedPlaceSheet> {
                 autofocus: false,
                 readOnly: _selected != null,
                 decoration: InputDecoration(
-                  prefixIcon: const Icon(Icons.search_rounded),
+                  prefixIcon: Icon(
+                    Icons.search_rounded,
+                    color: isLight ? colors.textSecondary : AppColors.routePurple,
+                  ),
                   hintText: s.t('searchCity'),
                   filled: true,
                   fillColor: searchFill,
-                  prefixIconColor: isLight
-                      ? Color.lerp(colors.cardText, colors.cardBlue, .35)
-                      : colors.textSecondary,
+                  prefixIconColor: colors.textSecondary,
                   border: OutlineInputBorder(
                     borderRadius: AppRadii.pill,
                     borderSide: BorderSide.none,
@@ -259,12 +253,7 @@ class _AddVisitedPlaceSheetState extends State<AddVisitedPlaceSheet> {
                       vertical: 14,
                     ),
                     decoration: ShapeDecoration(
-                      color: isLight
-                          ? Color.alphaBlend(
-                              colors.cardBlue.withValues(alpha: .72),
-                              colors.surface,
-                            )
-                          : colors.surface,
+                      color: isLight ? colors.surfaceElevated : colors.surface,
                       shape: RoundedSuperellipseBorder(
                         borderRadius: BorderRadius.all(Radius.circular(18)),
                         side: BorderSide.none,
@@ -288,8 +277,8 @@ class _AddVisitedPlaceSheetState extends State<AddVisitedPlaceSheet> {
                 label: _saving ? '…' : s.t('savePlace'),
                 icon: Icons.add_location_alt_rounded,
                 onPressed: _selected == null || _saving ? null : _save,
-                backgroundColor: isLight ? colors.cardText : null,
-                foregroundColor: isLight ? colors.cardMint : null,
+                backgroundColor: isLight ? colors.lime : null,
+                foregroundColor: isLight ? colors.onPrimary : null,
               ),
             ],
           ),

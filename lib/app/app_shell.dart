@@ -28,7 +28,7 @@ class AppShell extends StatefulWidget {
 class _AppShellState extends State<AppShell>
     with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   int _index = 0;
-  MapMode _homeMapMode = MapMode.travelFootprint;
+  MapMode _homeMapMode = MapMode.flight;
   late final AnimationController _addAnimation = AnimationController(
     vsync: this,
     duration: AppMotion.short,
@@ -253,15 +253,38 @@ class _AppShellState extends State<AppShell>
               body: Stack(
                 fit: StackFit.expand,
                 children: [
-                  SafeArea(
-                    // The home surface is an edge-to-edge map. Other tabs
-                    // retain the shell-level status-bar inset and keep their
-                    // existing page rhythm.
-                    top: _index != 0,
-                    bottom: false,
-                    left: false,
-                    right: false,
-                    child: IndexedStack(index: _index, children: pages),
+                  // Keep the IndexedStack viewport stable across tab
+                  // changes. Applying the top inset to the whole stack made
+                  // the home map change height when returning from another
+                  // tab, which triggered its fit-to-data camera animation.
+                  // The home surface remains edge-to-edge; only the other
+                  // pages receive their existing status-bar inset.
+                  IndexedStack(
+                    index: _index,
+                    children: [
+                      pages[0],
+                      SafeArea(
+                        top: true,
+                        bottom: false,
+                        left: false,
+                        right: false,
+                        child: pages[1],
+                      ),
+                      SafeArea(
+                        top: true,
+                        bottom: false,
+                        left: false,
+                        right: false,
+                        child: pages[2],
+                      ),
+                      SafeArea(
+                        top: true,
+                        bottom: false,
+                        left: false,
+                        right: false,
+                        child: pages[3],
+                      ),
+                    ],
                   ),
                   Positioned(
                     left: 0,
@@ -439,7 +462,7 @@ class _DesktopSidebar extends StatelessWidget {
                       ),
                       child: Icon(
                         Icons.flight_takeoff_rounded,
-                        color: colors.cardText,
+                        color: colors.onPrimary,
                         size: 21,
                       ),
                     ),
@@ -576,12 +599,12 @@ class _DesktopAddButton extends StatelessWidget {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(Icons.add_rounded, color: colors.cardText, size: 22),
+                Icon(Icons.add_rounded, color: colors.onPrimary, size: 22),
                 const SizedBox(width: 8),
                 Text(
                   label,
                   style: TextStyle(
-                    color: colors.cardText,
+                    color: colors.onPrimary,
                     fontWeight: FontWeight.w800,
                   ),
                 ),
@@ -731,13 +754,10 @@ class _BottomBarState extends State<_BottomBar>
   Widget build(BuildContext context) {
     final colors = context.appColors;
     final isLight = Theme.of(context).brightness == Brightness.light;
-    final glassBorder = isLight
-        ? Colors.white.withValues(alpha: .18)
-        : Colors.white.withValues(alpha: .16);
     final glassColor = isLight
-        ? Colors.black.withValues(alpha: .82)
-        : colors.surface.withValues(alpha: .46);
-    final glassShadow = Colors.black.withValues(alpha: isLight ? .22 : .28);
+        ? colors.surfaceElevated
+        : colors.surface.withValues(alpha: .86);
+    final glassShadow = Colors.black.withValues(alpha: isLight ? .14 : .28);
     const icons = [
       Icons.home_rounded,
       Icons.flight_rounded,
@@ -746,7 +766,7 @@ class _BottomBarState extends State<_BottomBar>
     ];
     final glassShape = RoundedSuperellipseBorder(
       borderRadius: BorderRadius.circular(44),
-      side: BorderSide(color: glassBorder, width: .8),
+      side: BorderSide.none,
     );
     return SafeArea(
       top: false,
@@ -793,10 +813,10 @@ class _BottomBarState extends State<_BottomBar>
                             end: Alignment.bottomCenter,
                             colors: [
                               Colors.white.withValues(
-                                alpha: isLight ? .12 : .10,
+                                alpha: isLight ? .16 : .10,
                               ),
                               Colors.white.withValues(
-                                alpha: isLight ? .035 : .025,
+                                alpha: isLight ? .06 : .025,
                               ),
                               Colors.transparent,
                             ],
@@ -824,7 +844,7 @@ class _BottomBarState extends State<_BottomBar>
                                   button: true,
                                   label: widget.addLabel,
                                   child: Material(
-                                    color: colors.purple,
+                                    color: colors.lime,
                                     shape: const CircleBorder(),
                                     clipBehavior: Clip.antiAlias,
                                     child: InkWell(
@@ -834,7 +854,7 @@ class _BottomBarState extends State<_BottomBar>
                                         child: Icon(
                                           Icons.add_rounded,
                                           size: 34,
-                                          color: colors.cardText,
+                                          color: colors.onPrimary,
                                         ),
                                       ),
                                     ),
@@ -871,12 +891,7 @@ class _BottomBarState extends State<_BottomBar>
               final baseWidth = math.max(0.0, slotWidth - 6);
               final shape = RoundedSuperellipseBorder(
                 borderRadius: BorderRadius.circular(26),
-                side: BorderSide(
-                  color: isLight
-                      ? Colors.white.withValues(alpha: .18)
-                      : colors.lime.withValues(alpha: .08),
-                  width: .6,
-                ),
+                side: BorderSide.none,
               );
 
               return AnimatedBuilder(
@@ -916,25 +931,38 @@ class _BottomBarState extends State<_BottomBar>
                 },
                 child: DecoratedBox(
                   decoration: ShapeDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [
-                        colors.lime.withValues(alpha: isLight ? .25 : .22),
-                        colors.lime.withValues(alpha: isLight ? .10 : .11),
-                        colors.lime.withValues(alpha: isLight ? .18 : .16),
-                      ],
-                    ),
+                    color: isLight
+                        ? Color.lerp(colors.iceTint, colors.textPrimary, .06)
+                        : null,
+                    gradient: isLight
+                        ? null
+                        : LinearGradient(
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                            colors: [
+                              colors.lime.withValues(
+                                alpha: isLight ? .25 : .22,
+                              ),
+                              colors.lime.withValues(
+                                alpha: isLight ? .10 : .11,
+                              ),
+                              colors.lime.withValues(
+                                alpha: isLight ? .18 : .16,
+                              ),
+                            ],
+                          ),
                     shape: shape,
-                    shadows: [
-                      BoxShadow(
-                        color: colors.lime.withValues(
-                          alpha: isLight ? .10 : .08,
-                        ),
-                        blurRadius: 18,
-                        spreadRadius: 1,
-                      ),
-                    ],
+                    shadows: isLight
+                        ? const []
+                        : [
+                            BoxShadow(
+                              color: colors.lime.withValues(
+                                alpha: isLight ? .10 : .08,
+                              ),
+                              blurRadius: 18,
+                              spreadRadius: 1,
+                            ),
+                          ],
                   ),
                 ),
               );
@@ -950,9 +978,7 @@ class _BottomBarState extends State<_BottomBar>
     final isLight = Theme.of(context).brightness == Brightness.light;
     final selected = value == widget.index;
     final reduceMotion = MediaQuery.disableAnimationsOf(context);
-    final inactiveColor = isLight
-        ? Colors.white.withValues(alpha: .74)
-        : colors.textTertiary;
+    final inactiveColor = isLight ? colors.textSecondary : colors.textTertiary;
     final selectedColor = colors.lime;
     final style = TextStyle(
       fontSize: 11,

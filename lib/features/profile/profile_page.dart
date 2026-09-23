@@ -40,6 +40,7 @@ class ProfilePage extends StatefulWidget {
 
 class _ProfilePageState extends State<ProfilePage> {
   static const _wideLayoutBreakpoint = 700.0;
+  static const _sectionGap = 18.0;
 
   AppController get controller => widget.controller;
 
@@ -129,13 +130,17 @@ class _ProfilePageState extends State<ProfilePage> {
                 final localData = _localDataCard(context);
                 final settings = _settingsSection(context);
                 final about = _aboutSection(context);
+                final isDesktopPlatform =
+                    Platform.isMacOS || Platform.isWindows || Platform.isLinux;
+                // Foldables in portrait have a wide logical viewport but
+                // still need a single iOS-style settings column. Reserve the
+                // two-column layout for desktop and landscape surfaces.
                 final isWide =
-                    constraints.crossAxisExtent >= _wideLayoutBreakpoint;
-                final isDesktop =
-                    isWide &&
-                    (Platform.isMacOS ||
-                        Platform.isWindows ||
-                        Platform.isLinux);
+                    constraints.crossAxisExtent >= _wideLayoutBreakpoint &&
+                    (isDesktopPlatform ||
+                        constraints.crossAxisExtent >
+                            constraints.viewportMainAxisExtent);
+                final isDesktop = isWide && isDesktopPlatform;
                 final dataManagement = _dataManagementSection(
                   context,
                   desktop: isDesktop,
@@ -151,7 +156,7 @@ class _ProfilePageState extends State<ProfilePage> {
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
                               localData,
-                              const SizedBox(height: AppSpacing.section),
+                              const SizedBox(height: _sectionGap),
                               dataManagement,
                             ],
                           ),
@@ -162,7 +167,7 @@ class _ProfilePageState extends State<ProfilePage> {
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
                               settings,
-                              const SizedBox(height: AppSpacing.section),
+                              const SizedBox(height: _sectionGap),
                               about,
                             ],
                           ),
@@ -175,11 +180,11 @@ class _ProfilePageState extends State<ProfilePage> {
                 return SliverList.list(
                   children: [
                     localData,
-                    const SizedBox(height: AppSpacing.section),
+                    const SizedBox(height: _sectionGap),
                     dataManagement,
-                    const SizedBox(height: AppSpacing.section),
+                    const SizedBox(height: _sectionGap),
                     settings,
-                    const SizedBox(height: AppSpacing.section),
+                    const SizedBox(height: _sectionGap),
                     about,
                   ],
                 );
@@ -196,7 +201,7 @@ class _ProfilePageState extends State<ProfilePage> {
     final colors = context.appColors;
     final textColor = _profileTextColor(context);
     return Container(
-      padding: const EdgeInsets.fromLTRB(24, 20, 24, 20),
+      padding: const EdgeInsets.fromLTRB(24, 16, 24, 16),
       decoration: ShapeDecoration(
         color: _profileCardColor(
           context,
@@ -211,15 +216,15 @@ class _ProfilePageState extends State<ProfilePage> {
         child: Row(
           children: [
             Container(
-              width: 54,
-              height: 54,
+              width: 48,
+              height: 48,
               decoration: BoxDecoration(
-                color: textColor.withValues(alpha: .09),
+                color: colors.iceTint,
                 shape: BoxShape.circle,
               ),
-              child: Icon(Icons.phone_android_rounded, color: textColor),
+              child: Icon(Icons.phone_android_rounded, color: colors.lime),
             ),
-            const SizedBox(width: 16),
+            const SizedBox(width: 14),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -244,7 +249,11 @@ class _ProfilePageState extends State<ProfilePage> {
             ),
             Text(
               '${controller.flights.length}',
-              style: const TextStyle(fontSize: 40, fontWeight: FontWeight.w700),
+              style: TextStyle(
+                color: colors.lime,
+                fontSize: 40,
+                fontWeight: FontWeight.w700,
+              ),
             ),
           ],
         ),
@@ -257,17 +266,11 @@ class _ProfilePageState extends State<ProfilePage> {
     final colors = context.appColors;
     final textColor = _profileTextColor(context);
     final secondaryTextColor = _profileSecondaryTextColor(context);
+    final isLight = _isLight(context);
     if (desktop) {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(
-            s.t('dataManagement'),
-            style: AppTextStyles.sectionTitle.copyWith(
-              color: colors.textPrimary,
-            ),
-          ),
-          const SizedBox(height: 12),
           Container(
             padding: const EdgeInsets.all(10),
             decoration: ShapeDecoration(
@@ -281,7 +284,7 @@ class _ProfilePageState extends State<ProfilePage> {
                   title: s.t('exportBackup'),
                   subtitle: 'JSON',
                   icon: Icons.ios_share_rounded,
-                  color: textColor,
+                  color: colors.lime,
                   backgroundColor: _profileCardColor(
                     context,
                     colors.cardLavender,
@@ -290,7 +293,6 @@ class _ProfilePageState extends State<ProfilePage> {
                   textColor: textColor,
                   secondaryTextColor: secondaryTextColor,
                   wide: true,
-                  showChevron: true,
                   onTap: () => _export(context),
                 ),
                 const SizedBox(height: 8),
@@ -298,7 +300,7 @@ class _ProfilePageState extends State<ProfilePage> {
                   title: s.t('importWebData'),
                   subtitle: 'JSON',
                   icon: Icons.file_download_outlined,
-                  color: textColor,
+                  color: isLight ? AppColors.routePurpleDeep : colors.purple,
                   backgroundColor: _profileCardColor(
                     context,
                     colors.cardBlue,
@@ -307,7 +309,6 @@ class _ProfilePageState extends State<ProfilePage> {
                   textColor: textColor,
                   secondaryTextColor: secondaryTextColor,
                   wide: true,
-                  showChevron: true,
                   onTap: () => _import(context),
                 ),
                 const SizedBox(height: 8),
@@ -315,7 +316,7 @@ class _ProfilePageState extends State<ProfilePage> {
                   title: s.t('importExcel'),
                   subtitle: '.xlsx / .xls / .csv',
                   icon: Icons.table_view_rounded,
-                  color: textColor,
+                  color: isLight ? AppColors.mapBlueDeep : colors.purple,
                   backgroundColor: _profileCardColor(
                     context,
                     colors.cardMint,
@@ -324,7 +325,6 @@ class _ProfilePageState extends State<ProfilePage> {
                   textColor: textColor,
                   secondaryTextColor: secondaryTextColor,
                   wide: true,
-                  showChevron: true,
                   onTap: () => _importSpreadsheet(context),
                 ),
                 const SizedBox(height: 8),
@@ -332,7 +332,7 @@ class _ProfilePageState extends State<ProfilePage> {
                   title: s.t('importCalendar'),
                   subtitle: '系统日历',
                   icon: Icons.calendar_month_rounded,
-                  color: textColor,
+                  color: isLight ? AppColors.mapLavender : colors.purple,
                   backgroundColor: _profileCardColor(
                     context,
                     colors.cardCoral,
@@ -341,7 +341,6 @@ class _ProfilePageState extends State<ProfilePage> {
                   textColor: textColor,
                   secondaryTextColor: secondaryTextColor,
                   wide: true,
-                  showChevron: true,
                   onTap: () => _importCalendar(context),
                 ),
                 const SizedBox(height: 8),
@@ -350,7 +349,6 @@ class _ProfilePageState extends State<ProfilePage> {
                   title: s.t('cloudSync'),
                   textColor: textColor,
                   secondaryTextColor: secondaryTextColor,
-                  showChevron: true,
                 ),
               ],
             ),
@@ -360,75 +358,66 @@ class _ProfilePageState extends State<ProfilePage> {
     }
 
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Row(
+        _ProfileGroup(
           children: [
-            Expanded(
-              child: _ProfileActionTile(
-                title: s.t('exportBackup'),
-                subtitle: 'JSON',
-                icon: Icons.ios_share_rounded,
-                color: textColor,
-                backgroundColor: _profileCardColor(
-                  context,
-                  colors.cardLavender,
-                ),
-                textColor: textColor,
-                secondaryTextColor: secondaryTextColor,
-                onTap: () => _export(context),
-              ),
+            _ProfileActionTile(
+              title: s.t('importExcel'),
+              subtitle: '.xlsx / .xls / .csv',
+              icon: Icons.table_view_rounded,
+              color: isLight ? AppColors.mapBlueDeep : colors.purple,
+              backgroundColor: Colors.transparent,
+              textColor: textColor,
+              secondaryTextColor: secondaryTextColor,
+              wide: true,
+              onTap: () => _importSpreadsheet(context),
             ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: _ProfileActionTile(
-                title: s.t('importWebData'),
-                subtitle: 'JSON',
-                icon: Icons.file_download_outlined,
-                color: textColor,
-                backgroundColor: _profileCardColor(context, colors.cardBlue),
-                textColor: textColor,
-                secondaryTextColor: secondaryTextColor,
-                onTap: () => _import(context),
-              ),
+            const _ProfileGroupDivider(),
+            _ProfileActionTile(
+              title: s.t('importWebData'),
+              subtitle: 'JSON',
+              icon: Icons.file_download_outlined,
+              color: isLight ? AppColors.routePurpleDeep : colors.purple,
+              backgroundColor: Colors.transparent,
+              textColor: textColor,
+              secondaryTextColor: secondaryTextColor,
+              wide: true,
+              onTap: () => _import(context),
+            ),
+            const _ProfileGroupDivider(),
+            _ProfileActionTile(
+              title: s.t('importCalendar'),
+              subtitle: '系统日历',
+              icon: Icons.calendar_month_rounded,
+              color: isLight ? AppColors.mapLavender : colors.purple,
+              backgroundColor: Colors.transparent,
+              textColor: textColor,
+              secondaryTextColor: secondaryTextColor,
+              wide: true,
+              onTap: () => _importCalendar(context),
+            ),
+            const _ProfileGroupDivider(),
+            _ProfileActionTile(
+              title: s.t('exportBackup'),
+              subtitle: 'JSON',
+              icon: Icons.ios_share_rounded,
+              color: colors.lime,
+              backgroundColor: Colors.transparent,
+              textColor: textColor,
+              secondaryTextColor: secondaryTextColor,
+              wide: true,
+              onTap: () => _export(context),
+            ),
+            const _ProfileGroupDivider(),
+            _cloudSyncTile(
+              context,
+              title: s.t('cloudSync'),
+              textColor: textColor,
+              secondaryTextColor: secondaryTextColor,
+              grouped: true,
             ),
           ],
-        ),
-        const SizedBox(height: 12),
-        Row(
-          children: [
-            Expanded(
-              child: _ProfileActionTile(
-                title: s.t('importExcel'),
-                subtitle: '.xlsx / .xls / .csv',
-                icon: Icons.table_view_rounded,
-                color: textColor,
-                backgroundColor: _profileCardColor(context, colors.cardMint),
-                textColor: textColor,
-                secondaryTextColor: secondaryTextColor,
-                onTap: () => _importSpreadsheet(context),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: _ProfileActionTile(
-                title: s.t('importCalendar'),
-                subtitle: '系统日历',
-                icon: Icons.calendar_month_rounded,
-                color: textColor,
-                backgroundColor: _profileCardColor(context, colors.cardCoral),
-                textColor: textColor,
-                secondaryTextColor: secondaryTextColor,
-                onTap: () => _importCalendar(context),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 12),
-        _cloudSyncTile(
-          context,
-          title: s.t('cloudSync'),
-          textColor: textColor,
-          secondaryTextColor: secondaryTextColor,
         ),
       ],
     );
@@ -439,7 +428,7 @@ class _ProfilePageState extends State<ProfilePage> {
     required String title,
     required Color textColor,
     required Color secondaryTextColor,
-    bool showChevron = false,
+    bool grouped = false,
   }) {
     final s = context.strings;
     final colors = context.appColors;
@@ -460,8 +449,12 @@ class _ProfilePageState extends State<ProfilePage> {
           title: title,
           value: value,
           icon: isConfigured ? Icons.cloud_done_outlined : Icons.cloud_outlined,
-          color: isConfigured ? textColor : colors.textTertiary,
-          backgroundColor: isConfigured
+          color: isConfigured
+              ? (isLight ? textColor : colors.lime)
+              : colors.textTertiary,
+          backgroundColor: grouped
+              ? Colors.transparent
+              : isConfigured
               ? (isLight
                     ? _profileCardColor(
                         context,
@@ -475,7 +468,6 @@ class _ProfilePageState extends State<ProfilePage> {
               ? secondaryTextColor
               : colors.textSecondary,
           wide: true,
-          showChevron: showChevron,
           onTap: () => _openCloudSync(context),
         );
       },
@@ -487,63 +479,56 @@ class _ProfilePageState extends State<ProfilePage> {
     final colors = context.appColors;
     final textColor = _profileTextColor(context);
     final isLight = Theme.of(context).brightness == Brightness.light;
-    final secondaryColor = isLight ? colors.textSecondary : colors.cardText;
+    final secondaryColor = colors.textSecondary;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text(
-          s.t('settings'),
-          style: AppTextStyles.sectionTitle.copyWith(color: colors.textPrimary),
-        ),
-        const SizedBox(height: 12),
-        _ProfileActionTile(
-          title: s.t('travellerName'),
-          value: controller.travellerName == 'TRAVELER'
-              ? s.t('travellerNameEmpty')
-              : controller.travellerName,
-          icon: Icons.badge_outlined,
-          color: isLight
-              ? _profileIconColor(context, colors.cardMint)
-              : colors.cardText,
-          backgroundColor: _profileSurfaceTint(colors.cardMint),
-          textColor: textColor,
-          secondaryTextColor: secondaryColor,
-          wide: true,
-          onTap: () => _editTravellerName(context),
-        ),
-        const SizedBox(height: 10),
-        _ProfileActionTile(
-          title: s.t('language'),
-          value: controller.locale.languageCode == 'zh'
-              ? s.t('chinese')
-              : s.t('english'),
-          icon: Icons.translate_rounded,
-          color: isLight
-              ? _profileIconColor(context, colors.cardBlue)
-              : colors.cardText,
-          backgroundColor: _profileSurfaceTint(colors.cardBlue),
-          textColor: textColor,
-          secondaryTextColor: secondaryColor,
-          wide: true,
-          onTap: () => _language(context),
-        ),
-        const SizedBox(height: 10),
-        _ProfileActionTile(
-          title: s.t('theme'),
-          value: switch (controller.themeMode) {
-            ThemeMode.system => s.t('themeSystem'),
-            ThemeMode.light => s.t('themeLight'),
-            ThemeMode.dark => s.t('themeDark'),
-          },
-          icon: Icons.brightness_6_rounded,
-          color: isLight
-              ? _profileIconColor(context, colors.cardCoral)
-              : colors.cardText,
-          backgroundColor: _profileSurfaceTint(colors.cardCoral),
-          textColor: textColor,
-          secondaryTextColor: secondaryColor,
-          wide: true,
-          onTap: () => _theme(context),
+        _ProfileGroup(
+          children: [
+            _ProfileActionTile(
+              title: s.t('theme'),
+              value: switch (controller.themeMode) {
+                ThemeMode.system => s.t('themeSystem'),
+                ThemeMode.light => s.t('themeLight'),
+                ThemeMode.dark => s.t('themeDark'),
+              },
+              icon: Icons.brightness_6_rounded,
+              color: isLight ? AppColors.routePurpleDeep : colors.purple,
+              backgroundColor: Colors.transparent,
+              textColor: textColor,
+              secondaryTextColor: secondaryColor,
+              wide: true,
+              onTap: () => _theme(context),
+            ),
+            const _ProfileGroupDivider(),
+            _ProfileActionTile(
+              title: s.t('language'),
+              value: controller.locale.languageCode == 'zh'
+                  ? s.t('chinese')
+                  : s.t('english'),
+              icon: Icons.translate_rounded,
+              color: isLight ? AppColors.mapBlueDeep : colors.purple,
+              backgroundColor: Colors.transparent,
+              textColor: textColor,
+              secondaryTextColor: secondaryColor,
+              wide: true,
+              onTap: () => _language(context),
+            ),
+            const _ProfileGroupDivider(),
+            _ProfileActionTile(
+              title: s.t('travellerName'),
+              value: controller.travellerName == 'TRAVELER'
+                  ? s.t('travellerNameEmpty')
+                  : controller.travellerName,
+              icon: Icons.badge_outlined,
+              color: colors.lime,
+              backgroundColor: Colors.transparent,
+              textColor: textColor,
+              secondaryTextColor: secondaryColor,
+              wide: true,
+              onTap: () => _editTravellerName(context),
+            ),
+          ],
         ),
       ],
     );
@@ -555,17 +540,20 @@ class _ProfilePageState extends State<ProfilePage> {
     final isLight = Theme.of(context).brightness == Brightness.light;
     final textColor = _profileTextColor(context);
     final aboutCardColor = isLight ? colors.cardBlue : colors.surfaceElevated;
-    final aboutIconColor = isLight
-        ? Color.lerp(colors.cardText, colors.cardMint, .34)!
+    final aboutIconColor = colors.lime;
+    final aboutPrimaryButtonBackground = isLight
+        ? _profileCardColor(context, colors.iceTint, lightOpacity: 1)
         : colors.lime;
+    final aboutPrimaryButtonForeground = isLight ? textColor : colors.onPrimary;
+    final aboutSecondaryButtonBackground = isLight
+        ? _profileCardColor(context, colors.surfaceElevated, lightOpacity: 1)
+        : colors.surface;
+    final aboutSecondaryButtonForeground = isLight
+        ? textColor
+        : colors.textPrimary;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text(
-          s.t('about'),
-          style: AppTextStyles.sectionTitle.copyWith(color: colors.textPrimary),
-        ),
-        const SizedBox(height: 12),
         SurfaceCard(
           padding: EdgeInsets.zero,
           color: aboutCardColor,
@@ -633,12 +621,8 @@ class _ProfilePageState extends State<ProfilePage> {
                         title: s.t('checkForUpdates'),
                         value: _updateValue(),
                         icon: Icons.system_update_alt_rounded,
-                        backgroundColor: _profileCardColor(
-                          context,
-                          colors.cardLavender,
-                          lightOpacity: .9,
-                        ),
-                        foregroundColor: textColor,
+                        backgroundColor: aboutPrimaryButtonBackground,
+                        foregroundColor: aboutPrimaryButtonForeground,
                         onPressed: () => _checkForUpdates(context),
                       ),
                     ),
@@ -647,12 +631,8 @@ class _ProfilePageState extends State<ProfilePage> {
                       child: _ProfileAboutButton(
                         title: s.t('githubProject'),
                         icon: Icons.code_rounded,
-                        backgroundColor: _profileCardColor(
-                          context,
-                          colors.cardCoral,
-                          lightOpacity: .9,
-                        ),
-                        foregroundColor: textColor,
+                        backgroundColor: aboutSecondaryButtonBackground,
+                        foregroundColor: aboutSecondaryButtonForeground,
                         onPressed: AppLinks.githubRepository == null
                             ? null
                             : () => _openExternalUrl(
@@ -662,36 +642,6 @@ class _ProfilePageState extends State<ProfilePage> {
                       ),
                     ),
                   ],
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(
-                  AppSpacing.md,
-                  AppSpacing.sm,
-                  AppSpacing.md,
-                  AppSpacing.lg,
-                ),
-                child: Center(
-                  child: Wrap(
-                    alignment: WrapAlignment.center,
-                    crossAxisAlignment: WrapCrossAlignment.center,
-                    spacing: 8,
-                    runSpacing: 2,
-                    children: [
-                      Icon(
-                        Icons.shield_outlined,
-                        color: colors.textTertiary,
-                        size: 18,
-                      ),
-                      Text(
-                        s.t('privacy'),
-                        textAlign: TextAlign.center,
-                        style: AppTextStyles.bodySecondary.copyWith(
-                          color: colors.textTertiary,
-                        ),
-                      ),
-                    ],
-                  ),
                 ),
               ),
             ],
@@ -706,14 +656,12 @@ class _ProfilePageState extends State<ProfilePage> {
 
   Color _profileTextColor(BuildContext context) {
     final colors = context.appColors;
-    return _isLight(context) ? colors.textPrimary : colors.cardText;
+    return colors.textPrimary;
   }
 
   Color _profileSecondaryTextColor(BuildContext context) {
     final colors = context.appColors;
-    return _isLight(context)
-        ? colors.textSecondary
-        : colors.cardText.withValues(alpha: .64);
+    return colors.textSecondary;
   }
 
   Color _profileCardColor(
@@ -731,13 +679,6 @@ class _ProfilePageState extends State<ProfilePage> {
   // Preference tiles use the same direct card colors as flight cards. The
   // fill itself carries the hierarchy, so no outline or white wash is needed.
   Color _profileSurfaceTint(Color accent) => accent;
-
-  Color _profileIconColor(BuildContext context, Color accent) {
-    final colors = context.appColors;
-    // Keep each tile's hue, but pull the icon toward the ink color so the
-    // small mark stays legible against the pastel icon bubble.
-    return Color.lerp(accent, colors.textPrimary, .48)!;
-  }
 
   List<BoxShadow> _cardShadow() => AppShadows.card(context);
 
@@ -899,7 +840,7 @@ class _ProfilePageState extends State<ProfilePage> {
                     onPressed: () => Navigator.pop(dialogContext, true),
                     style: FilledButton.styleFrom(
                       backgroundColor: colors.lime,
-                      foregroundColor: Colors.black,
+                      foregroundColor: colors.onPrimary,
                       shape: AppShapes.pill,
                     ),
                     icon: Icon(
@@ -1671,6 +1612,10 @@ class _TravellerNameSheetState extends State<_TravellerNameSheet> {
             colors.surface,
           )
         : colors.surfaceElevated;
+    const pillInputBorder = OutlineInputBorder(
+      borderRadius: AppRadii.pill,
+      borderSide: BorderSide.none,
+    );
     final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
     return SafeArea(
       child: Padding(
@@ -1704,9 +1649,10 @@ class _TravellerNameSheetState extends State<_TravellerNameSheet> {
                 filled: true,
                 fillColor: inputFill,
                 prefixIconColor: colors.textSecondary,
-                border: InputBorder.none,
-                enabledBorder: InputBorder.none,
-                focusedBorder: InputBorder.none,
+                border: pillInputBorder,
+                enabledBorder: pillInputBorder,
+                focusedBorder: pillInputBorder,
+                disabledBorder: pillInputBorder,
                 counterStyle: TextStyle(color: colors.textSecondary),
               ),
               onSubmitted: (_) => _submit(),
@@ -1736,7 +1682,7 @@ class _TravellerNameSheetState extends State<_TravellerNameSheet> {
                     style: FilledButton.styleFrom(
                       minimumSize: const Size.fromHeight(52),
                       backgroundColor: colors.lime,
-                      foregroundColor: colors.cardText,
+                      foregroundColor: colors.onPrimary,
                       shape: AppShapes.large,
                       side: BorderSide.none,
                     ),
@@ -1766,6 +1712,51 @@ class _IconTile extends StatelessWidget {
     ),
     child: Icon(icon, color: color, size: 20),
   );
+}
+
+class _ProfileGroup extends StatelessWidget {
+  const _ProfileGroup({required this.children});
+
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    final isLight = Theme.of(context).brightness == Brightness.light;
+    return SurfaceCard(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      color: isLight ? colors.surface : colors.surfaceElevated,
+      borderRadius: AppRadii.medium,
+      showBorder: false,
+      boxShadow: _profileGroupShadow(context),
+      child: Column(children: children),
+    );
+  }
+}
+
+class _ProfileGroupDivider extends StatelessWidget {
+  const _ProfileGroupDivider();
+
+  @override
+  Widget build(BuildContext context) => Divider(
+    height: 1,
+    thickness: .7,
+    indent: 70,
+    endIndent: 16,
+    color: context.appColors.border.withValues(alpha: .56),
+  );
+}
+
+List<BoxShadow> _profileGroupShadow(BuildContext context) {
+  final isLight = Theme.of(context).brightness == Brightness.light;
+  if (isLight) return const <BoxShadow>[];
+  return [
+    BoxShadow(
+      color: Colors.black.withValues(alpha: .14),
+      blurRadius: 18,
+      offset: const Offset(0, 6),
+    ),
+  ];
 }
 
 class _ProfileAboutButton extends StatelessWidget {
@@ -1936,7 +1927,6 @@ class _ProfileActionTile extends StatelessWidget {
     this.textColor,
     this.secondaryTextColor,
     this.wide = false,
-    this.showChevron = false,
   });
 
   final String title;
@@ -1949,7 +1939,6 @@ class _ProfileActionTile extends StatelessWidget {
   final Color? secondaryTextColor;
   final VoidCallback? onTap;
   final bool wide;
-  final bool showChevron;
 
   @override
   Widget build(BuildContext context) {
@@ -2000,14 +1989,6 @@ class _ProfileActionTile extends StatelessWidget {
                     style: AppTextStyles.bodySecondary.copyWith(
                       color: resolvedSecondaryTextColor,
                     ),
-                  ),
-                ),
-              if (showChevron)
-                Padding(
-                  padding: const EdgeInsets.only(left: 10),
-                  child: Icon(
-                    Icons.chevron_right_rounded,
-                    color: resolvedSecondaryTextColor,
                   ),
                 ),
             ],
@@ -2602,6 +2583,7 @@ class _SpreadsheetPreviewSheetState extends State<_SpreadsheetPreviewSheet> {
   Widget build(BuildContext context) {
     final s = context.strings;
     final colors = context.appColors;
+    final isLight = Theme.of(context).brightness == Brightness.light;
     return FractionallySizedBox(
       heightFactor: .9,
       child: Material(
@@ -2667,7 +2649,7 @@ class _SpreadsheetPreviewSheetState extends State<_SpreadsheetPreviewSheet> {
                       child: _SpreadsheetReviewTabButton(
                         label: s.t('spreadsheetValidRows'),
                         count: _readyRows.length,
-                        color: colors.cardMint,
+                        color: isLight ? colors.cardMint : colors.lime,
                         selected: _selectedTab == 0,
                         onTap: () => setState(() => _selectedTab = 0),
                       ),
@@ -2677,7 +2659,7 @@ class _SpreadsheetPreviewSheetState extends State<_SpreadsheetPreviewSheet> {
                       child: _SpreadsheetReviewTabButton(
                         label: s.t('spreadsheetIssueRows'),
                         count: result.issues.length,
-                        color: colors.cardCoral,
+                        color: isLight ? colors.cardCoral : colors.danger,
                         selected: _selectedTab == 1,
                         onTap: () => setState(() => _selectedTab = 1),
                       ),
@@ -2687,7 +2669,7 @@ class _SpreadsheetPreviewSheetState extends State<_SpreadsheetPreviewSheet> {
                       child: _SpreadsheetReviewTabButton(
                         label: s.t('spreadsheetConflicts'),
                         count: _conflictRows.length,
-                        color: colors.cardLavender,
+                        color: isLight ? colors.cardLavender : colors.purple,
                         selected: _selectedTab == 2,
                         onTap: () => setState(() => _selectedTab = 2),
                       ),
@@ -2810,8 +2792,11 @@ class _SpreadsheetReviewTabButton extends StatelessWidget {
             context.appColors.surfaceElevated,
           );
     final colors = context.appColors;
-    final countColor = selected ? colors.cardText : color;
-    final labelColor = selected ? colors.cardText : colors.textSecondary;
+    // Unselected counts share the same cool gray-blue ink as the surrounding
+    // secondary labels (for example, “已结束 103”), instead of inheriting the
+    // tab accent and becoming visually inconsistent between cards.
+    final countColor = selected ? colors.onPrimary : colors.textSecondary;
+    final labelColor = selected ? colors.onPrimary : colors.textSecondary;
     return Semantics(
       button: true,
       selected: selected,

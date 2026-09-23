@@ -7,6 +7,9 @@
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32"/>
     <!-- Required on Android 10+ when reading the original photo location. -->
     <uses-permission android:name="android.permission.ACCESS_MEDIA_LOCATION"/>
+    <!-- Requested only after the user taps the map's locate button. -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
     <!-- The user-initiated APK installer needs this permission on Android 8+. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
     <!-- Used only when the user explicitly imports flight events from the

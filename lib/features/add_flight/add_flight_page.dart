@@ -32,6 +32,7 @@ class AddFlightPage extends StatefulWidget {
 class _AddFlightPageState extends State<AddFlightPage>
     with WidgetsBindingObserver {
   static const _draftDebounce = Duration(milliseconds: 650);
+  static const _routeGutterWidth = 40.0;
   Airport? _departure;
   Airport? _arrival;
   DateTime _date = DateTime.now();
@@ -314,282 +315,467 @@ class _AddFlightPageState extends State<AddFlightPage>
     final s = context.strings;
     final colors = context.appColors;
     final isLight = Theme.of(context).brightness == Brightness.light;
-    final identityCardColor = isLight
-        ? colors.cardBlue
-        : colors.surfaceElevated;
     return Material(
       color: colors.background,
       child: SafeArea(
         top: true,
-        child: _ImeAwareFlightForm(
+        bottom: true,
+        child: Column(
           children: [
-            PageHeader(
-              title: s.t(
-                widget.initialFlight == null ? 'addFlight' : 'editFlight',
-              ),
-              onBack: () => Navigator.maybePop(context),
-            ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.page),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  RepaintBoundary(
-                    child: Container(
-                      padding: const EdgeInsets.fromLTRB(24, 22, 24, 20),
-                      decoration: ShapeDecoration(
-                        color: colors.surface,
-                        shape: AppShapes.large,
-                        shadows: _surfaceShadow(context),
+            Semantics(
+              header: true,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.sm,
+                  4,
+                  AppSpacing.page,
+                  8,
+                ),
+                child: Row(
+                  children: [
+                    IconButton(
+                      tooltip: '返回',
+                      constraints: const BoxConstraints.tightFor(
+                        width: 48,
+                        height: 48,
                       ),
-                      child: DefaultTextStyle(
-                        style: TextStyle(color: colors.textPrimary),
-                        child: Column(
-                          children: [
-                            Row(
+                      onPressed: () => Navigator.maybePop(context),
+                      icon: const Icon(Icons.arrow_back_rounded),
+                    ),
+                    const SizedBox(width: AppSpacing.sm),
+                    Expanded(
+                      child: Text(
+                        s.t(
+                          widget.initialFlight == null
+                              ? 'addFlight'
+                              : 'editFlight',
+                        ),
+                        style: TextStyle(
+                          color: colors.textPrimary,
+                          fontSize: 22,
+                          height: 1.15,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: -.35,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            Expanded(
+              child: _ImeAwareFlightForm(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.page,
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        RepaintBoundary(
+                          child: Container(
+                            padding: const EdgeInsets.all(AppSpacing.md),
+                            decoration: ShapeDecoration(
+                              color: colors.surface,
+                              shape: AppShapes.medium,
+                            ),
+                            child: Column(
                               children: [
-                                Expanded(
-                                  child: _AirportSelector(
-                                    label: s.t('departure'),
-                                    airport: _departure,
-                                    onTap: () => _pickAirport(true),
-                                  ),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: _AirportSelector(
+                                        label: s.t('departure'),
+                                        airport: _departure,
+                                        onTap: () => _pickAirport(true),
+                                      ),
+                                    ),
+                                    SizedBox(
+                                      width: _routeGutterWidth,
+                                      height: 48,
+                                      child: Center(
+                                        child: Transform.rotate(
+                                          angle: math.pi / 2,
+                                          child: Icon(
+                                            Icons.flight_rounded,
+                                            color: colors.textTertiary,
+                                            size: 18,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                    Expanded(
+                                      child: _AirportSelector(
+                                        label: s.t('arrival'),
+                                        airport: _arrival,
+                                        alignEnd: true,
+                                        onTap: () => _pickAirport(false),
+                                      ),
+                                    ),
+                                  ],
                                 ),
-                                Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 10,
+                                const SizedBox(height: AppSpacing.sm),
+                                Row(
+                                  crossAxisAlignment: CrossAxisAlignment.center,
+                                  children: [
+                                    Expanded(
+                                      child: _DateTimeSelector(
+                                        label: s.t('takeoff'),
+                                        value: _date,
+                                        onDateTap: _pickDate,
+                                        onTimeTap: _pickDepartureTime,
+                                      ),
+                                    ),
+                                    const SizedBox(width: _routeGutterWidth),
+                                    Expanded(
+                                      child: _DateTimeSelector(
+                                        label: s.t('landing'),
+                                        alignEnd: true,
+                                        // Older imported records may only contain a
+                                        // duration. Keep the calculated arrival visible
+                                        // until the user edits it explicitly.
+                                        value: _arrivalAt ?? _estimatedArrival,
+                                        onDateTap: _pickArrivalDate,
+                                        onTimeTap: _pickArrivalTime,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: AppSpacing.cardGap),
+                        RepaintBoundary(
+                          child: SurfaceCard(
+                            padding: const EdgeInsets.all(AppSpacing.md),
+                            color: colors.surface,
+                            borderRadius: AppRadii.medium,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                _field(
+                                  s.t('airlineFlight'),
+                                  _flightIdentity,
+                                  required: true,
+                                  prefixIcon:
+                                      Icons.confirmation_number_outlined,
+                                  hintText: s.t('airlineFlightHint'),
+                                  onChanged: _onFlightIdentityChanged,
+                                  onSubmitted: (_) => _lookupFlight(),
+                                ),
+                                if (_lookupMessage == null) ...[
+                                  const SizedBox(height: AppSpacing.sm),
+                                  Text(
+                                    s.t('requiredHint'),
+                                    style: AppTextStyles.label.copyWith(
+                                      color: colors.textSecondary,
+                                      fontWeight: FontWeight.w500,
+                                    ),
                                   ),
-                                  child: SizedBox(
-                                    width: 48,
-                                    height: 72,
-                                    child: Center(
-                                      child: Icon(
-                                        Icons.flight_takeoff_rounded,
-                                        color: colors.lime,
-                                        size: 28,
+                                ],
+                                const SizedBox(height: AppSpacing.md),
+                                SizedBox(
+                                  width: double.infinity,
+                                  child: FilledButton.icon(
+                                    onPressed: _lookingUp
+                                        ? null
+                                        : _lookupFlight,
+                                    icon: _lookingUp
+                                        ? const SizedBox(
+                                            width: 16,
+                                            height: 16,
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                            ),
+                                          )
+                                        : const Icon(
+                                            Icons.auto_awesome_rounded,
+                                          ),
+                                    label: Text(
+                                      _lookingUp
+                                          ? s.t('lookingUpFlight')
+                                          : s.t('autoFillFlight'),
+                                    ),
+                                    style: FilledButton.styleFrom(
+                                      minimumSize: const Size(48, 48),
+                                      backgroundColor: isLight
+                                          ? colors.iceTint
+                                          : colors.lime.withValues(alpha: .14),
+                                      foregroundColor: isLight
+                                          ? colors.cardText
+                                          : colors.lime,
+                                      disabledBackgroundColor:
+                                          colors.surfaceElevated,
+                                      disabledForegroundColor:
+                                          colors.textTertiary,
+                                      shape: const StadiumBorder(),
+                                      textStyle: const TextStyle(
+                                        fontSize: 15,
+                                        fontWeight: FontWeight.w700,
                                       ),
                                     ),
                                   ),
                                 ),
-                                Expanded(
-                                  child: _AirportSelector(
-                                    label: s.t('arrival'),
-                                    airport: _arrival,
-                                    alignEnd: true,
-                                    onTap: () => _pickAirport(false),
+                                if (_lookupMessage != null) ...[
+                                  const SizedBox(height: AppSpacing.sm),
+                                  Text(
+                                    _lookupMessage!,
+                                    style: AppTextStyles.label.copyWith(
+                                      color: colors.textSecondary,
+                                    ),
                                   ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 20),
-                            Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Expanded(
-                                  child: _DateTimeSelector(
-                                    label: s.t('takeoff'),
-                                    value: _date,
-                                    onDateTap: _pickDate,
-                                    onTimeTap: _pickDepartureTime,
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: _DateTimeSelector(
-                                    label: s.t('landing'),
-                                    // Older imported records may only contain a
-                                    // duration. Show its calculated arrival in
-                                    // the editor instead of an empty field; it
-                                    // remains an automatic value until touched.
-                                    value: _arrivalAt ?? _estimatedArrival,
-                                    onDateTap: _pickArrivalDate,
-                                    onTimeTap: _pickArrivalTime,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  RepaintBoundary(
-                    child: SurfaceCard(
-                      padding: const EdgeInsets.fromLTRB(20, 20, 20, 18),
-                      color: identityCardColor,
-                      borderRadius: AppRadii.large,
-                      showBorder: false,
-                      boxShadow: _surfaceShadow(context),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          _field(
-                            s.t('airlineFlight'),
-                            _flightIdentity,
-                            required: true,
-                            prefixIcon: Icons.confirmation_number_outlined,
-                            hintText: s.t('airlineFlightHint'),
-                            onChanged: _onFlightIdentityChanged,
-                            onSubmitted: (_) => _lookupFlight(),
-                          ),
-                          if (_lookupMessage == null) ...[
-                            const SizedBox(height: 8),
-                            Text(
-                              s.t('requiredHint'),
-                              style: AppTextStyles.label.copyWith(
-                                color: colors.textTertiary,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                          ],
-                          const SizedBox(height: 14),
-                          SizedBox(
-                            width: double.infinity,
-                            child: FilledButton.icon(
-                              onPressed: _lookingUp ? null : _lookupFlight,
-                              icon: _lookingUp
-                                  ? const SizedBox(
-                                      width: 16,
-                                      height: 16,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                      ),
-                                    )
-                                  : const Icon(Icons.auto_awesome_rounded),
-                              label: Text(
-                                _lookingUp
-                                    ? s.t('lookingUpFlight')
-                                    : s.t('autoFillFlight'),
-                              ),
-                              style: FilledButton.styleFrom(
-                                minimumSize: const Size(44, 56),
-                                // Keep the identity module cool and quiet;
-                                // reserve the chartreuse fill for its single
-                                // primary action.
-                                backgroundColor: isLight
-                                    ? colors.lime
-                                    : colors.lime.withValues(alpha: .14),
-                                foregroundColor: isLight
-                                    ? colors.cardText
-                                    : colors.lime,
-                                disabledBackgroundColor: colors.surface,
-                                disabledForegroundColor: colors.textTertiary,
-                                shape: AppShapes.large,
-                                textStyle: const TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ),
-                          ),
-                          if (_lookupMessage != null) ...[
-                            const SizedBox(height: 8),
-                            Text(
-                              _lookupMessage!,
-                              style: AppTextStyles.label.copyWith(
-                                color: colors.textSecondary,
-                              ),
-                            ),
-                          ],
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  RepaintBoundary(
-                    child: SurfaceCard(
-                      padding: EdgeInsets.zero,
-                      color: colors.surfaceElevated,
-                      borderRadius: AppRadii.large,
-                      showBorder: false,
-                      boxShadow: _surfaceShadow(context),
-                      child: Column(
-                        children: [
-                          DisclosureRow(
-                            title: s.t('moreDetails'),
-                            subtitle: s.t('optionalInfo'),
-                            showChevron: false,
-                            value: _more ? '−' : '+',
-                            onTap: () {
-                              setState(() => _more = !_more);
-                              _markDraftChanged();
-                            },
-                          ),
-                          if (_more)
-                            Padding(
-                              padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-                              child: Column(
-                                children: [
-                                  _field(s.t('aircraft'), _aircraft),
-                                  const SizedBox(height: 12),
-                                  Row(
-                                    children: [
-                                      Expanded(
-                                        child: _field(
-                                          s.t('duration'),
-                                          _duration,
-                                          number: true,
-                                          onChanged: (_) =>
-                                              _durationTouched = true,
-                                        ),
-                                      ),
-                                      const SizedBox(width: 12),
-                                      Expanded(
-                                        child: _field(
-                                          s.t('distance'),
-                                          _distance,
-                                          number: true,
-                                          decimal: true,
-                                          onChanged: (_) =>
-                                              _distanceTouched = true,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 12),
-                                  Row(
-                                    children: [
-                                      Expanded(
-                                        child: _field(s.t('seat'), _seat),
-                                      ),
-                                      const SizedBox(width: 12),
-                                      Expanded(
-                                        child: DropdownButtonFormField<String>(
-                                          initialValue: _cabin,
-                                          isExpanded: true,
-                                          decoration: _decoration(s.t('cabin')),
-                                          items: _cabinOptions(s),
-                                          onChanged: (value) {
-                                            setState(() => _cabin = value);
-                                            _markDraftChanged();
-                                          },
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 12),
-                                  _field(s.t('note'), _note, lines: 3),
                                 ],
-                              ),
+                              ],
                             ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-                  PrimaryButton(
-                    label: _saving
-                        ? '…'
-                        : s.t(
-                            widget.initialFlight == null
-                                ? 'save'
-                                : 'saveChanges',
                           ),
-                    icon: Icons.check_rounded,
-                    onPressed: _saving ? null : _save,
+                        ),
+                        const SizedBox(height: AppSpacing.cardGap),
+                        RepaintBoundary(
+                          child: SurfaceCard(
+                            padding: EdgeInsets.zero,
+                            color: colors.surface,
+                            borderRadius: AppRadii.medium,
+                            child: Column(
+                              children: [
+                                Semantics(
+                                  button: true,
+                                  expanded: _more,
+                                  label:
+                                      '${s.t('moreDetails')}, ${s.t('optionalInfo')}',
+                                  child: InkWell(
+                                    borderRadius: AppRadii.medium,
+                                    onTap: () {
+                                      setState(() => _more = !_more);
+                                      _markDraftChanged();
+                                    },
+                                    child: ConstrainedBox(
+                                      constraints: const BoxConstraints(
+                                        minHeight: 72,
+                                      ),
+                                      child: Padding(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: AppSpacing.md,
+                                          vertical: AppSpacing.sm,
+                                        ),
+                                        child: Row(
+                                          children: [
+                                            Icon(
+                                              Icons.tune_rounded,
+                                              size: 20,
+                                              color: colors.textSecondary,
+                                            ),
+                                            const SizedBox(
+                                              width: AppSpacing.md,
+                                            ),
+                                            Expanded(
+                                              child: Column(
+                                                mainAxisAlignment:
+                                                    MainAxisAlignment.center,
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.start,
+                                                children: [
+                                                  Text(
+                                                    s.t('moreDetails'),
+                                                    style: AppTextStyles.body
+                                                        .copyWith(
+                                                          color: colors
+                                                              .textPrimary,
+                                                          fontWeight:
+                                                              FontWeight.w600,
+                                                        ),
+                                                  ),
+                                                  Text(
+                                                    s.t('optionalInfo'),
+                                                    style: AppTextStyles.label
+                                                        .copyWith(
+                                                          color: colors
+                                                              .textSecondary,
+                                                          fontSize: 13,
+                                                        ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                            AnimatedRotation(
+                                              turns: _more ? .5 : 0,
+                                              duration:
+                                                  MediaQuery.disableAnimationsOf(
+                                                    context,
+                                                  )
+                                                  ? Duration.zero
+                                                  : AppMotion.control,
+                                              child: Icon(
+                                                Icons.expand_more_rounded,
+                                                color: colors.textSecondary,
+                                                size: 22,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                AnimatedSize(
+                                  duration:
+                                      MediaQuery.disableAnimationsOf(context)
+                                      ? Duration.zero
+                                      : AppMotion.control,
+                                  curve: Curves.easeInOut,
+                                  alignment: Alignment.topCenter,
+                                  child: _more
+                                      ? Column(
+                                          children: [
+                                            const SizedBox(
+                                              height: AppSpacing.sm,
+                                            ),
+                                            Padding(
+                                              padding: const EdgeInsets.all(
+                                                AppSpacing.md,
+                                              ),
+                                              child: Column(
+                                                children: [
+                                                  _field(
+                                                    s.t('aircraft'),
+                                                    _aircraft,
+                                                  ),
+                                                  const SizedBox(
+                                                    height: AppSpacing.sm,
+                                                  ),
+                                                  Row(
+                                                    children: [
+                                                      Expanded(
+                                                        child: _field(
+                                                          s.t('duration'),
+                                                          _duration,
+                                                          number: true,
+                                                          onChanged: (_) =>
+                                                              _durationTouched =
+                                                                  true,
+                                                        ),
+                                                      ),
+                                                      const SizedBox(
+                                                        width: AppSpacing.sm,
+                                                      ),
+                                                      Expanded(
+                                                        child: _field(
+                                                          s.t('distance'),
+                                                          _distance,
+                                                          number: true,
+                                                          decimal: true,
+                                                          onChanged: (_) =>
+                                                              _distanceTouched =
+                                                                  true,
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                  const SizedBox(
+                                                    height: AppSpacing.sm,
+                                                  ),
+                                                  Row(
+                                                    children: [
+                                                      Expanded(
+                                                        child: _field(
+                                                          s.t('seat'),
+                                                          _seat,
+                                                        ),
+                                                      ),
+                                                      const SizedBox(
+                                                        width: AppSpacing.sm,
+                                                      ),
+                                                      Expanded(
+                                                        child:
+                                                            DropdownButtonFormField<
+                                                              String
+                                                            >(
+                                                              initialValue:
+                                                                  _cabin,
+                                                              isExpanded: true,
+                                                              decoration:
+                                                                  _decoration(
+                                                                    s.t(
+                                                                      'cabin',
+                                                                    ),
+                                                                  ),
+                                                              items:
+                                                                  _cabinOptions(
+                                                                    s,
+                                                                  ),
+                                                              onChanged: (value) {
+                                                                setState(
+                                                                  () => _cabin =
+                                                                      value,
+                                                                );
+                                                                _markDraftChanged();
+                                                              },
+                                                            ),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                  const SizedBox(
+                                                    height: AppSpacing.sm,
+                                                  ),
+                                                  _field(
+                                                    s.t('note'),
+                                                    _note,
+                                                    lines: 3,
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                          ],
+                                        )
+                                      : const SizedBox.shrink(),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: AppSpacing.md),
+                      ],
+                    ),
                   ),
                 ],
+              ),
+            ),
+            Container(
+              color: colors.background,
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.page,
+                AppSpacing.sm,
+                AppSpacing.page,
+                AppSpacing.md,
+              ),
+              child: SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: _saving ? null : _save,
+                  icon: _saving
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.check_rounded),
+                  label: Text(
+                    s.t(widget.initialFlight == null ? 'save' : 'saveChanges'),
+                  ),
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size(48, 56),
+                    backgroundColor: colors.lime,
+                    foregroundColor: colors.onPrimary,
+                    disabledBackgroundColor: colors.surfaceElevated,
+                    disabledForegroundColor: colors.textTertiary,
+                    shape: const StadiumBorder(),
+                    textStyle: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
               ),
             ),
           ],
@@ -631,45 +817,31 @@ class _AddFlightPageState extends State<AddFlightPage>
     return InputDecoration(
       labelText: label,
       filled: true,
-      fillColor: colors.surface,
       labelStyle: AppTextStyles.label.copyWith(color: colors.textSecondary),
       floatingLabelStyle: TextStyle(
         color: colors.lime,
-        backgroundColor: colors.surface,
         fontSize: 12,
         height: 1,
         fontWeight: FontWeight.w600,
       ),
       contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 18),
       border: OutlineInputBorder(
-        borderRadius: AppRadii.medium,
-        borderSide: BorderSide(color: colors.border),
+        borderRadius: AppRadii.pill,
+        borderSide: BorderSide.none,
         gapPadding: 8,
       ),
       enabledBorder: OutlineInputBorder(
-        borderRadius: AppRadii.medium,
-        borderSide: BorderSide(color: colors.border),
+        borderRadius: AppRadii.pill,
+        borderSide: BorderSide.none,
         gapPadding: 8,
       ),
       focusedBorder: OutlineInputBorder(
-        borderRadius: AppRadii.medium,
-        borderSide: BorderSide(color: colors.lime, width: 1.5),
+        borderRadius: AppRadii.pill,
+        borderSide: BorderSide.none,
         gapPadding: 8,
       ),
+      fillColor: colors.surfaceElevated,
     );
-  }
-
-  List<BoxShadow> _surfaceShadow(BuildContext context) {
-    if (Theme.of(context).brightness == Brightness.light) {
-      return const <BoxShadow>[];
-    }
-    return [
-      BoxShadow(
-        color: Colors.black.withValues(alpha: .16),
-        blurRadius: 18,
-        offset: const Offset(0, 8),
-      ),
-    ];
   }
 
   String? _normalizeCabinValue(String? value) {
@@ -1145,51 +1317,72 @@ class _AirportSelector extends StatelessWidget {
   Widget build(BuildContext context) {
     final selectedAirport = airport;
     final colors = context.appColors;
-    return InkWell(
-      onTap: onTap,
-      customBorder: AppShapes.small,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 10),
-        child: Column(
-          crossAxisAlignment: alignEnd
-              ? CrossAxisAlignment.end
-              : CrossAxisAlignment.start,
-          children: [
-            Text(
-              label,
-              style: TextStyle(
-                color: colors.textSecondary,
-                fontSize: 14,
-                fontWeight: FontWeight.w800,
-                letterSpacing: -.1,
+    final isLight = Theme.of(context).brightness == Brightness.light;
+    final selectAirportLabel = context.strings.t('selectAirport');
+    final airportName = selectedAirport == null
+        ? null
+        : localizedAirportCardName(selectedAirport);
+    return Semantics(
+      button: true,
+      label: '$label, ${airport?.iataCode ?? selectAirportLabel}',
+      child: InkWell(
+        onTap: onTap,
+        customBorder: AppShapes.small,
+        child: SizedBox(
+          width: double.infinity,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 96),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: alignEnd
+                    ? CrossAxisAlignment.end
+                    : CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    style: TextStyle(
+                      color: colors.textSecondary,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.xs),
+                  Text(
+                    airport?.iataCode ?? selectAirportLabel,
+                    maxLines: 1,
+                    style: TextStyle(
+                      color: selectedAirport == null
+                          ? isLight
+                                ? colors.cardText
+                                : colors.lime
+                          : colors.textPrimary,
+                      fontSize: selectedAirport == null ? 17 : 34,
+                      height: selectedAirport == null ? 1.2 : 1.05,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: selectedAirport == null ? 0 : -1.1,
+                    ),
+                  ),
+                  if (airportName != null) ...[
+                    const SizedBox(height: AppSpacing.xs),
+                    Text(
+                      airportName,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: alignEnd ? TextAlign.end : TextAlign.start,
+                      style: TextStyle(
+                        fontSize: 12,
+                        height: 1.2,
+                        fontWeight: FontWeight.w500,
+                        color: colors.textSecondary,
+                      ),
+                    ),
+                  ],
+                ],
               ),
             ),
-            const SizedBox(height: 8),
-            Text(
-              airport?.iataCode ?? '—',
-              style: TextStyle(
-                color: colors.textPrimary,
-                fontSize: 40,
-                height: 1,
-                fontWeight: FontWeight.w700,
-                letterSpacing: -1.5,
-              ),
-            ),
-            const SizedBox(height: 5),
-            Text(
-              selectedAirport == null
-                  ? context.strings.t('tapToChoose')
-                  : localizedAirportCardName(selectedAirport),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: 12,
-                height: 1.15,
-                fontWeight: FontWeight.w600,
-                color: airport == null ? colors.lime : colors.textSecondary,
-              ),
-            ),
-          ],
+          ),
         ),
       ),
     );
@@ -1202,97 +1395,130 @@ class _DateTimeSelector extends StatelessWidget {
     required this.value,
     required this.onDateTap,
     required this.onTimeTap,
+    this.alignEnd = false,
   });
 
   final String label;
   final DateTime? value;
   final VoidCallback onDateTap;
   final VoidCallback onTimeTap;
+  final bool alignEnd;
 
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
-    final date = value == null
+    final isUnset = value == null;
+    final date = isUnset
         ? context.strings.t('unknown')
         : DateFormat('yyyy-MM-dd').format(value!);
-    final time = value == null ? '--:--' : DateFormat('HH:mm').format(value!);
-    return Container(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 10),
-      decoration: ShapeDecoration(
-        color: colors.surfaceElevated,
-        shape: AppShapes.medium,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
+    final time = isUnset
+        ? context.strings.t('timeNotSet')
+        : DateFormat('HH:mm').format(value!);
+    return Column(
+      crossAxisAlignment: alignEnd
+          ? CrossAxisAlignment.end
+          : CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: EdgeInsets.only(
+            left: alignEnd ? 0 : AppSpacing.sm,
+            right: alignEnd ? AppSpacing.sm : 0,
+            bottom: 2,
+          ),
+          child: Text(
             label,
             style: TextStyle(
               color: colors.textSecondary,
               fontSize: 12,
-              fontWeight: FontWeight.w800,
-              letterSpacing: .1,
+              fontWeight: FontWeight.w700,
             ),
           ),
-          const SizedBox(height: 4),
-          InkWell(
+        ),
+        Semantics(
+          button: true,
+          label: '$label, $date',
+          child: InkWell(
             onTap: onDateTap,
-            customBorder: AppShapes.small,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 6),
-              child: Row(
-                children: [
-                  Icon(
-                    Icons.calendar_today_rounded,
-                    color: colors.textSecondary,
-                    size: 15,
-                  ),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: Text(
-                      date,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: colors.textPrimary,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
+            borderRadius: AppRadii.small,
+            child: SizedBox(
+              height: 48,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
+                child: Row(
+                  mainAxisAlignment: alignEnd
+                      ? MainAxisAlignment.end
+                      : MainAxisAlignment.start,
+                  children: [
+                    Icon(
+                      Icons.calendar_today_rounded,
+                      color: colors.textSecondary,
+                      size: 15,
+                    ),
+                    const SizedBox(width: AppSpacing.sm),
+                    Flexible(
+                      fit: FlexFit.loose,
+                      child: Text(
+                        date,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: alignEnd ? TextAlign.end : TextAlign.start,
+                        style: TextStyle(
+                          color: isUnset
+                              ? colors.textSecondary
+                              : colors.textPrimary,
+                          fontSize: 13,
+                          fontWeight: isUnset
+                              ? FontWeight.w500
+                              : FontWeight.w600,
+                        ),
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),
-          InkWell(
+        ),
+        Semantics(
+          button: true,
+          label: '$label, $time',
+          child: InkWell(
             onTap: onTimeTap,
-            customBorder: AppShapes.small,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 4),
-              child: Row(
-                children: [
-                  Icon(
-                    Icons.schedule_rounded,
-                    color: colors.textSecondary,
-                    size: 18,
-                  ),
-                  const SizedBox(width: 6),
-                  Text(
-                    time,
-                    style: TextStyle(
-                      color: colors.textPrimary,
-                      fontSize: 22,
-                      height: 1,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: -.4,
+            borderRadius: AppRadii.small,
+            child: SizedBox(
+              height: 48,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
+                child: Row(
+                  mainAxisAlignment: alignEnd
+                      ? MainAxisAlignment.end
+                      : MainAxisAlignment.start,
+                  children: [
+                    Icon(
+                      Icons.schedule_rounded,
+                      color: colors.textSecondary,
+                      size: 17,
                     ),
-                  ),
-                ],
+                    const SizedBox(width: AppSpacing.sm),
+                    Text(
+                      time,
+                      style: TextStyle(
+                        color: isUnset
+                            ? colors.textSecondary
+                            : colors.textPrimary,
+                        fontSize: isUnset ? 14 : 19,
+                        height: 1,
+                        fontWeight: isUnset ? FontWeight.w500 : FontWeight.w700,
+                        letterSpacing: -.3,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }

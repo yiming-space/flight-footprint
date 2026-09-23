@@ -399,12 +399,7 @@ class _BackToTopButton extends StatelessWidget {
                 filter: ui.ImageFilter.blur(sigmaX: 14, sigmaY: 14),
                 child: DecoratedBox(
                   decoration: ShapeDecoration(
-                    // Match the bottom navigation's material: the light
-                    // theme uses a dark glass anchor rather than a white
-                    // floating bubble over the flight cards.
-                    color: isLight
-                        ? Colors.black.withValues(alpha: .82)
-                        : colors.surface.withValues(alpha: .58),
+                    color: colors.lime,
                     shape: glassShape,
                     shadows: [
                       BoxShadow(
@@ -421,7 +416,7 @@ class _BackToTopButton extends StatelessWidget {
                     tooltip: context.strings.isZh ? '回到顶部' : 'Back to top',
                     icon: Icon(
                       Icons.keyboard_arrow_up_rounded,
-                      color: isLight ? Colors.white : colors.textSecondary,
+                      color: colors.onPrimary,
                     ),
                     iconSize: 26,
                     constraints: const BoxConstraints.tightFor(
@@ -527,7 +522,7 @@ class _YearFilterBar extends StatelessWidget {
                 child: Text(
                   value == null ? allLabel : '$value',
                   style: TextStyle(
-                    color: selected ? colors.cardText : colors.textSecondary,
+                    color: selected ? colors.onPrimary : colors.textSecondary,
                     fontSize: 14,
                     fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
                   ),

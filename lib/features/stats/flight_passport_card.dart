@@ -67,45 +67,32 @@ class _FlightPassportCardState extends State<FlightPassportCard> {
     final hint = context.strings.isZh
         ? '长按保存或分享'
         : 'Long press to save or share';
-    return Column(
-      children: [
-        Semantics(
-          button: true,
-          label: hint,
-          child: GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onLongPress: _showActions,
-            child: RepaintBoundary(
-              key: _captureKey,
-              child: ClipPath(
-                clipper: ShapeBorderClipper(shape: AppShapes.large),
-                child: _PassportArtwork(
-                  year: widget.year,
-                  yearLabel: widget.yearLabel,
-                  travellerName: widget.travellerName,
-                  distanceKm: widget.distanceKm,
-                  flightTimeMinutes: widget.flightTimeMinutes,
-                  flightCount: widget.flightCount,
-                  airportCount: widget.airportCount,
-                  routeCount: widget.routeCount,
-                  countryCodes: widget.countryCodes,
-                  airports: widget.airports,
-                  routes: widget.routes,
-                ),
-              ),
+    return Semantics(
+      button: true,
+      label: hint,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onLongPress: _showActions,
+        child: RepaintBoundary(
+          key: _captureKey,
+          child: ClipPath(
+            clipper: ShapeBorderClipper(shape: AppShapes.large),
+            child: _PassportArtwork(
+              year: widget.year,
+              yearLabel: widget.yearLabel,
+              travellerName: widget.travellerName,
+              distanceKm: widget.distanceKm,
+              flightCount: widget.flightCount,
+              flightTimeMinutes: widget.flightTimeMinutes,
+              airportCount: widget.airportCount,
+              routeCount: widget.routeCount,
+              countryCodes: widget.countryCodes,
+              airports: widget.airports,
+              routes: widget.routes,
             ),
           ),
         ),
-        const SizedBox(height: 8),
-        Text(
-          hint,
-          style: AppTextStyles.label.copyWith(
-            fontSize: 12,
-            fontWeight: FontWeight.w400,
-            color: AppColors.textTertiary,
-          ),
-        ),
-      ],
+      ),
     );
   }
 
@@ -267,85 +254,93 @@ class _PassportArtwork extends StatelessWidget {
   final List<MapRoute> routes;
 
   @override
-  Widget build(BuildContext context) => LayoutBuilder(
-    builder: (context, constraints) {
-      final width = constraints.maxWidth.isFinite
-          ? constraints.maxWidth
-          : 320.0;
-      final horizontal = (width * .06).clamp(18.0, 26.0).toDouble();
-      final routeViewport = RouteViewportPolicy.fromRoutes(routes);
-      return AspectRatio(
-        aspectRatio: 3 / 4,
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            const ColoredBox(color: Color(0xff060b11)),
-            Positioned.fill(
-              child: IgnorePointer(
-                child: ClipRect(
-                  child: AnimatedRotation(
-                    turns: routeViewport.angle / (2 * math.pi),
-                    duration: const Duration(milliseconds: 420),
-                    curve: Curves.easeOutCubic,
-                    child: OfflineMap(
-                      mode: MapMode.flight,
-                      airports: airports,
-                      routes: routes,
-                      enableInteraction: false,
-                      fitToData: routeViewport.fitToData,
-                      showGrid: false,
-                      minimalWorldStyle: false,
-                      transparentBackground: true,
-                      bottomFade: routeViewport.usesWorldView,
-                      excludePolarShelf: true,
-                      animateRouteReveal: true,
-                      showPassportTexture: false,
-                      compactWorldViewport: true,
-                      useLightPalette: false,
-                      horizontalPadding: 0,
-                      verticalPadding: 0,
-                      // Keep route endpoints in the upper artwork area; the
-                      // lower area is reserved for the distance and metrics.
-                      fitDataHeightFactor: .5,
-                      fitDataCenterY: routeViewport.usesWorldView ? .31 : .34,
-                      fitZoomMultiplier: routeViewport.fitZoomMultiplier,
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth.isFinite
+            ? constraints.maxWidth
+            : 320.0;
+        final horizontal = (width * .06).clamp(18.0, 26.0).toDouble();
+        final routeViewport = RouteViewportPolicy.fromRoutes(routes);
+        return AspectRatio(
+          aspectRatio: 3 / 4,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              ColoredBox(color: colors.surface),
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: ClipRect(
+                    child: AnimatedRotation(
+                      turns: routeViewport.angle / (2 * math.pi),
+                      duration: const Duration(milliseconds: 420),
+                      curve: Curves.easeOutCubic,
+                      child: OfflineMap(
+                        mode: MapMode.flight,
+                        airports: airports,
+                        routes: routes,
+                        enableInteraction: false,
+                        fitToData: routeViewport.fitToData,
+                        showGrid: false,
+                        // Reuse the home map's land colors and boundaries;
+                        // retain the card-only framing and transparent canvas.
+                        transparentBackground: true,
+                        bottomFade: routeViewport.usesWorldView,
+                        excludePolarShelf: true,
+                        animateRouteReveal: true,
+                        compactWorldViewport: true,
+                        // Passport artwork follows the active global theme;
+                        // light mode gets the same Ice White map treatment as
+                        // the dashboard instead of a detached dark rectangle.
+                        useLightPalette: null,
+                        horizontalPadding: 0,
+                        verticalPadding: 0,
+                        // Keep route endpoints in the upper artwork area; the
+                        // lower area is reserved for the distance and metrics.
+                        fitDataHeightFactor: .5,
+                        fitDataCenterY: routeViewport.usesWorldView ? .31 : .34,
+                        fitZoomMultiplier: routeViewport.fitZoomMultiplier,
+                      ),
                     ),
                   ),
                 ),
               ),
-            ),
-            _PassportDataFadeOverlay(isWorldView: routeViewport.usesWorldView),
-            Padding(
-              padding: EdgeInsets.fromLTRB(horizontal, 16, horizontal, 24),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Align(
-                    alignment: Alignment.topLeft,
-                    child: _PassportHeader(
-                      yearLabel: yearLabel ?? '$year',
-                      travellerName: travellerName,
-                    ),
-                  ),
-                  const Spacer(),
-                  _PassportMetricRows(
-                    cardWidth: width,
-                    distanceKm: distanceKm,
-                    flightTimeMinutes: flightTimeMinutes,
-                    flightCount: flightCount,
-                    airportCount: airportCount,
-                    routeCount: routeCount,
-                  ),
-                  SizedBox(height: (width * .045).clamp(12.0, 18.0)),
-                  _OverlappingFlags(countryCodes: countryCodes),
-                ],
+              _PassportDataFadeOverlay(
+                isWorldView: routeViewport.usesWorldView,
               ),
-            ),
-          ],
-        ),
-      );
-    },
-  );
+              Padding(
+                padding: EdgeInsets.fromLTRB(horizontal, 16, horizontal, 24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Align(
+                      alignment: Alignment.topLeft,
+                      child: _PassportHeader(
+                        yearLabel: yearLabel ?? '$year',
+                        travellerName: travellerName,
+                      ),
+                    ),
+                    const Spacer(),
+                    _PassportMetricRows(
+                      cardWidth: width,
+                      distanceKm: distanceKm,
+                      flightTimeMinutes: flightTimeMinutes,
+                      flightCount: flightCount,
+                      airportCount: airportCount,
+                      routeCount: routeCount,
+                    ),
+                    SizedBox(height: (width * .045).clamp(12.0, 18.0)),
+                    _OverlappingFlags(countryCodes: countryCodes),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
 }
 
 /// A card-fixed lower fade that restores the quiet depth behind the data
@@ -358,29 +353,56 @@ class _PassportDataFadeOverlay extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final themeColors = context.appColors;
+    final lightTheme = Theme.of(context).brightness == Brightness.light;
     // Match the earlier passport treatment: a restrained top vignette, a
     // clear middle map window, and a longer, denser fade behind the data.
     final stops = isWorldView
-        ? const [0.0, .45, .58, .7, .84, 1.0]
+        ? const [0.0, .40, .46, .52, .62, .74, 1.0]
+        : lightTheme
+        ? const [0.0, .12, .36, .5, .64, .78, .9, .96, 1.0]
         : const [0.0, .12, .36, .5, .64, .78, .92, 1.0];
-    final colors = isWorldView
-        ? const [
-            Color(0x00060b11),
-            Color(0x00060b11),
-            Color(0x12060b11),
-            Color(0x40060b11),
-            Color(0xb0060b11),
-            Color(0xff060b11),
+    final colors = lightTheme
+        ? isWorldView
+              ? [
+                  themeColors.surface.withValues(alpha: 0),
+                  themeColors.surface.withValues(alpha: 0),
+                  themeColors.surface.withValues(alpha: .04),
+                  themeColors.surface.withValues(alpha: .28),
+                  themeColors.surface.withValues(alpha: .84),
+                  themeColors.surface.withValues(alpha: .98),
+                  themeColors.surface,
+                ]
+              : [
+                  themeColors.surface.withValues(alpha: .72),
+                  themeColors.surface.withValues(alpha: .20),
+                  themeColors.surface.withValues(alpha: 0),
+                  themeColors.surface.withValues(alpha: .05),
+                  themeColors.surface.withValues(alpha: .24),
+                  themeColors.surface.withValues(alpha: .40),
+                  themeColors.surface.withValues(alpha: .78),
+                  themeColors.surface.withValues(alpha: .96),
+                  themeColors.surface,
+                ]
+        : isWorldView
+        ? [
+            themeColors.surface.withValues(alpha: 0),
+            themeColors.surface.withValues(alpha: 0),
+            themeColors.surface.withValues(alpha: .04),
+            themeColors.surface.withValues(alpha: .28),
+            themeColors.surface.withValues(alpha: .84),
+            themeColors.surface.withValues(alpha: .98),
+            themeColors.surface,
           ]
-        : const [
-            Color(0xb8060b11),
-            Color(0x16060b11),
-            Color(0x00060b11),
-            Color(0x08060b11),
-            Color(0x40060b11),
-            Color(0x9a060b11),
-            Color(0xfc060b11),
-            Color(0xff060b11),
+        : [
+            themeColors.surface.withValues(alpha: .72),
+            themeColors.surface.withValues(alpha: .10),
+            themeColors.surface.withValues(alpha: 0),
+            themeColors.surface.withValues(alpha: .06),
+            themeColors.surface.withValues(alpha: .32),
+            themeColors.surface.withValues(alpha: .72),
+            themeColors.surface.withValues(alpha: .96),
+            themeColors.surface,
           ];
     return Positioned.fill(
       child: IgnorePointer(
@@ -407,6 +429,7 @@ class _PassportHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.appColors;
     final name = travellerName.trim().isEmpty
         ? 'TRAVELER'
         : travellerName.trim();
@@ -419,8 +442,8 @@ class _PassportHeader extends StatelessWidget {
             '$yearLabel FLIGHT RECORD CARD',
             maxLines: 1,
             textAlign: TextAlign.left,
-            style: const TextStyle(
-              color: AppColors.textSecondary,
+            style: TextStyle(
+              color: colors.textSecondary,
               fontSize: 8.5,
               fontWeight: FontWeight.w500,
               letterSpacing: 1.05,
@@ -432,8 +455,8 @@ class _PassportHeader extends StatelessWidget {
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             textAlign: TextAlign.left,
-            style: const TextStyle(
-              color: AppColors.lime,
+            style: TextStyle(
+              color: colors.lime,
               fontSize: 18,
               height: 1,
               fontWeight: FontWeight.w600,
@@ -464,90 +487,96 @@ class _PassportMetricRows extends StatelessWidget {
   final int routeCount;
 
   @override
-  Widget build(BuildContext context) => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      const Text(
-        'FLIGHT DISTANCE',
-        style: TextStyle(
-          color: AppColors.textSecondary,
-          fontSize: 9,
-          fontWeight: FontWeight.w500,
-          letterSpacing: 1.15,
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    final isLight = Theme.of(context).brightness == Brightness.light;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'FLIGHT DISTANCE',
+          style: TextStyle(
+            color: colors.textSecondary,
+            fontSize: 9,
+            fontWeight: FontWeight.w500,
+            letterSpacing: 1.15,
+          ),
         ),
-      ),
-      const SizedBox(height: 3),
-      SizedBox(
-        height: (cardWidth * .14).clamp(42.0, 58.0),
-        child: FittedBox(
-          fit: BoxFit.scaleDown,
-          alignment: Alignment.centerLeft,
-          child: Text.rich(
-            TextSpan(
-              children: [
-                TextSpan(text: _number(distanceKm.round())),
-                const TextSpan(
-                  text: '  KM',
-                  style: TextStyle(
-                    color: AppColors.textPrimary,
-                    fontSize: 17,
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: 0,
+        const SizedBox(height: 3),
+        SizedBox(
+          height: (cardWidth * .14).clamp(42.0, 58.0),
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text.rich(
+              TextSpan(
+                children: [
+                  TextSpan(text: _number(distanceKm.round())),
+                  TextSpan(
+                    text: '  KM',
+                    style: TextStyle(
+                      color: isLight
+                          ? AppColors.routePurpleDeep
+                          : colors.purple,
+                      fontSize: 17,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 0,
+                    ),
                   ),
-                ),
-              ],
-            ),
-            maxLines: 1,
-            style: TextStyle(
-              color: AppColors.lime,
-              fontSize: (cardWidth * .145).clamp(44.0, 60.0),
-              height: .95,
-              fontWeight: FontWeight.w700,
-              letterSpacing: -1.8,
-              fontFeatures: const [ui.FontFeature.tabularFigures()],
+                ],
+              ),
+              maxLines: 1,
+              style: TextStyle(
+                color: colors.lime,
+                fontSize: (cardWidth * .145).clamp(44.0, 60.0),
+                height: .95,
+                fontWeight: FontWeight.w700,
+                letterSpacing: -1.8,
+                fontFeatures: const [ui.FontFeature.tabularFigures()],
+              ),
             ),
           ),
         ),
-      ),
-      SizedBox(height: (cardWidth * .045).clamp(12.0, 18.0)),
-      Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            child: _CompactPassportMetric(
-              label: 'FLIGHT TIME',
-              value: _number(_hours(flightTimeMinutes)),
-              unit: 'h',
+        SizedBox(height: (cardWidth * .045).clamp(12.0, 18.0)),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: _CompactPassportMetric(
+                label: 'FLIGHT TIME',
+                value: _number(_hours(flightTimeMinutes)),
+                unit: 'h',
+              ),
             ),
-          ),
-          Expanded(
-            child: _CompactPassportMetric(
-              label: 'FLIGHTS',
-              value: _number(flightCount),
-              alignment: CrossAxisAlignment.center,
-              textAlign: TextAlign.center,
+            Expanded(
+              child: _CompactPassportMetric(
+                label: 'FLIGHTS',
+                value: _number(flightCount),
+                alignment: CrossAxisAlignment.center,
+                textAlign: TextAlign.center,
+              ),
             ),
-          ),
-          Expanded(
-            child: _CompactPassportMetric(
-              label: 'AIRPORTS',
-              value: _number(airportCount),
-              alignment: CrossAxisAlignment.center,
-              textAlign: TextAlign.center,
+            Expanded(
+              child: _CompactPassportMetric(
+                label: 'AIRPORTS',
+                value: _number(airportCount),
+                alignment: CrossAxisAlignment.center,
+                textAlign: TextAlign.center,
+              ),
             ),
-          ),
-          Expanded(
-            child: _CompactPassportMetric(
-              label: 'ROUTES',
-              value: _number(routeCount),
-              alignment: CrossAxisAlignment.end,
-              textAlign: TextAlign.right,
+            Expanded(
+              child: _CompactPassportMetric(
+                label: 'ROUTES',
+                value: _number(routeCount),
+                alignment: CrossAxisAlignment.end,
+                textAlign: TextAlign.right,
+              ),
             ),
-          ),
-        ],
-      ),
-    ],
-  );
+          ],
+        ),
+      ],
+    );
+  }
 
   static int _hours(int minutes) => minutes <= 0 ? 0 : (minutes / 60).round();
 
@@ -573,55 +602,62 @@ class _CompactPassportMetric extends StatelessWidget {
   final TextAlign textAlign;
 
   @override
-  Widget build(BuildContext context) => Column(
-    crossAxisAlignment: alignment,
-    children: [
-      Text(
-        label,
-        textAlign: textAlign,
-        maxLines: 1,
-        overflow: TextOverflow.fade,
-        softWrap: false,
-        style: const TextStyle(
-          color: AppColors.textSecondary,
-          fontSize: 7.2,
-          fontWeight: FontWeight.w500,
-          letterSpacing: .65,
-        ),
-      ),
-      const SizedBox(height: 4),
-      Row(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.baseline,
-        textBaseline: TextBaseline.alphabetic,
-        children: [
-          Text(
-            value,
-            textAlign: textAlign,
-            style: const TextStyle(
-              color: AppColors.lime,
-              fontSize: 20,
-              height: .98,
-              fontWeight: FontWeight.w600,
-              letterSpacing: -.55,
-              fontFeatures: [ui.FontFeature.tabularFigures()],
-            ),
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    final lightTheme = Theme.of(context).brightness == Brightness.light;
+    final unitColor = unit == 'h'
+        ? (lightTheme ? AppColors.routePurpleDeep : colors.purple)
+        : colors.textPrimary;
+    return Column(
+      crossAxisAlignment: alignment,
+      children: [
+        Text(
+          label,
+          textAlign: textAlign,
+          maxLines: 1,
+          overflow: TextOverflow.fade,
+          softWrap: false,
+          style: TextStyle(
+            color: colors.textSecondary,
+            fontSize: 7.2,
+            fontWeight: FontWeight.w500,
+            letterSpacing: .65,
           ),
-          if (unit != null) ...[
-            const SizedBox(width: 4),
+        ),
+        const SizedBox(height: 4),
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.baseline,
+          textBaseline: TextBaseline.alphabetic,
+          children: [
             Text(
-              unit!,
-              style: const TextStyle(
-                color: AppColors.textPrimary,
-                fontSize: 10,
+              value,
+              textAlign: textAlign,
+              style: TextStyle(
+                color: colors.lime,
+                fontSize: 20,
+                height: .98,
                 fontWeight: FontWeight.w600,
+                letterSpacing: -.55,
+                fontFeatures: [ui.FontFeature.tabularFigures()],
               ),
             ),
+            if (unit != null) ...[
+              const SizedBox(width: 4),
+              Text(
+                unit!,
+                style: TextStyle(
+                  color: unitColor,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
           ],
-        ],
-      ),
-    ],
-  );
+        ),
+      ],
+    );
+  }
 }
 
 class _OverlappingFlags extends StatelessWidget {
@@ -688,6 +724,7 @@ class _FlagCircle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.appColors;
     if (!compact && code != null) {
       return CountryFlag(code: code!, size: 28);
     }
@@ -696,9 +733,9 @@ class _FlagCircle extends StatelessWidget {
       height: 28,
       clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
-        color: compact ? AppColors.surfaceElevated : Colors.white,
+        color: compact ? colors.surfaceDeep : Colors.white,
         shape: BoxShape.circle,
-        border: Border.all(color: AppColors.textSecondary, width: .8),
+        border: Border.all(color: colors.border, width: .8),
       ),
       alignment: Alignment.center,
       child: compact
@@ -706,17 +743,13 @@ class _FlagCircle extends StatelessWidget {
               flag!,
               maxLines: 1,
               textAlign: TextAlign.center,
-              style: const TextStyle(
-                color: AppColors.textPrimary,
+              style: TextStyle(
+                color: colors.textPrimary,
                 fontSize: 9,
                 fontWeight: FontWeight.w700,
               ),
             )
-          : const Icon(
-              Icons.public_rounded,
-              size: 18,
-              color: AppColors.textSecondary,
-            ),
+          : Icon(Icons.public_rounded, size: 18, color: colors.textSecondary),
     );
   }
 }

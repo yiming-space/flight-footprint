@@ -34,7 +34,6 @@ class OfflineMap extends StatefulWidget {
     this.horizontalPadding = 16,
     this.verticalPadding = 14,
     this.showGrid = true,
-    this.minimalWorldStyle = false,
     this.transparentBackground = false,
     this.bottomFade = false,
     this.excludePolarShelf = false,
@@ -42,10 +41,12 @@ class OfflineMap extends StatefulWidget {
     this.routeRevealProgress = 1,
     this.routeAnimationProgress,
     this.showRouteAnimationPlane = false,
-    this.showPassportTexture = false,
     this.enableInteraction = false,
     this.horizontalWrap = false,
     this.useLightPalette,
+    this.userLocation,
+    this.focusCoordinate,
+    this.focusSignal = 0,
     this.onMapTap,
     this.onSelection,
     this.onInteractionChanged,
@@ -116,10 +117,6 @@ class OfflineMap extends StatefulWidget {
   /// cleaner passport-like composition.
   final bool showGrid;
 
-  /// Paint a single clean world silhouette without country, province, or
-  /// maritime boundaries. This is used by the share card's editorial map.
-  final bool minimalWorldStyle;
-
   /// Leaves the map canvas transparent so a surrounding composition can own
   /// its background and fade. Dashboard maps keep the opaque panel by default;
   /// passport cards opt in to prevent the translated map canvas from exposing
@@ -152,11 +149,6 @@ class OfflineMap extends StatefulWidget {
   /// Shows a small moving aircraft at the head of the active route.
   final bool showRouteAnimationPlane;
 
-  /// Adds the static engraved texture used by the shareable passport card.
-  /// It is opt-in so dashboard and fullscreen maps keep their existing clean
-  /// rendering path.
-  final bool showPassportTexture;
-
   /// Embedded maps remain a quiet preview so vertical page scrolling is not
   /// hijacked by a map gesture. The dedicated full-screen map opts in.
   final bool enableInteraction;
@@ -169,6 +161,15 @@ class OfflineMap extends StatefulWidget {
   /// Lets dashboard maps inherit the active app theme while allowing the
   /// shareable passport artwork to explicitly keep its dark palette.
   final bool? useLightPalette;
+
+  /// Optional one-shot device position. It is rendered as a separate blue
+  /// marker and never participates in flight or footprint data.
+  final MapCoordinate? userLocation;
+
+  /// When this signal changes, the map recentres on [focusCoordinate]. A
+  /// separate signal lets the user tap Locate repeatedly at the same position.
+  final MapCoordinate? focusCoordinate;
+  final int focusSignal;
   final ValueChanged<MapCoordinate>? onMapTap;
   final ValueChanged<MapSelection>? onSelection;
   final ValueChanged<bool>? onInteractionChanged;
@@ -485,6 +486,7 @@ class _MapFullscreenPageState extends State<MapFullscreenPage>
   Widget build(BuildContext context) {
     final strings = context.strings;
     final colors = context.appColors;
+    final lightTheme = Theme.of(context).brightness == Brightness.light;
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle(
         // The bars are hidden by immersiveSticky. Transparent colors are also
@@ -493,8 +495,12 @@ class _MapFullscreenPageState extends State<MapFullscreenPage>
         // black strip over the map.
         statusBarColor: Colors.transparent,
         systemNavigationBarColor: Colors.transparent,
-        statusBarIconBrightness: Brightness.light,
-        systemNavigationBarIconBrightness: Brightness.light,
+        statusBarIconBrightness: lightTheme
+            ? Brightness.dark
+            : Brightness.light,
+        systemNavigationBarIconBrightness: lightTheme
+            ? Brightness.dark
+            : Brightness.light,
         systemNavigationBarDividerColor: Colors.transparent,
         systemNavigationBarContrastEnforced: false,
       ),
@@ -507,52 +513,76 @@ class _MapFullscreenPageState extends State<MapFullscreenPage>
             RepaintBoundary(
               child: AnimatedBuilder(
                 animation: _routeController,
-                builder: (context, _) => _globeMode
-                    ? GlobeMap(
-                        resetSignal: _viewReset,
-                        mode: widget.mode,
-                        // Travel footprint globe shows visited places only;
-                        // flight arcs belong exclusively to flight mode.
-                        routes: widget.mode == MapMode.flight
-                            ? _animationRoutes
-                            : const [],
-                        airports: widget.airports,
-                        places: _places,
-                        routeAnimationProgress: _routeController.value,
-                        showRouteAnimationPlane: _routeAnimationStarted,
-                        onInteractionChanged: _handleMapInteraction,
-                        onSelection: widget.onSelection == null
-                            ? null
-                            : (selection) =>
-                                  widget.onSelection!(context, selection),
-                      )
-                    : OfflineMap(
-                        key: ValueKey('flat-$_viewReset'),
-                        mode: widget.mode,
-                        airports: widget.airports,
-                        routes: _animationRoutes,
-                        places: _places,
-                        // Center the first frame on the recorded routes or cities.
-                        // The complete-world vertical extent remains the minimum
-                        // zoom, so the user can always pinch back out to the whole
-                        // map without losing the fullscreen boundary behavior.
-                        fitToData: true,
-                        fillViewportHeight: true,
-                        fitZoomMultiplier: 1,
-                        enableInteraction: true,
-                        horizontalWrap: true,
-                        routeAnimationProgress: _routeController.value,
-                        showRouteAnimationPlane: _routeAnimationStarted,
-                        onInteractionChanged: _handleMapInteraction,
-                        // The map is a visual data surface, so keep its established
-                        // dark cartographic palette independent of page brightness.
-                        useLightPalette: false,
-                        onPlaceLongPress: widget.onPlaceLongPress,
-                        onSelection: widget.onSelection == null
-                            ? null
-                            : (selection) =>
-                                  widget.onSelection!(context, selection),
+                builder: (context, _) => Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    Offstage(
+                      offstage: _globeMode,
+                      child: TickerMode(
+                        enabled: !_globeMode,
+                        child: IgnorePointer(
+                          ignoring: _globeMode,
+                          child: OfflineMap(
+                            key: ValueKey('flat-$_viewReset'),
+                            mode: widget.mode,
+                            airports: widget.airports,
+                            routes: _animationRoutes,
+                            places: _places,
+                            // Center the first frame on the recorded routes or
+                            // cities. The complete-world vertical extent
+                            // remains the minimum zoom, so the user can always
+                            // pinch back out to the whole map.
+                            fitToData: true,
+                            fillViewportHeight: true,
+                            fitZoomMultiplier: 1,
+                            enableInteraction: true,
+                            horizontalWrap: true,
+                            routeAnimationProgress: _routeController.value,
+                            showRouteAnimationPlane: _routeAnimationStarted,
+                            onInteractionChanged: _handleMapInteraction,
+                            // Fullscreen flat maps follow the selected app
+                            // theme; the light palette keeps the map readable
+                            // without losing the existing interactions.
+                            useLightPalette: null,
+                            onPlaceLongPress: widget.onPlaceLongPress,
+                            onSelection: widget.onSelection == null
+                                ? null
+                                : (selection) =>
+                                      widget.onSelection!(context, selection),
+                          ),
+                        ),
                       ),
+                    ),
+                    Offstage(
+                      offstage: !_globeMode,
+                      child: TickerMode(
+                        enabled: _globeMode,
+                        child: IgnorePointer(
+                          ignoring: !_globeMode,
+                          child: GlobeMap(
+                            active: _globeMode,
+                            resetSignal: _viewReset,
+                            mode: widget.mode,
+                            // Travel footprint globe shows visited places only;
+                            // flight arcs belong exclusively to flight mode.
+                            routes: widget.mode == MapMode.flight
+                                ? _animationRoutes
+                                : const [],
+                            airports: widget.airports,
+                            places: _places,
+                            routeAnimationProgress: _routeController.value,
+                            showRouteAnimationPlane: _routeAnimationStarted,
+                            onInteractionChanged: _handleMapInteraction,
+                            onSelection: widget.onSelection == null
+                                ? null
+                                : (selection) =>
+                                      widget.onSelection!(context, selection),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
             Positioned(
@@ -632,6 +662,8 @@ class _OfflineMapState extends State<OfflineMap> with TickerProviderStateMixin {
   AnimationController? _routeRevealAnimation;
   CurvedAnimation? _routeRevealCurve;
   Matrix4Tween? _fitTween;
+  Matrix4? _pendingFitMatrix;
+  int _pendingFitToken = 0;
   int _fitRevision = 0;
   int _scheduledFitRevision = -1;
   bool _showLabels = false;
@@ -653,6 +685,12 @@ class _OfflineMapState extends State<OfflineMap> with TickerProviderStateMixin {
   bool _fitAnimationActive = false;
   double _routeRevealProgress = 1;
   int _routeRevealGeneration = 0;
+  Timer? _mapLongPressTimer;
+  Offset? _mapPointerDownPosition;
+  Matrix4? _mapPointerDownTransform;
+  bool _mapPointerMoved = false;
+  bool _mapLongPressTriggered = false;
+  int _mapPointerCount = 0;
 
   @override
   void initState() {
@@ -701,6 +739,7 @@ class _OfflineMapState extends State<OfflineMap> with TickerProviderStateMixin {
 
   @override
   void dispose() {
+    _mapLongPressTimer?.cancel();
     _fitCurve?.dispose();
     _fitAnimation
       ?..removeListener(_applyFitAnimation)
@@ -721,12 +760,19 @@ class _OfflineMapState extends State<OfflineMap> with TickerProviderStateMixin {
 
   void _onTransformChanged() {
     if (!mounted) return;
-    if (widget.horizontalWrap && !_normalizingHorizontalPan) {
+    // Do not rewrite the controller while InteractiveViewer is processing a
+    // gesture.  Assigning a second matrix from this listener races its
+    // focal-point bookkeeping and can make a one-finger drag appear stuck.
+    // The repeated world copies already cover the viewport during the active
+    // gesture; normalize only after the gesture/inertia has settled.
+    if (widget.horizontalWrap &&
+        !_normalizingHorizontalPan &&
+        !_interactionActive) {
       _normalizeHorizontalPan(_lastMapSize);
     }
     final scale = _transform.value
         .getMaxScaleOnAxis()
-        .clamp(_minScale, 30.0)
+        .clamp(_minScale, 20.0)
         .toDouble();
     if (_interactionActive) {
       _sceneScale = scale;
@@ -759,7 +805,7 @@ class _OfflineMapState extends State<OfflineMap> with TickerProviderStateMixin {
     if (!mounted) return;
     final scale = _transform.value
         .getMaxScaleOnAxis()
-        .clamp(_minScale, 30.0)
+        .clamp(_minScale, 20.0)
         .toDouble();
     _sceneScale = scale;
     final notifier = _sceneScaleListenable;
@@ -794,6 +840,126 @@ class _OfflineMapState extends State<OfflineMap> with TickerProviderStateMixin {
     });
   }
 
+  void _commitPendingFit() {
+    final pending = _pendingFitMatrix;
+    if (pending == null) return;
+    _pendingFitMatrix = null;
+    _pendingFitToken++;
+    _fitAnimation?.stop();
+    _fitAnimationActive = false;
+    _hasPresentedFit = true;
+    _transform.value = Matrix4.copy(pending);
+  }
+
+  void _handleMapPointerDown(PointerDownEvent event, Size mapSize) {
+    // A mode switch can schedule the new fit for the next frame. Commit that
+    // target before taking the gesture snapshot so the first tap/drag cannot
+    // start from the previous mode's camera.
+    _commitPendingFit();
+    _mapPointerCount++;
+    // A second pointer means this is a pinch/scale gesture. Never let the
+    // single-pointer long-press timer compete with InteractiveViewer.
+    if (_mapPointerCount != 1) {
+      _mapLongPressTimer?.cancel();
+      _mapPointerMoved = true;
+      return;
+    }
+
+    _mapPointerDownPosition = event.localPosition;
+    // InteractiveViewer also listens to this pointer for pan/scale. Keep a
+    // snapshot so a stationary tap cannot leave behind a tiny translation
+    // caused by normal finger jitter.
+    _mapPointerDownTransform = Matrix4.copy(_transform.value);
+    _mapPointerMoved = false;
+    _mapLongPressTriggered = false;
+    _mapLongPressTimer?.cancel();
+    if (widget.mode == MapMode.travelFootprint &&
+        widget.onPlaceLongPress != null) {
+      _mapLongPressTimer = Timer(const Duration(milliseconds: 500), () {
+        if (!mounted ||
+            _mapPointerCount != 1 ||
+            _mapPointerMoved ||
+            _mapPointerDownPosition == null) {
+          return;
+        }
+        _mapLongPressTriggered = true;
+        unawaited(
+          _handlePlaceLongPressAt(
+            _mapScenePosition(_mapPointerDownPosition!),
+            mapSize,
+          ),
+        );
+      });
+    }
+  }
+
+  void _handleMapPointerMove(PointerMoveEvent event) {
+    if (_mapPointerDownPosition == null || _mapPointerMoved) return;
+    if ((event.localPosition - _mapPointerDownPosition!).distance > 12) {
+      _mapPointerMoved = true;
+      _mapLongPressTimer?.cancel();
+    }
+  }
+
+  void _restoreTapTransform(Matrix4 transform) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _mapPointerCount != 0) return;
+      _transform.value = Matrix4.copy(transform);
+    });
+  }
+
+  void _handleMapPointerUp(PointerUpEvent event, Size mapSize) {
+    final shouldTap =
+        _mapPointerCount == 1 &&
+        !_mapPointerMoved &&
+        !_mapLongPressTriggered &&
+        _mapPointerDownPosition != null;
+    if (_mapPointerCount > 0) _mapPointerCount--;
+    if (_mapPointerCount == 0) {
+      final tapTransform = !_mapPointerMoved ? _mapPointerDownTransform : null;
+      _mapLongPressTimer?.cancel();
+      _mapPointerDownPosition = null;
+      _mapPointerDownTransform = null;
+      _mapPointerMoved = false;
+      _mapLongPressTriggered = false;
+      if (tapTransform != null) _restoreTapTransform(tapTransform);
+    }
+    if (shouldTap) {
+      _handleMapTap(_mapScenePosition(event.localPosition), mapSize);
+    }
+  }
+
+  void _handleMapPointerCancel(PointerCancelEvent event) {
+    if (_mapPointerCount > 0) _mapPointerCount--;
+    if (_mapPointerCount != 0) return;
+    _mapLongPressTimer?.cancel();
+    _mapPointerDownPosition = null;
+    _mapPointerDownTransform = null;
+    _mapPointerMoved = false;
+    _mapLongPressTriggered = false;
+  }
+
+  void _handleMapTap(Offset position, Size mapSize) {
+    final selection = _lastPainter?.selectionAt(position, mapSize);
+    if (selection != null && widget.onSelection != null) {
+      widget.onSelection!(selection);
+      return;
+    }
+    setState(() => _showLabels = !_showLabels);
+    widget.onMapTap?.call(
+      MapCoordinate(
+        90 - position.dy / mapSize.height * 180,
+        position.dx / mapSize.width * 360 - 180,
+      ),
+    );
+  }
+
+  /// Pointer observers live in the viewport so they cannot compete with
+  /// InteractiveViewer's scale recognizer. Convert their viewport coordinate
+  /// back into the map scene before running the painter hit tests.
+  Offset _mapScenePosition(Offset viewportPosition) =>
+      _transform.toScene(viewportPosition);
+
   void _presentFit(Matrix4 target, {bool animate = true}) {
     _ensureAnimations();
     if (!_hasPresentedFit ||
@@ -824,19 +990,66 @@ class _OfflineMapState extends State<OfflineMap> with TickerProviderStateMixin {
     fitAnimation.forward(from: 0);
   }
 
+  void _scheduleFocus(MapCoordinate coordinate) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final size = _lastMapSize;
+      if (size == null || size.isEmpty) return;
+      final projection = _projectionFor(size);
+      var projected = projection.toOffset(
+        coordinate.latitude,
+        coordinate.longitude,
+      );
+      // Choose the wrapped copy nearest to the current camera so locating a
+      // point near the date line does not spin the map across the long way.
+      if (widget.horizontalWrap) {
+        final worldWidth = projection.worldPixelWidth;
+        if (worldWidth > 0) {
+          final sceneCenter = _transform.toScene(
+            Offset(size.width / 2, size.height / 2),
+          );
+          final copies = ((projected.dx - sceneCenter.dx) / worldWidth).round();
+          projected = Offset(projected.dx - copies * worldWidth, projected.dy);
+        }
+      }
+      final scale = _transform.value
+          .getMaxScaleOnAxis()
+          .clamp(_minScale, 20.0)
+          .toDouble();
+      final baseX = (1 - scale) * size.width / 2;
+      final baseY = (1 - scale) * size.height / 2;
+      final maxPanX = size.width * (scale - 1) / 2;
+      final maxPanY = size.height * (scale - 1) / 2;
+      final panX = (size.width / 2 - projected.dx * scale - baseX).clamp(
+        -maxPanX,
+        maxPanX,
+      );
+      final panY = (size.height / 2 - projected.dy * scale - baseY).clamp(
+        -maxPanY,
+        maxPanY,
+      );
+      final target = Matrix4.identity()
+        ..translateByDouble(size.width / 2 + panX, size.height / 2 + panY, 0, 1)
+        ..scaleByDouble(scale, scale, 1, 1)
+        ..translateByDouble(-size.width / 2, -size.height / 2, 0, 1);
+      _presentFit(target);
+    });
+  }
+
   @override
   void didUpdateWidget(covariant OfflineMap oldWidget) {
     super.didUpdateWidget(oldWidget);
+    final modeChanged = oldWidget.mode != widget.mode;
     if (oldWidget.assetPath != widget.assetPath ||
         oldWidget.loader != widget.loader) {
       _future = _loadBundle();
       _invalidateFit();
       _hasPresentedFit = false;
     }
-    if (oldWidget.mode != widget.mode ||
-        !identical(oldWidget.fitPoints, widget.fitPoints) ||
-        !identical(oldWidget.airports, widget.airports) ||
-        !identical(oldWidget.places, widget.places) ||
+    final fitInputsChanged =
+        !_sameMapCoordinates(oldWidget.fitPoints, widget.fitPoints) ||
+        !_sameMapAirports(oldWidget.airports, widget.airports) ||
+        !_sameMapPlaces(oldWidget.places, widget.places) ||
         oldWidget.fitZoomMultiplier != widget.fitZoomMultiplier ||
         oldWidget.fitVerticalBias != widget.fitVerticalBias ||
         oldWidget.fitDataHeightFactor != widget.fitDataHeightFactor ||
@@ -847,8 +1060,22 @@ class _OfflineMapState extends State<OfflineMap> with TickerProviderStateMixin {
         oldWidget.compactWorldViewport != widget.compactWorldViewport ||
         oldWidget.horizontalPadding != widget.horizontalPadding ||
         oldWidget.verticalPadding != widget.verticalPadding ||
-        oldWidget.horizontalWrap != widget.horizontalWrap) {
+        oldWidget.horizontalWrap != widget.horizontalWrap;
+    if (fitInputsChanged) {
       _invalidateFit();
+    } else if (modeChanged) {
+      // Flight and footprint layers intentionally share the same fitPoints.
+      // Changing only the layer must preserve the user's current pan/zoom;
+      // stopping a pending presentation here also prevents the mode button
+      // from looking like it moved the map by itself.
+      _fitAnimation?.stop();
+      _fitAnimationActive = false;
+      _pendingFitToken++;
+      _pendingFitMatrix = null;
+    }
+    if (oldWidget.focusSignal != widget.focusSignal &&
+        widget.focusCoordinate != null) {
+      _scheduleFocus(widget.focusCoordinate!);
     }
     final shouldRevealRoutes =
         widget.animateRouteReveal &&
@@ -903,105 +1130,102 @@ class _OfflineMapState extends State<OfflineMap> with TickerProviderStateMixin {
           final mapSize = Size(width, height);
           _lastMapSize = mapSize;
           _scheduleFit(mapSize);
-          Widget map = GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTapUp: (details) {
-              final selection = _lastPainter?.selectionAt(
-                details.localPosition,
-                mapSize,
-              );
-              if (selection != null && widget.onSelection != null) {
-                widget.onSelection!(selection);
-                return;
-              }
-              setState(() => _showLabels = !_showLabels);
-              final point = details.localPosition;
-              widget.onMapTap?.call(
-                MapCoordinate(
-                  90 - point.dy / mapSize.height * 180,
-                  point.dx / mapSize.width * 360 - 180,
-                ),
-              );
-            },
-            onLongPressStart: widget.mode == MapMode.travelFootprint
-                ? (details) {
-                    unawaited(_handlePlaceLongPress(details, mapSize));
-                  }
-                : null,
-            child: ValueListenableBuilder<double>(
-              valueListenable: _sceneScaleListenable,
-              builder: (context, sceneScale, _) => RepaintBoundary(
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    RepaintBoundary(
-                      child: CustomPaint(
-                        size: mapSize,
-                        isComplex: true,
-                        painter: _mapPainter(
-                          data,
-                          sceneScale,
-                          layer: FlatMapPaintLayer.base,
-                        ),
+          // Keep the pointer observer outside the transformed scene.  A
+          // Listener nested inside InteractiveViewer receives coordinates in
+          // the transformed child space and can participate in the same hit
+          // test as the scale recognizer; observing the viewport instead
+          // leaves InteractiveViewer's one-/two-finger arena untouched while
+          // still allowing us to provide map taps and long presses manually.
+          Widget map = ValueListenableBuilder<double>(
+            valueListenable: _sceneScaleListenable,
+            builder: (context, sceneScale, _) => RepaintBoundary(
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  RepaintBoundary(
+                    child: CustomPaint(
+                      size: mapSize,
+                      isComplex: true,
+                      painter: _mapPainter(
+                        data,
+                        sceneScale,
+                        layer: FlatMapPaintLayer.base,
                       ),
                     ),
-                    RepaintBoundary(
-                      child: CustomPaint(
-                        size: mapSize,
-                        isComplex: true,
-                        willChange:
-                            widget.showRouteAnimationPlane &&
-                            (widget.routeAnimationProgress ?? 1) < .999,
-                        painter: _lastPainter = _mapPainter(
-                          data,
-                          sceneScale,
-                          layer: FlatMapPaintLayer.overlay,
-                        ),
+                  ),
+                  RepaintBoundary(
+                    child: CustomPaint(
+                      size: mapSize,
+                      isComplex: true,
+                      willChange:
+                          widget.showRouteAnimationPlane &&
+                          (widget.routeAnimationProgress ?? 1) < .999,
+                      painter: _lastPainter = _mapPainter(
+                        data,
+                        sceneScale,
+                        layer: FlatMapPaintLayer.overlay,
                       ),
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
             ),
           );
           if (!widget.enableInteraction) {
             // Keep the calculated data-centred fit in the embedded preview,
             // but leave drag/pinch gestures to the surrounding page.
-            return AnimatedBuilder(
-              animation: _transform,
-              child: RepaintBoundary(child: map),
-              builder: (context, child) => Transform(
-                alignment: Alignment.topLeft,
-                transform: _transform.value,
-                child: child,
+            return Listener(
+              behavior: HitTestBehavior.opaque,
+              onPointerDown: (event) => _handleMapPointerDown(event, mapSize),
+              onPointerMove: _handleMapPointerMove,
+              onPointerUp: (event) => _handleMapPointerUp(event, mapSize),
+              onPointerCancel: _handleMapPointerCancel,
+              child: AnimatedBuilder(
+                animation: _transform,
+                child: RepaintBoundary(child: map),
+                builder: (context, child) => Transform(
+                  alignment: Alignment.topLeft,
+                  transform: _transform.value,
+                  child: child,
+                ),
               ),
             );
           }
-          return InteractiveViewer(
-            transformationController: _transform,
-            panEnabled: true,
-            scaleEnabled: true,
-            // The complete-map vertical fill scale is the floor. Users can
-            // explore closer, but a pinch-out can never shrink the world map
-            // below the viewport-filling baseline (recomputed on rotation).
-            minScale: _minScale,
-            maxScale: 30,
-            boundaryMargin: _boundaryMargin(mapSize),
-            onInteractionStart: (_) {
-              _interactionActive = true;
-              widget.onInteractionChanged?.call(true);
-              if (_fitAnimation?.isAnimating ?? false) {
-                _fitAnimation?.stop();
-                _fitAnimationActive = false;
+          return Listener(
+            behavior: HitTestBehavior.opaque,
+            onPointerDown: (event) => _handleMapPointerDown(event, mapSize),
+            onPointerMove: _handleMapPointerMove,
+            onPointerUp: (event) => _handleMapPointerUp(event, mapSize),
+            onPointerCancel: _handleMapPointerCancel,
+            child: InteractiveViewer(
+              transformationController: _transform,
+              panEnabled: true,
+              scaleEnabled: true,
+              // The complete-map vertical fill scale is the floor. Users can
+              // explore closer, but a pinch-out can never shrink the world map
+              // below the viewport-filling baseline (recomputed on rotation).
+              minScale: _minScale,
+              maxScale: 20,
+              boundaryMargin: _boundaryMargin(mapSize),
+              onInteractionStart: (_) {
+                _interactionActive = true;
+                widget.onInteractionChanged?.call(true);
+                if (_fitAnimation?.isAnimating ?? false) {
+                  _fitAnimation?.stop();
+                  _fitAnimationActive = false;
+                  _syncSceneScale();
+                }
+              },
+              onInteractionEnd: (_) {
+                _interactionActive = false;
+                if (widget.horizontalWrap) {
+                  _normalizeHorizontalPan(mapSize);
+                }
                 _syncSceneScale();
-              }
-            },
-            onInteractionEnd: (_) {
-              _interactionActive = false;
-              _syncSceneScale();
-              widget.onInteractionChanged?.call(false);
-            },
-            child: map,
+                widget.onInteractionChanged?.call(false);
+              },
+              child: map,
+            ),
           );
         },
       );
@@ -1020,7 +1244,6 @@ class _OfflineMapState extends State<OfflineMap> with TickerProviderStateMixin {
     mode: widget.mode,
     showLabels: _showLabels,
     showGrid: widget.showGrid,
-    minimalWorldStyle: widget.minimalWorldStyle,
     transparentBackground: widget.transparentBackground,
     bottomFade: widget.bottomFade,
     excludePolarShelf: widget.excludePolarShelf,
@@ -1028,7 +1251,6 @@ class _OfflineMapState extends State<OfflineMap> with TickerProviderStateMixin {
         widget.routeAnimationProgress ??
         (widget.animateRouteReveal ? _routeRevealProgress : 1),
     showRouteAnimationPlane: widget.showRouteAnimationPlane,
-    showPassportTexture: widget.showPassportTexture,
     compactWorldViewport: widget.compactWorldViewport,
     lightPalette:
         widget.useLightPalette ??
@@ -1037,15 +1259,13 @@ class _OfflineMapState extends State<OfflineMap> with TickerProviderStateMixin {
     horizontalPadding: widget.horizontalPadding,
     verticalPadding: widget.verticalPadding,
     horizontalWrap: widget.horizontalWrap,
+    userLocation: widget.userLocation,
     paintLayer: layer,
   );
 
-  Future<void> _handlePlaceLongPress(
-    LongPressStartDetails details,
-    Size mapSize,
-  ) async {
+  Future<void> _handlePlaceLongPressAt(Offset position, Size mapSize) async {
     if (widget.onPlaceLongPress == null) return;
-    final candidates = _placeCandidatesAt(details.localPosition, mapSize);
+    final candidates = _placeCandidatesAt(position, mapSize);
     if (candidates.isEmpty) return;
     HapticFeedback.selectionClick();
     if (!mounted) return;
@@ -1111,14 +1331,24 @@ class _OfflineMapState extends State<OfflineMap> with TickerProviderStateMixin {
   }
 
   EdgeInsets _boundaryMargin(Size size) {
-    if (!widget.horizontalWrap) return const EdgeInsets.all(120);
-    // InteractiveViewer's boundary is expressed in scene coordinates. Leave
-    // enough horizontal room for a complete wrapped cycle; the transform
-    // listener recentres the translation periodically so this never becomes
-    // an unbounded pan in practice.
-    final worldWidth = _worldPixelWidth(size);
+    final projection = _projectionFor(size);
+    final worldWidth = projection.worldPixelWidth;
+    final worldHeight = projection.bounds.height * projection.scale;
+    // InteractiveViewer's boundary is expressed in scene coordinates. The
+    // painter's world is centred inside the child canvas, so a portrait canvas
+    // contains empty polar bands above and below the projected world. Negative
+    // margins trim those bands from the interaction boundary; the viewport
+    // can then never be dragged past the actual north/south world edges.
+    final vertical = (worldHeight - size.height) / 2;
+    if (!widget.horizontalWrap) {
+      final horizontal = (worldWidth - size.width) / 2;
+      return EdgeInsets.symmetric(horizontal: horizontal, vertical: vertical);
+    }
+    // Keep enough horizontal room for a complete wrapped cycle. The transform
+    // listener recentres that translation after the gesture, so horizontal
+    // panning remains continuous without weakening the vertical clamp.
     final horizontal = math.max(size.width * 2, worldWidth * 2);
-    return EdgeInsets.symmetric(horizontal: horizontal, vertical: 120);
+    return EdgeInsets.symmetric(horizontal: horizontal, vertical: vertical);
   }
 
   void _normalizeHorizontalPan(Size? size) {
@@ -1146,20 +1376,8 @@ class _OfflineMapState extends State<OfflineMap> with TickerProviderStateMixin {
   void _scheduleFit(Size size) {
     final revision = _fitRevision;
     if (_scheduledFitRevision == revision && _lastFittedMapSize == size) return;
-    final points = !widget.fitToData
-        ? const <MapCoordinate>[]
-        : widget.fitPoints ??
-              (widget.mode == MapMode.flight
-                  ? [
-                      for (final airport in widget.airports)
-                        MapCoordinate(airport.latitude, airport.longitude),
-                    ]
-                  : widget.places
-                        .map(
-                          (place) =>
-                              MapCoordinate(place.latitude, place.longitude),
-                        )
-                        .toList(growable: false));
+    final points = _fitPointsForWidget();
+    final sameFitRevision = _scheduledFitRevision == revision;
     _scheduledFitRevision = revision;
     // Fullscreen maps use the complete world's vertical extent as the floor.
     // This deliberately allows horizontal cropping in portrait orientation:
@@ -1169,9 +1387,19 @@ class _OfflineMapState extends State<OfflineMap> with TickerProviderStateMixin {
     final previousSize = _lastFittedMapSize;
     _lastFittedMapSize = size;
     final viewportChanged = previousSize != null && previousSize != size;
-    final matrix = _fitMatrix(size, points);
+    final preserveCameraOnResize =
+        viewportChanged && sameFitRevision && _hasPresentedFit;
+    final matrix = preserveCameraOnResize
+        ? _resizedCameraMatrix(previousSize!, size)
+        : _fitMatrix(size, points);
+    final fitToken = ++_pendingFitToken;
+    _pendingFitMatrix = Matrix4.copy(matrix);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && _fitRevision == revision && _lastFittedMapSize == size) {
+      if (mounted &&
+          _fitRevision == revision &&
+          _lastFittedMapSize == size &&
+          _pendingFitToken == fitToken) {
+        _pendingFitMatrix = null;
         // During a rotation Android is already animating the window bounds.
         // Do not add a second camera interpolation between portrait and
         // landscape matrices; the old matrix can temporarily leave the map
@@ -1181,10 +1409,52 @@ class _OfflineMapState extends State<OfflineMap> with TickerProviderStateMixin {
     });
   }
 
+  Matrix4 _resizedCameraMatrix(Size previousSize, Size nextSize) {
+    final current = _transform.value;
+    final currentScale = current
+        .getMaxScaleOnAxis()
+        .clamp(1.0, 20.0)
+        .toDouble();
+    final widthRatio = previousSize.width <= 0 || nextSize.width <= 0
+        ? 1.0
+        : previousSize.width / nextSize.width;
+    final scale = (currentScale * widthRatio).clamp(_minScale, 20.0).toDouble();
+    final previousSceneCenter = _transform.toScene(
+      Offset(previousSize.width / 2, previousSize.height / 2),
+    );
+    final sceneCenter = Offset(
+      previousSceneCenter.dx *
+          (previousSize.width <= 0 ? 1 : nextSize.width / previousSize.width),
+      previousSceneCenter.dy *
+          (previousSize.height <= 0
+              ? 1
+              : nextSize.height / previousSize.height),
+    );
+    return Matrix4.identity()
+      ..translateByDouble(nextSize.width / 2, nextSize.height / 2, 0, 1)
+      ..scaleByDouble(scale, scale, 1, 1)
+      ..translateByDouble(-sceneCenter.dx, -sceneCenter.dy, 0, 1);
+  }
+
+  List<MapCoordinate> _fitPointsForWidget() {
+    if (!widget.fitToData) return const <MapCoordinate>[];
+    return widget.fitPoints ??
+        (widget.mode == MapMode.flight
+            ? [
+                for (final airport in widget.airports)
+                  MapCoordinate(airport.latitude, airport.longitude),
+              ]
+            : widget.places
+                  .map(
+                    (place) => MapCoordinate(place.latitude, place.longitude),
+                  )
+                  .toList(growable: false));
+  }
+
   Matrix4 _fitMatrix(Size size, List<MapCoordinate> points) {
     if (points.isEmpty) {
       final initialScale = math.min(
-        30.0,
+        20.0,
         math.max(_minScale, _minScale * widget.fitZoomMultiplier),
       );
       // World-view compositions still have a deliberate content anchor. The
@@ -1206,7 +1476,7 @@ class _OfflineMapState extends State<OfflineMap> with TickerProviderStateMixin {
     final projection = _projectionFor(size);
     final projectionScale = projection.scale;
     final requestedZoom = math.min(
-      30.0,
+      20.0,
       math.max(1.0, widget.fitZoomMultiplier),
     );
     final fitHeightFactor = widget.fitDataHeightFactor
@@ -1297,7 +1567,7 @@ class _OfflineMapState extends State<OfflineMap> with TickerProviderStateMixin {
     final routeWidth = math.max(34, (maxX - minX) * projectionScale);
     final routeHeight = math.max(28, (maxY - minY) * projectionScale);
     final baseZoom = math.min(
-      30.0,
+      20.0,
       math.max(
         _minScale,
         math.min(
@@ -1307,7 +1577,7 @@ class _OfflineMapState extends State<OfflineMap> with TickerProviderStateMixin {
       ),
     );
     final zoom = math.min(
-      30.0,
+      20.0,
       math.max(_minScale, baseZoom * widget.fitZoomMultiplier),
     );
     final maxPanX = (size.width * (zoom - 1)) / 2;
@@ -1361,8 +1631,70 @@ class _OfflineMapState extends State<OfflineMap> with TickerProviderStateMixin {
       ? MillerCylindricalProjection.passportMaxLatitude
       : 90.0;
 
+  // HomePage rebuilds while a gesture starts/ends to update the map controls.
+  // Its derived map lists are recreated on those rebuilds, but their content
+  // is unchanged. Compare the values instead of list identity so a control
+  // repaint cannot schedule a fresh fit and snap an active pinch back out.
+  bool _sameMapCoordinates(
+    List<MapCoordinate>? first,
+    List<MapCoordinate>? second,
+  ) {
+    if (identical(first, second)) return true;
+    if (first == null || second == null || first.length != second.length) {
+      return false;
+    }
+    for (var index = 0; index < first.length; index++) {
+      final a = first[index];
+      final b = second[index];
+      if (a.latitude != b.latitude || a.longitude != b.longitude) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  bool _sameMapAirports(List<MapAirport> first, List<MapAirport> second) {
+    if (identical(first, second)) return true;
+    if (first.length != second.length) return false;
+    for (var index = 0; index < first.length; index++) {
+      final a = first[index];
+      final b = second[index];
+      if (a.code != b.code ||
+          a.name != b.name ||
+          a.latitude != b.latitude ||
+          a.longitude != b.longitude ||
+          a.isPrimary != b.isPrimary) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  bool _sameMapPlaces(List<MapPlace> first, List<MapPlace> second) {
+    if (identical(first, second)) return true;
+    if (first.length != second.length) return false;
+    for (var index = 0; index < first.length; index++) {
+      final a = first[index];
+      final b = second[index];
+      if (a.name != b.name ||
+          a.latitude != b.latitude ||
+          a.longitude != b.longitude ||
+          a.isVisited != b.isVisited ||
+          a.countryCode != b.countryCode ||
+          a.visits != b.visits ||
+          a.id != b.id ||
+          a.visitedAt != b.visitedAt ||
+          a.isDeletable != b.isDeletable) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   void _invalidateFit() {
     _fitRevision++;
     _scheduledFitRevision = -1;
+    _pendingFitToken++;
+    _pendingFitMatrix = null;
   }
 }

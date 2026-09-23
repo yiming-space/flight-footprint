@@ -5,8 +5,10 @@ uniform vec2 uCenter;
 uniform float uRadius;
 uniform vec2 uYawRotation;
 uniform vec2 uPitchRotation;
+uniform vec3 uSunDirection;
+// The night and day atlases are packed vertically into one texture. Keeping
+// one color sampler avoids sampler binding differences across Android GPUs.
 uniform sampler2D uAtlas;
-uniform sampler2D uVisitMask;
 uniform sampler2D uLandMask;
 out vec4 fragColor;
 
@@ -17,59 +19,66 @@ void main() {
     fragColor = vec4(0.0);
     return;
   }
-  // Inverse orthographic projection: every fragment has exactly one visible
-  // surface location. No clipped polygon is closed across the globe's face.
+
+  // Inverse orthographic projection. The transformed vector is in the same
+  // geographic frame as the solar vector calculated on the Dart side.
   vec3 normal = vec3(p.x, -p.y, sqrt(max(0.0, 1.0 - r2)));
   float y = normal.y * uPitchRotation.x + normal.z * uPitchRotation.y;
   float z = -normal.y * uPitchRotation.y + normal.z * uPitchRotation.x;
   float x = normal.x * uYawRotation.x - z * uYawRotation.y;
   z = normal.x * uYawRotation.y + z * uYawRotation.x;
+  vec3 worldNormal = normalize(vec3(x, y, z));
+
   const float pi = 3.141592653589793;
-  vec2 uv = vec2(fract(atan(x, z) / (2.0 * pi) + 0.5),
-                 clamp(0.5 - asin(clamp(y, -1.0, 1.0)) / pi, 0.00025, 0.99975));
-  vec3 terrain = texture(uAtlas, uv).rgb;
-  // Preserve the observed city lights; cool the unlit terrain for a night atlas.
-  float tone = dot(terrain, vec3(0.2126, 0.7152, 0.0722));
-  float cityLight = smoothstep(0.16, 0.65, tone);
-  terrain = mix(terrain * vec3(0.58, 0.70, 0.88) + vec3(0.010, 0.016, 0.030),
-      terrain * vec3(1.05, 1.0, 0.90), cityLight);
+  vec2 uv = vec2(
+    fract(atan(worldNormal.x, worldNormal.z) / (2.0 * pi) + 0.5),
+    clamp(0.5 - asin(clamp(worldNormal.y, -1.0, 1.0)) / pi, 0.00025, 0.99975)
+  );
+
+  vec3 nightTexture = texture(uAtlas, vec2(uv.x, uv.y * 0.5)).rgb;
+  vec3 dayTexture = texture(uAtlas, vec2(uv.x, 0.5 + uv.y * 0.5)).rgb;
   float landMask = smoothstep(0.16, 0.84, texture(uLandMask, uv).r);
-  // Ocean remains readable even on the shaded side of the globe.
-  vec3 ocean = mix(
-    vec3(0.022, 0.055, 0.105),
-    vec3(0.045, 0.115, 0.205),
+  vec3 sunDirection = normalize(uSunDirection);
+  float solar = dot(worldNormal, sunDirection);
+  // A deliberately broad twilight band keeps the terminator soft instead of
+  // making the atlas swap read like a hard circular cutout.
+  float daylight = smoothstep(-0.38, 0.38, solar);
+  float sun = max(0.0, solar);
+
+  // The day atlas supplies realistic relief and earth tones. Its ocean is
+  // intentionally ignored because the mask lets us keep a deeper, cleaner
+  // blue ocean that reads well beneath routes and markers.
+  vec3 dayLand = dayTexture * vec3(0.87, 0.95, 0.92) + vec3(0.009, 0.013, 0.015);
+  // Keep the full Black Marble distribution: its city lights remain visible
+  // on the night side without adding a separate synthetic orange layer.
+  float nightLuma = dot(nightTexture, vec3(0.30, 0.59, 0.11));
+  vec3 coolNightTexture = mix(vec3(nightLuma), nightTexture, 0.45);
+  vec3 nightLand = coolNightTexture * vec3(0.82, 0.88, 1.00) + vec3(0.003, 0.005, 0.009);
+  vec3 dayOcean = mix(
+    vec3(0.044, 0.176, 0.300),
+    vec3(0.108, 0.330, 0.500),
     clamp(0.50 + uv.y * 0.58, 0.0, 1.0)
   );
-  vec3 surface = mix(ocean, terrain, landMask);
-  vec3 sunDirection = normalize(vec3(-0.45, 0.6, 1.0));
-  float sun = max(0.0, dot(normal, sunDirection));
-  float light = 0.48 + 0.62 * sun;
-  float rim = pow(clamp(1.0 - normal.z, 0.0, 1.0), 3.2);
-
-  // A cool terminator keeps the globe dimensional while leaving the route
-  // colors readable. No clouds are composited here by design.
-  surface *= mix(0.76, 1.0, smoothstep(0.05, 0.72, sun));
-
-  // A restrained ocean glint suggests water without turning the map into a
-  // glossy game asset.
-  float oceanSpecular = pow(max(0.0, dot(reflect(-sunDirection, normal),
-      vec3(0.0, 0.0, 1.0))), 28.0) * (1.0 - landMask);
-  surface += vec3(0.04, 0.07, 0.08) * oceanSpecular;
-
-  float visited = texture(uVisitMask, uv).a;
-  vec3 footprint = vec3(0.471, 0.698, 0.784);
-  // The mask is a solid visited-country fill, not a radial point glow.
-  float footprintMask = smoothstep(0.25, 0.75, visited);
-  float footprintMix = footprintMask * 0.40;
-  vec3 color = mix(
-    surface * light,
-    footprint * (0.88 + light * 0.28),
-    footprintMix
+  vec3 nightOcean = mix(
+    vec3(0.012, 0.032, 0.056),
+    vec3(0.030, 0.082, 0.132),
+    clamp(0.50 + uv.y * 0.58, 0.0, 1.0)
   );
-  // Emissive lights should not disappear into the directional shadow.
-  color += terrain * cityLight * landMask * (1.0 - sun) * 0.35;
-  // Thin blue atmosphere, strongest at the limb and on the daylight side.
-  color += vec3(0.06, 0.18, 0.52) * rim * (0.30 + sun * 0.65);
+  vec3 daySurface = mix(dayOcean, dayLand, landMask);
+  vec3 nightSurface = mix(nightOcean, nightLand, landMask);
+  float dayShade = 0.64 + 0.36 * smoothstep(-0.08, 0.76, solar);
+  vec3 surface = mix(nightSurface, daySurface * dayShade, daylight);
+
+  vec3 color = surface;
+
+  // The atmosphere belongs to the screen-facing silhouette, not a fixed
+  // geographic longitude. Using the pre-rotation view normal prevents a
+  // false blue stripe from appearing inside the ocean as the globe turns.
+  float rimEdge = clamp(1.0 - normal.z, 0.0, 1.0);
+  float rim = smoothstep(0.06, 0.98, rimEdge);
+  rim *= rim;
+  color += vec3(0.20, 0.48, 0.78) * rim * (0.035 + sun * 0.12);
+
   // Only the subpixel silhouette is antialiased; the entire interior is opaque.
   float coverage = clamp((1.0 - sqrt(r2)) * uRadius, 0.0, 1.0);
   fragColor = vec4(color * coverage, coverage);

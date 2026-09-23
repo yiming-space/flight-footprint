@@ -812,7 +812,7 @@ class _PhotoScanLoadingState extends State<_PhotoScanLoading>
                   onPressed: widget.onCancel,
                   style: FilledButton.styleFrom(
                     backgroundColor: colors.lime,
-                    foregroundColor: Colors.black,
+                    foregroundColor: colors.onPrimary,
                     minimumSize: const Size(112, 44),
                     padding: const EdgeInsets.symmetric(horizontal: 30),
                     shape: AppShapes.pill,

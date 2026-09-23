@@ -386,7 +386,7 @@ class AppSegmentedControl extends StatelessWidget {
                                         ? FontWeight.w700
                                         : FontWeight.w500,
                                     color: i == safeIndex
-                                        ? colors.cardText
+                                        ? colors.onPrimary
                                         : colors.textSecondary,
                                   ),
                                   child: Text(labels[i]),
@@ -667,7 +667,11 @@ class PrimaryButton extends StatelessWidget {
       style: FilledButton.styleFrom(
         minimumSize: const Size(44, 56),
         backgroundColor: backgroundColor ?? colors.lime,
-        foregroundColor: foregroundColor ?? colors.cardText,
+        foregroundColor:
+            foregroundColor ??
+            (backgroundColor == null || backgroundColor == colors.lime
+                ? colors.onPrimary
+                : colors.cardText),
         shape: AppShapes.large,
         textStyle: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
       ),

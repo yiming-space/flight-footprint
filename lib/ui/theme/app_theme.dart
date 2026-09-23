@@ -10,11 +10,14 @@ class AppThemeColors extends ThemeExtension<AppThemeColors> {
     required this.background,
     required this.surface,
     required this.surfaceElevated,
+    required this.surfaceDeep,
+    required this.iceTint,
     required this.border,
     required this.textPrimary,
     required this.textSecondary,
     required this.textTertiary,
     required this.lime,
+    required this.onPrimary,
     required this.purple,
     required this.danger,
     required this.cardLavender,
@@ -28,11 +31,14 @@ class AppThemeColors extends ThemeExtension<AppThemeColors> {
   final Color background;
   final Color surface;
   final Color surfaceElevated;
+  final Color surfaceDeep;
+  final Color iceTint;
   final Color border;
   final Color textPrimary;
   final Color textSecondary;
   final Color textTertiary;
   final Color lime;
+  final Color onPrimary;
   final Color purple;
   final Color danger;
   final Color cardLavender;
@@ -43,47 +49,54 @@ class AppThemeColors extends ThemeExtension<AppThemeColors> {
   final Color cardText;
 
   static const dark = AppThemeColors(
+    // 暗夜绿：以中性近黑承载大面积内容，只让绿和紫承担语义强调。
     background: Color(0xFF0B0E12),
     surface: Color(0xFF171B20),
-    surfaceElevated: Color(0xFF1D2228),
-    border: Color(0xFF30363D),
+    surfaceElevated: Color(0xFF22282E),
+    surfaceDeep: Color(0xFF11161C),
+    iceTint: Color(0xFF293522),
     textPrimary: Color(0xFFF5F6F7),
-    textSecondary: Color(0xFFB2B6BC),
-    textTertiary: Color(0xFF7E858D),
+    border: Color(0xFF303832),
+    textSecondary: Color(0xFFA6ADB5),
+    textTertiary: Color(0xFF737C86),
     lime: Color(0xFFA8E85C),
+    onPrimary: Color(0xFF0B0E12),
     purple: Color(0xFF9274FF),
     danger: Color(0xFFFF7A7A),
-    cardLavender: Color(0xFFB9A9F2),
-    cardBlue: Color(0xFF9CCFE6),
-    cardMint: Color(0xFFA8D7AF),
-    cardCoral: Color(0xFFE2B4D1),
-    cardYellow: Color(0xFFE6DD79),
-    cardText: Color(0xFF0B0E12),
+    // Dark cards share one elevated surface. The old five-color card rhythm
+    // remains available to Ice White through its own light values.
+    cardLavender: Color(0xFF22282E),
+    cardBlue: Color(0xFF22282E),
+    cardMint: Color(0xFF22282E),
+    cardCoral: Color(0xFF22282E),
+    cardYellow: Color(0xFF22282E),
+    cardText: Color(0xFFF5F6F7),
   );
 
   static const light = AppThemeColors(
-    // Light mode uses a quiet cool gray canvas so white surfaces and the soft
-    // colour cards have room to breathe without the page feeling glaring.
-    background: Color(0xFFE1E4E3),
+    // Ice White uses a quiet warm page, crisp white cards, and a cool gray
+    // navigation layer. Accent color is reserved for interaction states.
+    background: Color(0xFFF4F4F0),
     surface: Color(0xFFFFFFFF),
-    surfaceElevated: Color(0xFFF0F0EE),
-    border: Color(0xFFDCDCD7),
-    textPrimary: Color(0xFF1E1E1C),
-    textSecondary: Color(0xFF6A6A64),
-    textTertiary: Color(0xFF8D8D86),
-    // Chartreuse is reserved for action, selection, progress, and one card
-    // role so it stays recognizable instead of becoming wallpaper.
-    lime: Color(0xFFC9DE73),
-    purple: Color(0xFFA59BD0),
-    danger: Color(0xFFCF8795),
-    // A tight reference-led card family: lilac, mist, chartreuse, blush,
-    // and butter. Each remains readable with the same near-black card ink.
-    cardLavender: Color(0xFFB0A6D2),
-    cardBlue: Color(0xFFC8E3E0),
-    cardMint: Color(0xFFD9E88D),
-    cardCoral: Color(0xFFF0D9E4),
-    cardYellow: Color(0xFFF0ECCA),
-    cardText: Color(0xFF1F1F1D),
+    surfaceElevated: Color(0xFFE5EDF8),
+    surfaceDeep: Color(0xFFE3E8EE),
+    iceTint: Color(0xFFDCE8F7),
+    border: Color(0xFFD5DDE6),
+    textPrimary: Color(0xFF24324F),
+    textSecondary: Color(0xFF596579),
+    textTertiary: Color(0xFF687487),
+    // The supplied palette replaces the former deep indigo action color.
+    // Dark ink remains the foreground so the lighter blue stays readable.
+    lime: Color(0xFF78A2D2),
+    onPrimary: Color(0xFF24324F),
+    purple: Color(0xFF78A2D2),
+    danger: Color(0xFFC47F88),
+    cardLavender: Color(0xFFFFFFFF),
+    cardBlue: Color(0xFFFFFFFF),
+    cardMint: Color(0xFFFFFFFF),
+    cardCoral: Color(0xFFFFFFFF),
+    cardYellow: Color(0xFFFFFFFF),
+    cardText: Color(0xFF24324F),
   );
 
   @override
@@ -91,11 +104,14 @@ class AppThemeColors extends ThemeExtension<AppThemeColors> {
     Color? background,
     Color? surface,
     Color? surfaceElevated,
+    Color? surfaceDeep,
+    Color? iceTint,
     Color? border,
     Color? textPrimary,
     Color? textSecondary,
     Color? textTertiary,
     Color? lime,
+    Color? onPrimary,
     Color? purple,
     Color? danger,
     Color? cardLavender,
@@ -108,11 +124,14 @@ class AppThemeColors extends ThemeExtension<AppThemeColors> {
     background: background ?? this.background,
     surface: surface ?? this.surface,
     surfaceElevated: surfaceElevated ?? this.surfaceElevated,
+    surfaceDeep: surfaceDeep ?? this.surfaceDeep,
+    iceTint: iceTint ?? this.iceTint,
     border: border ?? this.border,
     textPrimary: textPrimary ?? this.textPrimary,
     textSecondary: textSecondary ?? this.textSecondary,
     textTertiary: textTertiary ?? this.textTertiary,
     lime: lime ?? this.lime,
+    onPrimary: onPrimary ?? this.onPrimary,
     purple: purple ?? this.purple,
     danger: danger ?? this.danger,
     cardLavender: cardLavender ?? this.cardLavender,
@@ -130,11 +149,14 @@ class AppThemeColors extends ThemeExtension<AppThemeColors> {
       background: Color.lerp(background, other.background, t)!,
       surface: Color.lerp(surface, other.surface, t)!,
       surfaceElevated: Color.lerp(surfaceElevated, other.surfaceElevated, t)!,
+      surfaceDeep: Color.lerp(surfaceDeep, other.surfaceDeep, t)!,
+      iceTint: Color.lerp(iceTint, other.iceTint, t)!,
       border: Color.lerp(border, other.border, t)!,
       textPrimary: Color.lerp(textPrimary, other.textPrimary, t)!,
       textSecondary: Color.lerp(textSecondary, other.textSecondary, t)!,
       textTertiary: Color.lerp(textTertiary, other.textTertiary, t)!,
       lime: Color.lerp(lime, other.lime, t)!,
+      onPrimary: Color.lerp(onPrimary, other.onPrimary, t)!,
       purple: Color.lerp(purple, other.purple, t)!,
       danger: Color.lerp(danger, other.danger, t)!,
       cardLavender: Color.lerp(cardLavender, other.cardLavender, t)!,
@@ -156,13 +178,18 @@ extension AppThemeColorsContext on BuildContext {
 abstract final class AppColors {
   static const background = Color(0xFF0B0E12);
   static const surface = Color(0xFF171B20);
-  static const surfaceElevated = Color(0xFF1D2228);
-  static const border = Color(0xFF30363D);
+  static const surfaceElevated = Color(0xFF22282E);
+  static const border = Color(0xFF303832);
   static const textPrimary = Color(0xFFF5F6F7);
-  static const textSecondary = Color(0xFFB2B6BC);
-  static const textTertiary = Color(0xFF7E858D);
+  static const textSecondary = Color(0xFFA6ADB5);
+  static const textTertiary = Color(0xFF737C86);
   static const lime = Color(0xFFA8E85C);
   static const purple = Color(0xFF9274FF);
+  static const routePurple = Color(0xFFA39AD6);
+  static const routePurpleDeep = Color(0xFF6E648F);
+  static const flightArrival = Color(0xFF7B66B5);
+  static const mapBlueDeep = Color(0xFF6F8FB5);
+  static const mapLavender = Color(0xFF8E82B9);
   static const danger = Color(0xFFFF7A7A);
 }
 
@@ -280,7 +307,7 @@ abstract final class AppTheme {
           surface: colors.surface,
         ).copyWith(
           primary: colors.lime,
-          onPrimary: colors.cardText,
+          onPrimary: colors.onPrimary,
           secondary: colors.purple,
           onSecondary: brightness == Brightness.dark
               ? Colors.white

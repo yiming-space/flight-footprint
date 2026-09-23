@@ -16,19 +16,39 @@ const _emptyMapBundle = GeoJsonMapBundle(
 
 void main() {
   test('globe camera repaints only when a rendered value changes', () {
-    final camera = GlobeCamera(yaw: -.35, pitch: .12, entryScale: .86);
+    final camera = GlobeCamera(
+      yaw: -.35,
+      pitch: .12,
+      entryScale: .86,
+      entryYawOffset: .2,
+      entryArtworkOpacity: .4,
+    );
     var notifications = 0;
     camera.addListener(() => notifications++);
 
-    camera.update(yaw: -.35, pitch: .12, scale: 1, entryScale: .86);
+    camera.update(
+      yaw: -.35,
+      pitch: .12,
+      scale: 1,
+      entryScale: .86,
+      entryYawOffset: .2,
+      entryArtworkOpacity: .4,
+    );
     expect(notifications, 0);
 
     camera.update(yaw: -.2);
     expect(notifications, 1);
 
-    camera.update(pitch: .2, notify: false);
+    camera.update(
+      pitch: .2,
+      entryYawOffset: .3,
+      entryArtworkOpacity: .5,
+      notify: false,
+    );
     expect(notifications, 1);
     expect(camera.pitch, .2);
+    expect(camera.entryYawOffset, .3);
+    expect(camera.entryArtworkOpacity, .5);
 
     camera.dispose();
   });
@@ -73,6 +93,36 @@ void main() {
 
     expect(selection?.airports.single.code, 'CPT');
     expect(painter.labelForSelection(selection!), '开普敦');
+  });
+
+  test('globe hit testing follows the temporary hero rotation', () {
+    const airport = MapAirport(
+      code: 'AAA',
+      name: 'A',
+      latitude: 0,
+      longitude: 0,
+    );
+    const destination = MapAirport(
+      code: 'BBB',
+      name: 'B',
+      latitude: 0,
+      longitude: 90,
+    );
+    final camera = GlobeCamera(entryYawOffset: 1.0471975512);
+    final painter = GlobePainter(
+      data: _emptyMapBundle,
+      airports: const [airport, destination],
+      routes: const [MapRoute(from: airport, to: destination)],
+      camera: camera,
+    );
+
+    final selection = painter.selectionAt(
+      const Offset(335, 200),
+      const Size(400, 400),
+    );
+
+    expect(selection?.airports.single.code, 'AAA');
+    camera.dispose();
   });
 
   test('travel globe selects a visited place and exposes its name', () {

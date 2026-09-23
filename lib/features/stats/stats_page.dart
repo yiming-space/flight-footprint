@@ -119,12 +119,10 @@ class _StatsPageState extends State<StatsPage> {
         ),
         const SizedBox(height: 8),
         _shareCard(data),
-        const SizedBox(height: AppSpacing.cardGap),
+        const SizedBox(height: AppSpacing.sm),
       ],
       SizedBox(
-        height: data.flights.isNotEmpty
-            ? AppSpacing.cardGap
-            : AppSpacing.section,
+        height: data.flights.isNotEmpty ? AppSpacing.sm : AppSpacing.section,
       ),
       if (data.flights.isEmpty)
         _emptyStats(data)
@@ -340,13 +338,8 @@ class _StatsPageState extends State<StatsPage> {
         final worldProgress = (countryCount / 195).clamp(0.0, 1.0).toDouble();
         final chinaProgress = (chinaCount / 34).clamp(0.0, 1.0).toDouble();
         final cardColor = isLight ? colors.cardBlue : colors.surfaceElevated;
-        final worldAccent = isLight
-            ? HSLColor.fromColor(colors.lime)
-                  .withSaturation(.66)
-                  .withLightness(.40)
-                  .toColor()
-            : colors.lime;
-        final chinaAccent = isLight ? const Color(0xFF8067C7) : colors.purple;
+        final worldAccent = colors.lime;
+        final chinaAccent = isLight ? colors.lime : colors.purple;
         return Semantics(
           container: true,
           label: '${s.t('worldExplorer')} · ${s.t('chinaExplorer')}',
@@ -431,6 +424,7 @@ class _StatsPageState extends State<StatsPage> {
             height: 10,
             child: LinearProgressIndicator(
               value: progress,
+              borderRadius: AppRadii.pill,
               backgroundColor: colors.background.withValues(alpha: .72),
               valueColor: AlwaysStoppedAnimation<Color>(color),
             ),
@@ -544,10 +538,7 @@ class _StatsPageState extends State<StatsPage> {
     if (isLight) {
       // Let the hue read as a soft surface instead of a full-bleed color
       // block; the stronger color belongs to the metric and icon accents.
-      return Color.alphaBlend(
-        surfaceAccent.withValues(alpha: .68),
-        colors.surface,
-      );
+      return colors.surface;
     }
     return Color.alphaBlend(
       surfaceAccent.withValues(alpha: .055),
@@ -565,13 +556,7 @@ class _StatsPageState extends State<StatsPage> {
   Color _readableStatsAccent(Color accentColor) {
     final isLight = Theme.of(context).brightness == Brightness.light;
     if (!isLight) return accentColor;
-    final hsl = HSLColor.fromColor(accentColor);
-    // Keep the same UI hue, but give metric numbers a denser, more saturated
-    // ink color so they do not dissolve into the direct-color card surface.
-    return hsl
-        .withSaturation((hsl.saturation + .18).clamp(0.0, 1.0).toDouble())
-        .withLightness(.44)
-        .toColor();
+    return context.appColors.lime;
   }
 
   Color _rankingAccentColor(String key) => switch (key) {
@@ -889,7 +874,7 @@ class _PassportYearFilterBar extends StatelessWidget {
                   label,
                   style: TextStyle(
                     color: selected
-                        ? context.appColors.cardText
+                        ? context.appColors.onPrimary
                         : context.appColors.textSecondary,
                     fontSize: 13,
                     fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
@@ -1097,7 +1082,7 @@ class _RankingProgressRow extends StatelessWidget {
             Row(
               children: [
                 if (leadingCode != null && leadingCode!.isNotEmpty) ...[
-                  CountryFlag(code: leadingCode!, size: 22),
+                  CountryFlag(code: leadingCode!, size: 22, showBorder: false),
                   const SizedBox(width: 8),
                 ],
                 Expanded(

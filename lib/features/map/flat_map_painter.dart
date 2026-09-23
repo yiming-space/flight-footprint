@@ -37,19 +37,18 @@ class FlatMapPainter extends CustomPainter {
     this.mode = MapMode.flight,
     this.showLabels = false,
     this.showGrid = true,
-    this.minimalWorldStyle = false,
     this.transparentBackground = false,
     this.bottomFade = false,
     this.excludePolarShelf = false,
     this.routeRevealProgress = 1,
     this.showRouteAnimationPlane = false,
-    this.showPassportTexture = false,
     this.compactWorldViewport = false,
     this.visualScale = 1,
     this.horizontalPadding = 16,
     this.verticalPadding = 14,
     this.horizontalWrap = false,
     this.lightPalette = false,
+    this.userLocation,
     this.paintLayer = FlatMapPaintLayer.all,
   });
 
@@ -60,7 +59,6 @@ class FlatMapPainter extends CustomPainter {
   final MapMode mode;
   final bool showLabels;
   final bool showGrid;
-  final bool minimalWorldStyle;
 
   /// Keeps the surrounding composition visible through the map canvas. This
   /// is useful for the passport card, whose map is translated independently
@@ -85,10 +83,6 @@ class FlatMapPainter extends CustomPainter {
   /// revealed. Fullscreen owns the timeline; the painter only renders it.
   final bool showRouteAnimationPlane;
 
-  /// Paints a restrained engraved texture for the passport artwork. The
-  /// texture is drawn before routes and markers so those remain crisp.
-  final bool showPassportTexture;
-
   /// Crops only the unused polar latitude band for the passport composition.
   /// Longitude remains fully visible, and the geographic projection itself is
   /// unchanged, so no continent is stretched or cut at the map edges.
@@ -112,40 +106,44 @@ class FlatMapPainter extends CustomPainter {
   /// Dashboard maps inherit the app theme. Passport artwork explicitly keeps
   /// this false so its shareable card remains an independent dark composition.
   final bool lightPalette;
+  final MapCoordinate? userLocation;
   final FlatMapPaintLayer paintLayer;
 
   static const _darkRouteColors = <Color>[
-    Color(0xffc6ff32),
-    Color(0xffa58aff),
-    Color(0xff75dce9),
-    Color(0xfff6e68a),
-    Color(0xffff8b7a),
+    Color(0xffa39ad6),
+    Color(0xffa39ad6),
+    Color(0xffa39ad6),
+    Color(0xffa39ad6),
+    Color(0xffa39ad6),
   ];
   static const _lightRouteColors = <Color>[
-    Color(0xff78b82f),
-    Color(0xff7e65c7),
-    Color(0xff2a9cab),
-    Color(0xffc49e2a),
-    Color(0xffd86479),
+    // Lavender routes separate the travel layer from the global blue UI.
+    Color(0xffa89fd4),
+    Color(0xffa89fd4),
+    Color(0xffa89fd4),
+    Color(0xffa89fd4),
+    Color(0xffa89fd4),
   ];
   static const _darkLandColors = <Color>[
-    Color(0xff1b222b),
-    Color(0xff202832),
-    Color(0xff182028),
-    Color(0xff242d37),
-    Color(0xff1e2730),
+    Color(0xff1d3a35),
+    Color(0xff1d3a35),
+    Color(0xff1d3a35),
+    Color(0xff1d3a35),
+    Color(0xff1d3a35),
   ];
   static const _lightLandColors = <Color>[
-    Color(0xffd5e0e4),
-    Color(0xffdee7ea),
-    Color(0xffd0dde2),
-    Color(0xffe4ebee),
-    Color(0xffd9e4e7),
+    Color(0xffd3dde3),
+    Color(0xffd0dae0),
+    Color(0xffd7e0e4),
+    Color(0xffd2dce2),
+    Color(0xffd5dfe3),
   ];
-  // A muted mist blue keeps visited regions tied to the globe's ocean palette
-  // without competing with the flight-map markers and lime route accents.
-  static const _darkFootprintFill = Color(0xff78b2c8);
-  static const _lightFootprintFill = Color(0xffc6e0e5);
+  // The pale-lime footprint is deliberately distinct from the blue land
+  // family, so visited regions read as progress rather than geography.
+  static const _darkFootprintFill = Color(0xff3f6b55);
+  // Keep the ice-white palette quiet, but give visited regions enough
+  // contrast to read at a glance on both the dashboard and full-screen map.
+  static const _lightFootprintFill = Color(0xff98b9da);
 
   List<Color> get _routeColors =>
       lightPalette ? _lightRouteColors : _darkRouteColors;
@@ -154,33 +152,42 @@ class FlatMapPainter extends CustomPainter {
       lightPalette ? _lightLandColors : _darkLandColors;
 
   Color get _mapBackground =>
-      lightPalette ? const Color(0xfff0f3f4) : const Color(0xff0b1015);
+      lightPalette ? const Color(0xfff4f4f0) : AppThemeColors.dark.background;
+
+  // Passport artwork is painted on the card surface rather than an opaque
+  // map panel. Reuse that exact surface for boundary strokes so country and
+  // province outlines disappear cleanly into the card instead of leaving a
+  // warm-gray halo around every region.
+  Color get _surfaceColor => transparentBackground
+      ? (lightPalette ? Colors.white : AppThemeColors.dark.surface)
+      : _mapBackground;
 
   Color get _maritimeFill =>
-      lightPalette ? const Color(0xffe4ebee) : const Color(0xff222b35);
+      lightPalette ? const Color(0xfffdfdf5) : AppThemeColors.dark.surfaceDeep;
 
-  Color get _maritimeStroke =>
-      lightPalette ? const Color(0xffc7d3d9) : const Color(0xff334250);
+  Color get _maritimeStroke => _surfaceColor;
 
-  Color get _countryBoundary =>
-      lightPalette ? const Color(0xffa8b7c0) : const Color(0xff3a4757);
+  Color get _countryBoundary => _surfaceColor;
 
-  Color get _nationalBoundary =>
-      lightPalette ? const Color(0xff8496a0) : const Color(0xff66788b);
+  Color get _nationalBoundary => _surfaceColor;
 
-  Color get _internalBoundary =>
-      lightPalette ? const Color(0xffc3d0d6) : const Color(0xff344454);
+  Color get _internalBoundary => _surfaceColor;
 
   Color get _gridColor =>
-      lightPalette ? const Color(0xffd6e0e4) : const Color(0xff5a6977);
+      lightPalette ? const Color(0xffd8ddd6) : AppThemeColors.dark.border;
 
   Color get _footprintFill =>
       lightPalette ? _lightFootprintFill : _darkFootprintFill;
 
   Color get _markerOutline =>
-      lightPalette ? const Color(0xfff7fafc) : const Color(0xff0b1015);
+      lightPalette ? const Color(0xfffdfdf5) : AppThemeColors.dark.background;
 
-  double get _scale => visualScale.clamp(1.0, 30.0).toDouble();
+  Color get _markerColor =>
+      lightPalette ? const Color(0xff78a2d2) : AppColors.lime;
+
+  bool get _isCompactPassportArtwork => compactWorldViewport;
+
+  double get _scale => visualScale.clamp(1.0, 20.0).toDouble();
 
   double _screen(double value) => value / _scale;
 
@@ -214,9 +221,7 @@ class FlatMapPainter extends CustomPainter {
     // The passport card supplies its own dark surface. Leave the compact map
     // canvas untouched so only the world silhouette, routes, and markers
     // appear; dashboard maps retain their themed opaque map panel.
-    if (paintLayer != FlatMapPaintLayer.overlay &&
-        !minimalWorldStyle &&
-        !transparentBackground) {
+    if (paintLayer != FlatMapPaintLayer.overlay && !transparentBackground) {
       canvas.drawColor(_mapBackground, BlendMode.src);
     }
     if (horizontalWrap) {
@@ -250,25 +255,18 @@ class FlatMapPainter extends CustomPainter {
     final paintsBase = paintLayer != FlatMapPaintLayer.overlay;
     final paintsOverlay = paintLayer != FlatMapPaintLayer.base;
     if (paintsBase) {
-      if (showGrid && !minimalWorldStyle) _drawGrid(canvas, size);
-      if (minimalWorldStyle) {
-        _drawMinimalWorld(canvas, size);
-        if (showPassportTexture) _drawPassportTexture(canvas, size);
-      } else {
-        _drawPolygons(
-          canvas,
-          size,
-          data.land.polygons,
-          _landFill,
-          null,
-          fadeAntarctic: bottomFade,
-        );
-      }
+      if (showGrid) _drawGrid(canvas, size);
+      _drawPolygons(
+        canvas,
+        size,
+        data.land.polygons,
+        _landFill,
+        null,
+        fadeAntarctic: bottomFade,
+      );
     }
 
-    if (paintsOverlay &&
-        !minimalWorldStyle &&
-        mode == MapMode.travelFootprint) {
+    if (paintsOverlay && mode == MapMode.travelFootprint) {
       _drawFootprintPolygons(
         canvas,
         size,
@@ -286,9 +284,8 @@ class FlatMapPainter extends CustomPainter {
     // Boundaries are static in flight mode and stay in the cached base layer.
     // Travel fills must remain beneath them, so that mode keeps boundaries in
     // the overlay where there is no per-frame route animation.
-    if (!minimalWorldStyle &&
-        ((paintsBase && mode == MapMode.flight) ||
-            (paintsOverlay && mode == MapMode.travelFootprint))) {
+    if ((paintsBase && mode == MapMode.flight) ||
+        (paintsOverlay && mode == MapMode.travelFootprint)) {
       _drawPolygons(
         canvas,
         size,
@@ -309,7 +306,7 @@ class FlatMapPainter extends CustomPainter {
         size,
         data.nationalBoundary.polygons,
         _nationalBoundary,
-        1.05,
+        .55,
       );
       _drawLines(
         canvas,
@@ -324,7 +321,7 @@ class FlatMapPainter extends CustomPainter {
         size,
         data.nationalBoundary.lines,
         _nationalBoundary,
-        1.05,
+        .55,
       );
       _drawLines(
         canvas,
@@ -356,6 +353,7 @@ class FlatMapPainter extends CustomPainter {
     } else {
       _drawPlaces(canvas, size);
     }
+    _drawUserLocation(canvas, size);
   }
 
   double _routeProgressForIndex(int index, int count) {
@@ -392,6 +390,12 @@ class FlatMapPainter extends CustomPainter {
     return ((windowProgress - _routeTravelShare) / _routeArrivalShare)
         .clamp(0.0, 1.0)
         .toDouble();
+  }
+
+  int get _activeRouteIndex {
+    if (routes.isEmpty) return -1;
+    final progress = routeRevealProgress.clamp(0.0, 1.0).toDouble();
+    return math.min((progress * routes.length).floor(), routes.length - 1);
   }
 
   double _routeOffsetForIndex(int index) {
@@ -434,49 +438,6 @@ class FlatMapPainter extends CustomPainter {
   }
 
   Color _landFill(int index) => _landColors[index % _landColors.length];
-
-  void _drawMinimalWorld(Canvas canvas, Size size) {
-    final paths = _polygonPaths(data.land.polygons, size);
-    final paint = Paint()
-      ..color = lightPalette
-          ? const Color(0xffcbd5dc)
-          : const Color(0xff303a45);
-    for (var index = 0; index < paths.length; index++) {
-      canvas.drawPath(paths[index], paint);
-    }
-  }
-
-  void _drawPassportTexture(Canvas canvas, Size size) {
-    final ringPaint = Paint()
-      ..color = const Color(0xffcfc4ef).withValues(alpha: .13)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.3
-      ..isAntiAlias = true;
-
-    // A single dense concentric-circle texture is clipped to the complete
-    // land silhouette. This follows the supplied material reference instead
-    // of repeating small circular motifs across the continents.
-    final paths = _polygonPaths(data.land.polygons, size);
-    final land = Path();
-    for (var index = 0; index < paths.length; index++) {
-      land.addPath(paths[index], Offset.zero);
-    }
-    canvas.save();
-    canvas.clipPath(land);
-    // Keep the origin just beyond the northern edge. The visible continents
-    // therefore receive only expanding arcs, never the texture's focal dot.
-    final center = Offset(size.width * .5, -size.height * .18);
-    final maxRadius = math.sqrt(
-      math.pow(size.width, 2) + math.pow(size.height, 2),
-    );
-    // The supplied reference is a very dense engraving. Increase the current
-    // density by roughly another 0.5x while keeping one lightweight layer.
-    const ringSpacing = 2.35;
-    for (var radius = 2.0; radius <= maxRadius; radius += ringSpacing) {
-      canvas.drawCircle(center, radius, ringPaint);
-    }
-    canvas.restore();
-  }
 
   bool _isAntarctica(MapPolygon polygon) {
     var hasPoint = false;
@@ -646,7 +607,9 @@ class FlatMapPainter extends CustomPainter {
       return result;
     });
     final paint = Paint()
-      ..color = _footprintFill.withValues(alpha: china ? .40 : .36);
+      ..color = _footprintFill.withValues(
+        alpha: lightPalette ? (china ? .54 : .50) : (china ? .68 : .62),
+      );
     for (final index in visitedIndices) {
       canvas.drawPath(paths[index], paint);
     }
@@ -747,14 +710,13 @@ class FlatMapPainter extends CustomPainter {
     if (geometry == null) return;
     final color = _routeColors[index % _routeColors.length];
     final paint = Paint()
-      ..color = color.withValues(alpha: route.isHighlight ? .94 : .72)
+      ..color = color.withValues(alpha: lightPalette ? 1 : .78)
       ..style = PaintingStyle.stroke
       ..strokeCap = StrokeCap.round
       ..strokeJoin = StrokeJoin.round
       // Keep the route rhythm consistent; highlight is conveyed by color and
       // opacity rather than a distracting change in line weight.
-      ..strokeWidth = _screen(1.1);
-
+      ..strokeWidth = _screen(lightPalette ? 1.2 : 1.1);
     if (routeProgress >= 1) {
       canvas.drawPath(geometry.completePath, paint);
     } else {
@@ -774,15 +736,16 @@ class FlatMapPainter extends CustomPainter {
       }
     }
 
-    // During the flight the aircraft is the only directional cue. Keep the
-    // route clean until the aircraft reaches the end, then leave the arrow as
-    // part of the completed, readable itinerary.
-    if (routeProgress >= 1 ||
-        (!showRouteAnimationPlane && routeProgress >= .5)) {
+    // Dense static maps read more cleanly without repeated arrowheads. During
+    // playback, keep one arrow on the active leg after it reaches its end;
+    // the aircraft itself is the directional cue while that leg is in flight.
+    if (showRouteAnimationPlane &&
+        index == _activeRouteIndex &&
+        routeProgress >= .999) {
       _drawArrowhead(canvas, geometry.arrowBefore, geometry.arrowEnd, color);
     }
-    final endpointRadius = showPassportTexture ? 1.92 : 3.2;
-    final endpointPaint = Paint()..color = color;
+    final endpointRadius = _isCompactPassportArtwork ? 1.92 : 3.2;
+    final endpointPaint = Paint()..color = lightPalette ? _markerColor : color;
     if (routeProgress > 0) {
       canvas.drawCircle(geometry.start, _screen(endpointRadius), endpointPaint);
     }
@@ -1176,7 +1139,13 @@ class FlatMapPainter extends CustomPainter {
     return result;
   }
 
-  void _drawArrowhead(Canvas canvas, Offset before, Offset end, Color color) {
+  void _drawArrowhead(
+    Canvas canvas,
+    Offset before,
+    Offset end,
+    Color color, {
+    double width = 1.15,
+  }) {
     final direction = end - before;
     if (direction.distance < 1) return;
     final angle = math.atan2(direction.dy, direction.dx);
@@ -1197,7 +1166,7 @@ class FlatMapPainter extends CustomPainter {
       Paint()
         ..color = color
         ..style = PaintingStyle.stroke
-        ..strokeWidth = _screen(1.15)
+        ..strokeWidth = _screen(width)
         ..strokeCap = StrokeCap.round,
     );
   }
@@ -1207,7 +1176,7 @@ class FlatMapPainter extends CustomPainter {
     // Passport artwork has a much denser route field than the dashboard. A
     // half-size marker keeps the map legible without changing the shared
     // flight-map marker scale elsewhere in the app.
-    final markerScale = showPassportTexture ? .6 : 1.0;
+    final markerScale = _isCompactPassportArtwork ? .6 : 1.0;
     final markerOutlinePaint = Paint()..color = _markerOutline;
     final markerPaint = Paint();
     final arrivalPaint = Paint()
@@ -1217,9 +1186,7 @@ class FlatMapPainter extends CustomPainter {
       final point = project(airport.latitude, airport.longitude, size);
       var revealProgress = 0.0;
       var arrivalProgress = 0.0;
-      var arrivalColor = lightPalette
-          ? _lightRouteColors.first
-          : AppColors.lime;
+      var arrivalColor = _markerColor;
       var hasIncomingRoute = false;
       if (showRouteAnimationPlane && routes.isNotEmpty) {
         final lookup = _routeLookups[routes] ??= _RouteLookup.from(routes);
@@ -1236,7 +1203,9 @@ class FlatMapPainter extends CustomPainter {
           );
           if (pulse >= arrivalProgress) {
             arrivalProgress = pulse;
-            arrivalColor = _routeColors[routeIndex % _routeColors.length];
+            arrivalColor = lightPalette
+                ? _markerColor
+                : _routeColors[routeIndex % _routeColors.length];
           }
         }
         // During the reveal, a point is born only at the moment its incoming
@@ -1249,7 +1218,7 @@ class FlatMapPainter extends CustomPainter {
       // Flight-map points use the same semantic lime as the rest of the UI.
       // Route lines keep their five-color rhythm; only the airport marker
       // itself is unified so a dense itinerary reads as one clear layer.
-      final color = lightPalette ? _lightRouteColors.first : AppColors.lime;
+      final color = _markerColor;
       final markerColor = color;
       if (arrivalProgress > 0 && arrivalProgress < 1) {
         final wave = Curves.easeOut.transform(arrivalProgress);
@@ -1292,13 +1261,7 @@ class FlatMapPainter extends CustomPainter {
       final place = places[index];
       if (!place.isVisited) continue;
       final point = project(place.latitude, place.longitude, size);
-      _drawPlaceMarker(
-        canvas,
-        point,
-        outlinePaint,
-        markerPaint,
-        _routeColors[index % _routeColors.length],
-      );
+      _drawPlaceMarker(canvas, point, outlinePaint, markerPaint, _markerColor);
       if (showLabels && place.name.trim().isNotEmpty) {
         final name = normalizedMapLabel(
           place.name,
@@ -1316,6 +1279,23 @@ class FlatMapPainter extends CustomPainter {
       }
     }
     _drawLabels(canvas, labels);
+  }
+
+  void _drawUserLocation(Canvas canvas, Size size) {
+    final coordinate = userLocation;
+    if (coordinate == null) return;
+    final point = project(coordinate.latitude, coordinate.longitude, size);
+    final color = lightPalette
+        ? const Color(0xff4f9ee8)
+        : const Color(0xff72b9ff);
+    canvas.drawCircle(
+      point,
+      _screen(15),
+      Paint()..color = color.withValues(alpha: .16),
+    );
+    canvas.drawCircle(point, _screen(8), Paint()..color = _markerOutline);
+    canvas.drawCircle(point, _screen(5.8), Paint()..color = color);
+    canvas.drawCircle(point, _screen(2), Paint()..color = Colors.white);
   }
 
   void _drawPlaceMarker(
@@ -1384,14 +1364,16 @@ class FlatMapPainter extends CustomPainter {
     text: TextSpan(
       text: value,
       style: TextStyle(
-        color: lightPalette ? const Color(0xff30404c) : const Color(0xfff4f6f8),
+        color: lightPalette
+            ? const Color(0xff30404c)
+            : AppThemeColors.dark.textPrimary,
         fontWeight: FontWeight.w500,
         fontSize: _screen(10),
         shadows: [
           Shadow(
             color: lightPalette
-                ? const Color(0xfff7fafc)
-                : const Color(0xff0b1015),
+                ? const Color(0xfffdfdf5)
+                : AppThemeColors.dark.background,
             blurRadius: _screen(2.5),
           ),
         ],
@@ -1440,11 +1422,9 @@ class FlatMapPainter extends CustomPainter {
         old.data != data ||
         old.mode != mode ||
         old.showGrid != showGrid ||
-        old.minimalWorldStyle != minimalWorldStyle ||
         old.transparentBackground != transparentBackground ||
         old.bottomFade != bottomFade ||
         old.excludePolarShelf != excludePolarShelf ||
-        old.showPassportTexture != showPassportTexture ||
         old.compactWorldViewport != compactWorldViewport ||
         old.visualScale != visualScale ||
         old.horizontalPadding != horizontalPadding ||

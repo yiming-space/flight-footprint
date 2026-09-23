@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
@@ -7,6 +8,7 @@ import 'geojson_map_data.dart';
 import 'galaxy_background.dart';
 import 'globe_surface.dart';
 import 'map_models.dart';
+import '../../ui/theme/app_theme.dart';
 
 /// A lightweight, dependency-free orthographic globe for the fullscreen map.
 ///
@@ -18,11 +20,15 @@ class GlobeMap extends StatefulWidget {
   const GlobeMap({
     super.key,
     this.mode = MapMode.flight,
+    this.active = true,
     this.airports = const [],
     this.routes = const [],
     this.places = const [],
     this.routeAnimationProgress = 1,
     this.showRouteAnimationPlane = false,
+    this.userLocation,
+    this.focusCoordinate,
+    this.focusSignal = 0,
     this.onSelection,
     this.onInteractionChanged,
     this.resetSignal = 0,
@@ -30,11 +36,19 @@ class GlobeMap extends StatefulWidget {
   });
 
   final MapMode mode;
+
+  /// Whether this map is the visible projection. Inactive home maps stay
+  /// mounted so their camera survives a projection switch, but their entry
+  /// and idle-rotation animations remain paused.
+  final bool active;
   final List<MapAirport> airports;
   final List<MapRoute> routes;
   final List<MapPlace> places;
   final double routeAnimationProgress;
   final bool showRouteAnimationPlane;
+  final MapCoordinate? userLocation;
+  final MapCoordinate? focusCoordinate;
+  final int focusSignal;
   final ValueChanged<MapSelection>? onSelection;
   final ValueChanged<bool>? onInteractionChanged;
   // Nullable keeps hot reload compatible with a State created before this
@@ -57,40 +71,57 @@ class GlobeCamera extends ChangeNotifier {
     this.pitch = 0,
     this.scale = 1,
     this.entryScale = 1,
+    this.entryYawOffset = 0,
+    this.entryArtworkOpacity = 1,
   });
 
   double yaw;
   double pitch;
   double scale;
   double entryScale;
+  double entryYawOffset;
+  double entryArtworkOpacity;
 
   void update({
     double? yaw,
     double? pitch,
     double? scale,
     double? entryScale,
+    double? entryYawOffset,
+    double? entryArtworkOpacity,
     bool notify = true,
   }) {
     final nextYaw = yaw ?? this.yaw;
     final nextPitch = pitch ?? this.pitch;
     final nextScale = scale ?? this.scale;
     final nextEntryScale = entryScale ?? this.entryScale;
+    final nextEntryYawOffset = entryYawOffset ?? this.entryYawOffset;
+    final nextEntryArtworkOpacity =
+        entryArtworkOpacity ?? this.entryArtworkOpacity;
     if (nextYaw == this.yaw &&
         nextPitch == this.pitch &&
         nextScale == this.scale &&
-        nextEntryScale == this.entryScale) {
+        nextEntryScale == this.entryScale &&
+        nextEntryYawOffset == this.entryYawOffset &&
+        nextEntryArtworkOpacity == this.entryArtworkOpacity) {
       return;
     }
     this.yaw = nextYaw;
     this.pitch = nextPitch;
     this.scale = nextScale;
     this.entryScale = nextEntryScale;
+    this.entryYawOffset = nextEntryYawOffset;
+    this.entryArtworkOpacity = nextEntryArtworkOpacity;
     if (notify) notifyListeners();
   }
 }
 
 class _GlobeMapState extends State<GlobeMap> with TickerProviderStateMixin {
-  static const _entryDuration = Duration(milliseconds: 680);
+  static const _entryDuration = Duration(milliseconds: 2000);
+  static const _entryStartScale = 2.3;
+  // Positive yaw advances eastward like the globe's idle rotation, so enter
+  // from a negative offset and rotate forward into the resting orientation.
+  static const _entryStartYawOffset = -math.pi * .4;
   static const _autoRotationDuration = Duration(seconds: 120);
 
   late Future<({GeoJsonMapBundle data, GlobeSurface surface})> _future;
@@ -98,6 +129,7 @@ class _GlobeMapState extends State<GlobeMap> with TickerProviderStateMixin {
   late final AnimationController _momentum;
   AnimationController? _entryControllerValue;
   AnimationController? _autoRotateControllerValue;
+  late final AnimationController _focusController;
   double _releaseYaw = 0;
   double _releasePitch = 0;
   Offset _releaseVelocity = Offset.zero;
@@ -116,13 +148,43 @@ class _GlobeMapState extends State<GlobeMap> with TickerProviderStateMixin {
   bool _presentationStarted = false;
   bool _autoRotationRunning = false;
   double _autoRotationLastValue = 0;
+  double _focusStartYaw = 0;
+  double _focusStartPitch = 0;
+  double _focusTargetYaw = 0;
+  double _focusTargetPitch = 0;
+  late SolarPosition _solarPosition;
+  Timer? _solarTimer;
   String? _selectedLabel;
   MapCoordinate? _selectedCoordinate;
 
   @override
   void initState() {
     super.initState();
-    _camera = GlobeCamera(yaw: -.35, pitch: .12, entryScale: .86);
+    _camera = GlobeCamera(
+      yaw: -.35,
+      pitch: .12,
+      entryScale: _entryStartScale,
+      entryYawOffset: _entryStartYawOffset,
+      entryArtworkOpacity: 0,
+    );
+    _focusController =
+        AnimationController(
+            vsync: this,
+            duration: const Duration(milliseconds: 420),
+          )
+          ..addListener(_handleFocusTick)
+          ..addStatusListener(_handleFocusStatus);
+    _solarPosition = SolarPosition.now();
+    _solarTimer = Timer.periodic(const Duration(minutes: 1), (_) {
+      if (!mounted) return;
+      final next = SolarPosition.now();
+      if (next.x == _solarPosition.x &&
+          next.y == _solarPosition.y &&
+          next.z == _solarPosition.z) {
+        return;
+      }
+      setState(() => _solarPosition = next);
+    });
     _future = _loadScene();
     _momentum =
         AnimationController(
@@ -164,11 +226,7 @@ class _GlobeMapState extends State<GlobeMap> with TickerProviderStateMixin {
 
   Future<({GeoJsonMapBundle data, GlobeSurface surface})> _loadScene() async {
     final data = await widget.loader.loadBundle();
-    final surface = await GlobeSurface.load(
-      data.land,
-      countries: data.countries,
-      places: widget.mode == MapMode.travelFootprint ? widget.places : const [],
-    );
+    final surface = await GlobeSurface.load(data.land);
     return (data: data, surface: surface);
   }
 
@@ -177,20 +235,31 @@ class _GlobeMapState extends State<GlobeMap> with TickerProviderStateMixin {
 
   void _handleEntryTick() {
     if (!mounted) return;
-    final progress = Curves.easeOutCubic.transform(
-      _entryController.value.clamp(0.0, 1.0).toDouble(),
+    final rawProgress = _entryController.value.clamp(0.0, 1.0).toDouble();
+    // Keep the globe's shrinking and eastward spin on one shared trajectory.
+    // The ease-out carries the initial hero momentum into a coordinated,
+    // gentle settle instead of letting rotation finish ahead of the scale.
+    final progress = Curves.easeOutCubic.transform(rawProgress);
+    final artworkProgress = Curves.easeOutCubic.transform(
+      ((rawProgress - .48) / .52).clamp(0.0, 1.0).toDouble(),
     );
-    _camera.update(entryScale: .86 + progress * .14);
+    _camera.update(
+      entryScale: _entryStartScale + (1 - _entryStartScale) * progress,
+      entryYawOffset: _entryStartYawOffset * (1 - progress),
+      entryArtworkOpacity: artworkProgress,
+    );
   }
 
   void _handleEntryStatus(AnimationStatus status) {
     if (status == AnimationStatus.completed) {
+      _camera.update(entryScale: 1, entryYawOffset: 0, entryArtworkOpacity: 1);
       _maybeResumeAutoRotation();
     }
   }
 
   void _handleAutoRotationTick() {
     if (!mounted ||
+        !widget.active ||
         !_autoRotationRunning ||
         _interactionReported ||
         _momentum.isAnimating ||
@@ -206,13 +275,64 @@ class _GlobeMapState extends State<GlobeMap> with TickerProviderStateMixin {
     _camera.update(yaw: _wrappedAngle(_camera.yaw + delta * math.pi * 2));
   }
 
+  void _handleFocusTick() {
+    if (!mounted) return;
+    final progress = Curves.easeOutCubic.transform(_focusController.value);
+    _camera.update(
+      yaw: _focusStartYaw + (_focusTargetYaw - _focusStartYaw) * progress,
+      pitch:
+          _focusStartPitch + (_focusTargetPitch - _focusStartPitch) * progress,
+    );
+  }
+
+  void _handleFocusStatus(AnimationStatus status) {
+    if (status == AnimationStatus.completed) _maybeResumeAutoRotation();
+  }
+
+  void _focusCoordinate(MapCoordinate coordinate) {
+    _focusController.stop();
+    _momentum.stop();
+    _pauseAutoRotation();
+    _focusStartYaw = _camera.yaw;
+    final targetYaw = -coordinate.longitude * math.pi / 180;
+    _focusTargetYaw =
+        _focusStartYaw + _wrappedAngle(targetYaw - _focusStartYaw);
+    _focusStartPitch = _camera.pitch;
+    _focusTargetPitch = (coordinate.latitude * math.pi / 180)
+        .clamp(-math.pi / 2, math.pi / 2)
+        .toDouble();
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _camera.update(yaw: _focusTargetYaw, pitch: _focusTargetPitch);
+      _maybeResumeAutoRotation();
+      return;
+    }
+    _focusController.forward(from: 0);
+  }
+
   void _startPresentationIfNeeded() {
-    if (_presentationStarted || !mounted) return;
+    if (_presentationStarted || !mounted || !widget.active) return;
     _presentationStarted = true;
+    if (_following || MediaQuery.disableAnimationsOf(context)) {
+      _entryController.stop();
+      _entryController.value = 1;
+      _camera.update(entryScale: 1, entryYawOffset: 0, entryArtworkOpacity: 1);
+      _maybeResumeAutoRotation();
+      return;
+    }
+    _camera.update(
+      entryScale: _entryStartScale,
+      entryYawOffset: _entryStartYawOffset,
+      entryArtworkOpacity: 0,
+    );
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || !_presentationStarted) return;
       if (MediaQuery.disableAnimationsOf(context)) {
         _entryController.value = 1;
+        _camera.update(
+          entryScale: 1,
+          entryYawOffset: 0,
+          entryArtworkOpacity: 1,
+        );
         _maybeResumeAutoRotation();
       } else {
         _entryController.forward(from: 0);
@@ -227,8 +347,38 @@ class _GlobeMapState extends State<GlobeMap> with TickerProviderStateMixin {
     _entryController.value = 0;
   }
 
+  // HomePage rebuilds while a map gesture starts/ends so it can update the
+  // bottom navigation state. Its derived lists are new Dart list instances on
+  // each rebuild, even when the records themselves did not change. Comparing
+  // the list identity here made every drag look like a data refresh: the
+  // FutureBuilder was restarted and the globe entry scale briefly returned to
+  // .86, which users experienced as the globe snapping back after a swipe.
+  // Compare the values that are actually used to build the globe surface so a
+  // parent rebuild preserves the current camera and gesture position.
+  static bool _sameMapPlaces(List<MapPlace> first, List<MapPlace> second) {
+    if (identical(first, second)) return true;
+    if (first.length != second.length) return false;
+    for (var index = 0; index < first.length; index++) {
+      final a = first[index];
+      final b = second[index];
+      if (a.name != b.name ||
+          a.latitude != b.latitude ||
+          a.longitude != b.longitude ||
+          a.isVisited != b.isVisited ||
+          a.countryCode != b.countryCode ||
+          a.visits != b.visits ||
+          a.id != b.id ||
+          a.visitedAt != b.visitedAt ||
+          a.isDeletable != b.isDeletable) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   void _resumeAutoRotation() {
     if (_autoRotationRunning ||
+        !widget.active ||
         !_presentationStarted ||
         _entryController.value < .999 ||
         _interactionReported ||
@@ -267,12 +417,17 @@ class _GlobeMapState extends State<GlobeMap> with TickerProviderStateMixin {
 
   @override
   void dispose() {
+    _solarTimer?.cancel();
     _entryControllerValue
       ?..removeListener(_handleEntryTick)
       ..removeStatusListener(_handleEntryStatus)
       ..dispose();
     _autoRotateControllerValue
       ?..removeListener(_handleAutoRotationTick)
+      ..dispose();
+    _focusController
+      ..removeListener(_handleFocusTick)
+      ..removeStatusListener(_handleFocusStatus)
       ..dispose();
     _momentum.dispose();
     _camera.dispose();
@@ -282,21 +437,47 @@ class _GlobeMapState extends State<GlobeMap> with TickerProviderStateMixin {
   @override
   void didUpdateWidget(covariant GlobeMap oldWidget) {
     super.didUpdateWidget(oldWidget);
+    final activeChanged = oldWidget.active != widget.active;
+    if (activeChanged && !widget.active) {
+      _momentum.stop();
+      _focusController.stop();
+      _pauseAutoRotation();
+      _entryControllerValue?.stop();
+      _camera.update(entryScale: 1, entryYawOffset: 0, entryArtworkOpacity: 1);
+      _reportInteraction(false);
+    }
     if (oldWidget.loader != widget.loader) {
       _surfaceShader = null;
       _future = _loadScene();
       _resetPresentation();
     }
-    if (oldWidget.mode != widget.mode ||
-        (widget.mode == MapMode.travelFootprint &&
-            oldWidget.places != widget.places)) {
-      _surfaceShader = null;
-      _future = _loadScene();
-      _resetPresentation();
+    final modeChanged = oldWidget.mode != widget.mode;
+    final placesChanged =
+        widget.mode == MapMode.travelFootprint &&
+        !_sameMapPlaces(oldWidget.places, widget.places);
+    if (modeChanged || placesChanged) {
+      if (modeChanged) {
+        // Both map modes share the same earth surface. Switching only changes
+        // markers and routes, so the current camera and shader can stay put.
+        _momentum.stop();
+        _entryController.stop();
+        _entryController.value = 1;
+        _presentationStarted = true;
+        _maybeResumeAutoRotation();
+      } else {
+        _resetPresentation();
+      }
     }
     if ((oldWidget.resetSignal ?? 0) != (widget.resetSignal ?? 0)) {
       _momentum.stop();
-      _camera.update(yaw: -.35, pitch: .12, scale: 1, entryScale: .86);
+      _camera.update(
+        yaw: -.35,
+        pitch: .12,
+        scale: 1,
+        entryScale: _entryStartScale,
+        entryYawOffset: _entryStartYawOffset,
+        entryArtworkOpacity: 0,
+      );
       _followYawOffset = 0;
       _followPitchOffset = 0;
       _showLabels = false;
@@ -304,11 +485,34 @@ class _GlobeMapState extends State<GlobeMap> with TickerProviderStateMixin {
       _selectedCoordinate = null;
       _resetPresentation();
     }
+    if (oldWidget.focusSignal != widget.focusSignal &&
+        widget.focusCoordinate != null) {
+      _focusCoordinate(widget.focusCoordinate!);
+    }
+    if (activeChanged && widget.active) {
+      // Preserve the exact final camera pose, then stage a temporary hero
+      // entrance around it. The rotation is an offset, not a camera reset.
+      _momentum.stop();
+      _focusController.stop();
+      _resetPresentation();
+      _startPresentationIfNeeded();
+    }
     if (!oldWidget.showRouteAnimationPlane && widget.showRouteAnimationPlane) {
       _followYawOffset = 0;
       _followPitchOffset = 0;
+      if (_entryController.isAnimating) {
+        _entryController.stop();
+        _entryController.value = 1;
+        _camera.update(
+          entryScale: 1,
+          entryYawOffset: 0,
+          entryArtworkOpacity: 1,
+        );
+      }
     }
-    if (_following) {
+    if (!widget.active) {
+      _pauseAutoRotation();
+    } else if (_following) {
       _pauseAutoRotation();
     } else {
       _maybeResumeAutoRotation();
@@ -317,8 +521,21 @@ class _GlobeMapState extends State<GlobeMap> with TickerProviderStateMixin {
 
   void _onScaleStart(ScaleStartDetails details) {
     if (_entryController.isAnimating) {
+      // Fold the transient hero transform into the real camera before handing
+      // control to the gesture, so the globe stays exactly under the finger.
+      final visualYaw = _wrappedAngle(_camera.yaw + _camera.entryYawOffset);
+      final visualScale = (_camera.scale * _camera.entryScale)
+          .clamp(.82, 2.5)
+          .toDouble();
       _entryController.stop();
       _entryController.value = 1;
+      _camera.update(
+        yaw: visualYaw,
+        scale: visualScale,
+        entryScale: 1,
+        entryYawOffset: 0,
+        entryArtworkOpacity: 1,
+      );
     }
     _presentationStarted = true;
     _pauseAutoRotation();
@@ -362,7 +579,7 @@ class _GlobeMapState extends State<GlobeMap> with TickerProviderStateMixin {
     _camera.update(
       yaw: nextYaw,
       pitch: nextPitch,
-      scale: (_startScale * details.scale).clamp(.82, 2.05).toDouble(),
+      scale: (_startScale * details.scale).clamp(.82, 2.5).toDouble(),
     );
   }
 
@@ -398,9 +615,15 @@ class _GlobeMapState extends State<GlobeMap> with TickerProviderStateMixin {
   ) => FutureBuilder<({GeoJsonMapBundle data, GlobeSurface surface})>(
     future: _future,
     builder: (context, snapshot) {
+      // Globe mode is an independent visual world. The app theme still owns
+      // the surrounding controls, while the Earth keeps natural day/night
+      // colors in both Ice White and Dark Night Green.
+      const lightPalette = false;
       if (snapshot.connectionState != ConnectionState.done) {
-        return const ColoredBox(
-          color: Color(0xff0b1015),
+        return ColoredBox(
+          color: lightPalette
+              ? const Color(0xfff6f1ed)
+              : const Color(0xff000000),
           child: Center(
             child: SizedBox(
               width: 22,
@@ -411,10 +634,19 @@ class _GlobeMapState extends State<GlobeMap> with TickerProviderStateMixin {
         );
       }
       if (snapshot.hasError || snapshot.data == null) {
-        return const ColoredBox(
-          color: Color(0xff0b1015),
+        return ColoredBox(
+          color: lightPalette
+              ? const Color(0xfff6f1ed)
+              : const Color(0xff000000),
           child: Center(
-            child: Text('地球加载失败', style: TextStyle(color: Color(0xfff4f6f8))),
+            child: Text(
+              '地球加载失败',
+              style: TextStyle(
+                color: lightPalette
+                    ? const Color(0xff24324f)
+                    : AppThemeColors.dark.textPrimary,
+              ),
+            ),
           ),
         );
       }
@@ -453,10 +685,13 @@ class _GlobeMapState extends State<GlobeMap> with TickerProviderStateMixin {
             airports: widget.airports,
             routes: widget.routes,
             places: widget.places,
+            userLocation: widget.userLocation,
             camera: _camera,
+            solarPosition: _solarPosition,
             routeAnimationProgress: widget.routeAnimationProgress,
             showRouteAnimationPlane: widget.showRouteAnimationPlane,
             drawBackdrop: false,
+            lightPalette: lightPalette,
             showLabels: _showLabels,
             selectedLabel: _selectedLabel,
             selectedCoordinate: _selectedCoordinate,
@@ -491,8 +726,10 @@ class _GlobeMapState extends State<GlobeMap> with TickerProviderStateMixin {
             child: Stack(
               fit: StackFit.expand,
               children: [
-                const RepaintBoundary(
-                  child: CustomPaint(painter: GlobeBackdropPainter()),
+                RepaintBoundary(
+                  child: CustomPaint(
+                    painter: GlobeBackdropPainter(lightPalette: lightPalette),
+                  ),
                 ),
                 RepaintBoundary(
                   child: CustomPaint(
@@ -520,6 +757,7 @@ class GlobePainter extends CustomPainter {
     this.routes = const [],
     this.places = const [],
     this.camera,
+    this.solarPosition = const SolarPosition(x: 0, y: 1, z: 0),
     this.yaw = 0,
     this.pitch = 0,
     this.scale = 1,
@@ -527,6 +765,8 @@ class GlobePainter extends CustomPainter {
     this.showRouteAnimationPlane = false,
     this.showLabels = false,
     this.drawBackdrop = true,
+    this.lightPalette = false,
+    this.userLocation,
     this.selectedLabel,
     this.selectedCoordinate,
   }) : super(repaint: camera);
@@ -538,6 +778,7 @@ class GlobePainter extends CustomPainter {
   final List<MapRoute> routes;
   final List<MapPlace> places;
   final GlobeCamera? camera;
+  final SolarPosition solarPosition;
   final double yaw;
   final double pitch;
   final double scale;
@@ -545,12 +786,15 @@ class GlobePainter extends CustomPainter {
   final bool showRouteAnimationPlane;
   final bool showLabels;
   final bool drawBackdrop;
+  final bool lightPalette;
+  final MapCoordinate? userLocation;
   final String? selectedLabel;
   final MapCoordinate? selectedCoordinate;
 
-  double get _yaw => camera?.yaw ?? yaw;
+  double get _yaw => (camera?.yaw ?? yaw) + (camera?.entryYawOffset ?? 0);
   double get _pitch => camera?.pitch ?? pitch;
   double get _scale => (camera?.scale ?? scale) * (camera?.entryScale ?? 1);
+  double get _artworkOpacity => camera?.entryArtworkOpacity ?? 1;
 
   // The fullscreen map receives both flight-derived airports and manually
   // visited places. In flight mode only airports that are actual endpoints
@@ -563,20 +807,44 @@ class GlobePainter extends CustomPainter {
     ],
   };
 
-  static const _routeColors = <Color>[
-    Color(0xff68b7ff),
-    Color(0xff68b7ff),
-    Color(0xff68b7ff),
-    Color(0xff68b7ff),
-    Color(0xff68b7ff),
+  // Keep the globe's route hue independent of the app theme, with enough
+  // chroma and depth to remain distinct over sunlit land and ocean.
+  static const _globeRouteColor = Color(0xff9682de);
+  static const _darkRouteColors = <Color>[
+    _globeRouteColor,
+    _globeRouteColor,
+    _globeRouteColor,
+    _globeRouteColor,
+    _globeRouteColor,
   ];
-  static const _travelColors = <Color>[
-    Color(0xff75688f),
-    Color(0xffc6ff32),
-    Color(0xff75dce9),
-    Color(0xffa58aff),
-    Color(0xfff6e68a),
+  static const _lightRouteColors = <Color>[
+    _globeRouteColor,
+    _globeRouteColor,
+    _globeRouteColor,
+    _globeRouteColor,
+    _globeRouteColor,
   ];
+  static const _darkPointColor = Color(0xffa8e85c);
+  static const _darkTravelColors = <Color>[
+    _darkPointColor,
+    _darkPointColor,
+    _darkPointColor,
+    _darkPointColor,
+    _darkPointColor,
+  ];
+  static const _lightTravelColors = <Color>[
+    Color(0xff78a2d2),
+    Color(0xff78a2d2),
+    Color(0xffeaf3b2),
+    Color(0xff78a2d2),
+    Color(0xffb4cbe7),
+  ];
+
+  List<Color> get _routeColors =>
+      lightPalette ? _lightRouteColors : _darkRouteColors;
+
+  List<Color> get _travelColors =>
+      lightPalette ? _lightTravelColors : _darkTravelColors;
 
   static final _routeGeometries = Expando<_GlobeRouteGeometry>();
 
@@ -594,7 +862,7 @@ class GlobePainter extends CustomPainter {
       48,
       math.min(180, (angle * 180 / math.pi).ceil()),
     );
-    final height = (angle / math.pi * .10).clamp(.008, .075).toDouble();
+    final height = (angle / math.pi * .065).clamp(.006, .050).toDouble();
     return _routeGeometries[route] = _GlobeRouteGeometry(
       start: start,
       end: end,
@@ -688,33 +956,50 @@ class GlobePainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    if (drawBackdrop) const GlobeBackdropPainter().paint(canvas, size);
-    final radius = math.min(size.width, size.height) * .39 * _scale;
+    if (drawBackdrop) {
+      GlobeBackdropPainter(lightPalette: lightPalette).paint(canvas, size);
+    }
+    final radius = math.min(size.width, size.height) * .43 * _scale;
     final projection = _GlobeProjection(
-      center: size.center(Offset.zero),
+      center: Offset(size.width / 2, size.height * .46),
       radius: radius,
       yaw: _yaw,
       pitch: _pitch,
     );
     final sphere = Path()..addOval(projection.bounds);
-    // A small radial falloff keeps the atmosphere outside the surface and
-    // avoids a full-screen blur pass while the camera moves.
+    // Keep the atmosphere as a broad, low-alpha falloff. The shader and the
+    // painted circle use the same radius so the glow can fade all the way out
+    // instead of being clipped into a hard outer ring.
+    final atmosphereRadius = radius * 1.20;
     canvas.drawCircle(
       projection.center,
-      radius * 1.09,
+      atmosphereRadius,
       Paint()
         ..shader =
-            const RadialGradient(
-              colors: [
-                Color(0x007cbfdc),
-                Color(0x007cbfdc),
-                Color(0x387cbfdc),
-                Color(0x147cbfdc),
-                Color(0x007cbfdc),
-              ],
-              stops: [0, .89, .918, .95, 1],
+            RadialGradient(
+              colors: lightPalette
+                  ? const [
+                      Color(0x0078a2d2),
+                      Color(0x0078a2d2),
+                      Color(0x0878a2d2),
+                      Color(0x1e78a2d2),
+                      Color(0x124f83b6),
+                      Color(0x0078a2d2),
+                    ]
+                  : const [
+                      Color(0x0078a2d2),
+                      Color(0x0078a2d2),
+                      Color(0x0878a2d2),
+                      Color(0x1e78a2d2),
+                      Color(0x124f83b6),
+                      Color(0x0078a2d2),
+                    ],
+              stops: const [0, .64, .78, .88, .96, 1],
             ).createShader(
-              Rect.fromCircle(center: projection.center, radius: radius * 1.09),
+              Rect.fromCircle(
+                center: projection.center,
+                radius: atmosphereRadius,
+              ),
             ),
     );
     final shader = surfaceShader;
@@ -726,9 +1011,16 @@ class GlobePainter extends CustomPainter {
         radius: radius,
         yaw: _yaw,
         pitch: _pitch,
+        solarPosition: solarPosition,
       );
     } else {
-      canvas.drawPath(sphere, Paint()..color = const Color(0xff102a3b));
+      canvas.drawPath(
+        sphere,
+        Paint()
+          ..color = lightPalette
+              ? const Color(0xff78a2d2)
+              : AppThemeColors.dark.surfaceDeep,
+      );
     }
 
     canvas.save();
@@ -745,6 +1037,7 @@ class GlobePainter extends CustomPainter {
     canvas.clipPath(sphere);
     _drawAirports(canvas, projection);
     _drawPlaces(canvas, projection);
+    _drawUserLocation(canvas, projection);
     if (showLabels) _drawAllLabels(canvas, projection);
     canvas.restore();
 
@@ -762,7 +1055,7 @@ class GlobePainter extends CustomPainter {
     canvas.drawPath(
       sphere,
       Paint()
-        ..color = const Color(0xff91cedb).withValues(alpha: .32)
+        ..color = const Color(0xff78a2d2).withValues(alpha: .42)
         ..style = PaintingStyle.stroke
         ..strokeWidth = .7,
     );
@@ -770,7 +1063,9 @@ class GlobePainter extends CustomPainter {
 
   void _drawGrid(Canvas canvas, _GlobeProjection projection) {
     final paint = Paint()
-      ..color = const Color(0xffaac0cb).withValues(alpha: .018)
+      ..color =
+          (lightPalette ? const Color(0xff78a2d2) : AppThemeColors.dark.border)
+              .withValues(alpha: (lightPalette ? .08 : .018) * _artworkOpacity)
       ..style = PaintingStyle.stroke
       ..strokeWidth = .7;
     for (var longitude = -180.0; longitude < 180; longitude += 30) {
@@ -799,7 +1094,7 @@ class GlobePainter extends CustomPainter {
         path,
         Paint()
           ..color = _routeColors[index % _routeColors.length].withValues(
-            alpha: route.isHighlight ? .88 : .48,
+            alpha: .78 * _artworkOpacity,
           )
           ..style = PaintingStyle.stroke
           // The globe already gives routes extra visual weight through
@@ -818,9 +1113,15 @@ class GlobePainter extends CustomPainter {
       if (mode == MapMode.flight && !_hasRenderedRoute(airport)) continue;
       final point = projection.project(airport.latitude, airport.longitude);
       if (point == null) continue;
-      final color = _routeColors[index % _routeColors.length];
+      const color = _darkPointColor;
       if (!_isAirportVisibleForPlayback(airport)) continue;
-      _drawGlowingMarker(canvas, point, color, coreRadius: 1.8);
+      _drawGlowingMarker(
+        canvas,
+        point,
+        color,
+        coreRadius: 1.8,
+        opacity: _artworkOpacity,
+      );
     }
   }
 
@@ -829,19 +1130,24 @@ class GlobePainter extends CustomPainter {
     Offset point,
     Color color, {
     required double coreRadius,
+    double opacity = 1,
   }) {
-    // Concentric alpha layers give the marker a soft halo without a blur pass.
+    // Keep flight and footprint points on one shared, restrained glow style.
     canvas.drawCircle(
       point,
-      coreRadius * 4.0,
-      Paint()..color = color.withValues(alpha: .055),
+      coreRadius * 3.4,
+      Paint()..color = color.withValues(alpha: .035 * opacity),
     );
     canvas.drawCircle(
       point,
-      coreRadius * 2.6,
-      Paint()..color = color.withValues(alpha: .14),
+      coreRadius * 2.2,
+      Paint()..color = color.withValues(alpha: .095 * opacity),
     );
-    canvas.drawCircle(point, coreRadius, Paint()..color = color);
+    canvas.drawCircle(
+      point,
+      coreRadius,
+      Paint()..color = color.withValues(alpha: opacity),
+    );
   }
 
   bool _isAirportVisibleForPlayback(MapAirport airport) {
@@ -870,9 +1176,45 @@ class GlobePainter extends CustomPainter {
       if (!place.isVisited) continue;
       final point = projection.project(place.latitude, place.longitude);
       if (point == null) continue;
-      final color = _travelColors[index % _travelColors.length];
-      _drawGlowingMarker(canvas, point, color, coreRadius: 2.5);
+      final color = lightPalette
+          ? _travelColors[index % _travelColors.length]
+          : _darkPointColor;
+      _drawGlowingMarker(
+        canvas,
+        point,
+        color,
+        coreRadius: 1.8,
+        opacity: _artworkOpacity,
+      );
     }
+  }
+
+  void _drawUserLocation(Canvas canvas, _GlobeProjection projection) {
+    final coordinate = userLocation;
+    if (coordinate == null) return;
+    final point = projection.project(coordinate.latitude, coordinate.longitude);
+    if (point == null) return;
+    const color = Color(0xff72b9ff);
+    canvas.drawCircle(
+      point,
+      12,
+      Paint()..color = color.withValues(alpha: .18 * _artworkOpacity),
+    );
+    canvas.drawCircle(
+      point,
+      6.5,
+      Paint()..color = Colors.white.withValues(alpha: _artworkOpacity),
+    );
+    canvas.drawCircle(
+      point,
+      4.5,
+      Paint()..color = color.withValues(alpha: _artworkOpacity),
+    );
+    canvas.drawCircle(
+      point,
+      1.6,
+      Paint()..color = Colors.white.withValues(alpha: _artworkOpacity),
+    );
   }
 
   void _drawAllLabels(Canvas canvas, _GlobeProjection projection) {
@@ -909,11 +1251,24 @@ class GlobePainter extends CustomPainter {
     final painter = TextPainter(
       text: TextSpan(
         text: name,
-        style: const TextStyle(
-          color: Color(0xfff4f6f8),
+        style: TextStyle(
+          color: lightPalette
+              ? const Color(0xff24324f).withValues(alpha: _artworkOpacity)
+              : AppThemeColors.dark.textPrimary.withValues(
+                  alpha: _artworkOpacity,
+                ),
           fontSize: 10,
           fontWeight: FontWeight.w500,
-          shadows: [Shadow(color: Color(0xff0b1015), blurRadius: 3)],
+          shadows: [
+            Shadow(
+              color: lightPalette
+                  ? const Color(0xfffdfdf5).withValues(alpha: _artworkOpacity)
+                  : AppThemeColors.dark.background.withValues(
+                      alpha: _artworkOpacity,
+                    ),
+              blurRadius: 3,
+            ),
+          ],
         ),
       ),
       textDirection: TextDirection.ltr,
@@ -958,11 +1313,24 @@ class GlobePainter extends CustomPainter {
       final painter = TextPainter(
         text: TextSpan(
           text: name,
-          style: const TextStyle(
-            color: Color(0xfff4f6f8),
+          style: TextStyle(
+            color: lightPalette
+                ? const Color(0xff24324f).withValues(alpha: _artworkOpacity)
+                : AppThemeColors.dark.textPrimary.withValues(
+                    alpha: _artworkOpacity,
+                  ),
             fontSize: 11,
             fontWeight: FontWeight.w600,
-            shadows: [Shadow(color: Color(0xff0b1015), blurRadius: 3)],
+            shadows: [
+              Shadow(
+                color: lightPalette
+                    ? const Color(0xfffdfdf5).withValues(alpha: _artworkOpacity)
+                    : AppThemeColors.dark.background.withValues(
+                        alpha: _artworkOpacity,
+                      ),
+                blurRadius: 3,
+              ),
+            ],
           ),
         ),
         textDirection: TextDirection.ltr,
@@ -983,8 +1351,12 @@ class GlobePainter extends CustomPainter {
     final painter = TextPainter(
       text: TextSpan(
         text: label,
-        style: const TextStyle(
-          color: Color(0xfff4f6f8),
+        style: TextStyle(
+          color: lightPalette
+              ? const Color(0xff24324f).withValues(alpha: _artworkOpacity)
+              : AppThemeColors.dark.textPrimary.withValues(
+                  alpha: _artworkOpacity,
+                ),
           fontSize: 12,
           fontWeight: FontWeight.w600,
         ),
@@ -1004,7 +1376,12 @@ class GlobePainter extends CustomPainter {
     final rect = Rect.fromLTWH(left, top, labelWidth, labelHeight);
     canvas.drawRRect(
       RRect.fromRectAndRadius(rect, const Radius.circular(10)),
-      Paint()..color = const Color(0xff101820),
+      Paint()
+        ..color = lightPalette
+            ? const Color(0xfffdfdf5).withValues(alpha: _artworkOpacity)
+            : AppThemeColors.dark.surfaceElevated.withValues(
+                alpha: _artworkOpacity,
+              ),
     );
     painter.paint(canvas, Offset(left + padding.left, top + padding.top));
   }
@@ -1551,6 +1928,9 @@ class GlobePainter extends CustomPainter {
       old.routes != routes ||
       old.places != places ||
       old.camera != camera ||
+      old.solarPosition.x != solarPosition.x ||
+      old.solarPosition.y != solarPosition.y ||
+      old.solarPosition.z != solarPosition.z ||
       old.yaw != yaw ||
       old.pitch != pitch ||
       old.scale != scale ||
@@ -1558,6 +1938,7 @@ class GlobePainter extends CustomPainter {
       old.showRouteAnimationPlane != showRouteAnimationPlane ||
       old.showLabels != showLabels ||
       old.drawBackdrop != drawBackdrop ||
+      old.userLocation != userLocation ||
       old.selectedLabel != selectedLabel ||
       old.selectedCoordinate != selectedCoordinate;
 }

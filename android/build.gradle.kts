@@ -1,5 +1,6 @@
 allprojects {
     repositories {
+        maven { url = uri("/private/tmp/ff-maven") }
         google()
         mavenCentral()
     }

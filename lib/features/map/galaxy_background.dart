@@ -10,23 +10,28 @@ import 'package:flutter/rendering.dart';
 /// this layer once prevents the full-screen background from being replayed on
 /// every drag, momentum, and idle-rotation frame.
 class GlobeBackdropPainter extends CustomPainter {
-  const GlobeBackdropPainter();
+  const GlobeBackdropPainter({this.lightPalette = false});
+
+  final bool lightPalette;
 
   @override
   void paint(Canvas canvas, Size size) {
-    const GalaxyBackgroundPainter().paint(canvas, size);
+    GalaxyBackgroundPainter(lightPalette: lightPalette).paint(canvas, size);
     canvas.drawRect(
       Offset.zero & size,
       Paint()
-        ..shader = const RadialGradient(
-          colors: [Color(0x9208182b), Color(0xF302050d)],
+        ..shader = RadialGradient(
+          colors: lightPalette
+              ? const [Color(0xB8FFFDF5), Color(0xEAF6F1ED)]
+              : const [Color(0x52070D16), Color(0xF8000000)],
           radius: .92,
         ).createShader(Offset.zero & size),
     );
   }
 
   @override
-  bool shouldRepaint(covariant GlobeBackdropPainter oldDelegate) => false;
+  bool shouldRepaint(covariant GlobeBackdropPainter oldDelegate) =>
+      oldDelegate.lightPalette != lightPalette;
 }
 
 /// Quiet, offline starlight for painting underneath an opaque globe.
@@ -35,27 +40,33 @@ class GlobeBackdropPainter extends CustomPainter {
 /// local coordinates, before painting the globe. Pictures use logical pixels;
 /// stars therefore stay fine on both phones and tablets without bitmap scaling.
 class GalaxyBackgroundPainter extends CustomPainter {
-  const GalaxyBackgroundPainter();
+  const GalaxyBackgroundPainter({this.lightPalette = false});
+
+  final bool lightPalette;
 
   // Retain portrait/landscape (or inline/fullscreen) without an unbounded cache.
-  static final Map<Size, ui.Picture> _pictures = <Size, ui.Picture>{};
+  static final Map<bool, Map<Size, ui.Picture>> _pictures = <bool, Map<Size, ui.Picture>>{
+    false: <Size, ui.Picture>{},
+    true: <Size, ui.Picture>{},
+  };
 
   @override
   void paint(Canvas canvas, Size size) {
     if (size.isEmpty || !size.width.isFinite || !size.height.isFinite) return;
 
-    var picture = _pictures.remove(size);
+    final cache = _pictures[lightPalette]!;
+    var picture = cache.remove(size);
     if (picture == null) {
       final recorder = ui.PictureRecorder();
       final background = Canvas(recorder);
       background.clipRect(Offset.zero & size);
-      _paintDust(background, size);
-      _paintStars(background, size);
+      _paintDust(background, size, lightPalette: lightPalette);
+      _paintStars(background, size, lightPalette: lightPalette);
       picture = recorder.endRecording();
     }
-    _pictures[size] = picture;
-    if (_pictures.length > 2) {
-      _pictures.remove(_pictures.keys.first)!.dispose();
+    cache[size] = picture;
+    if (cache.length > 2) {
+      cache.remove(cache.keys.first)!.dispose();
     }
     canvas.drawPicture(picture);
   }
@@ -94,10 +105,17 @@ class GalaxyBackgroundPainter extends CustomPainter {
     return math.exp(-normalized * normalized);
   }
 
-  static void _paintDust(Canvas canvas, Size size) {
+  static void _paintDust(
+    Canvas canvas,
+    Size size, {
+    required bool lightPalette,
+  }) {
     canvas.drawRect(
       Offset.zero & size,
-      Paint()..color = const Color(0xff030610),
+      Paint()
+        ..color = lightPalette
+            ? const Color(0xfff6f1ed)
+            : const Color(0xff000000),
     );
 
     // One opaque, interpolated mesh: soft detail without layers, blur, or seams.
@@ -134,9 +152,15 @@ class GalaxyBackgroundPainter extends CustomPainter {
             (0.58 + grain * 0.42) *
             (1 - lane * 0.76);
         final lilac = _noise(along * 2 + 103, across * 5 + 41);
-        final red = (3 + veil * 2 + light * (24 + lilac * 14)).round();
-        final green = (6 + veil * 3 + light * (27 - lilac * 5)).round();
-        final blue = (16 + veil * 5 + light * (46 + lilac * 9)).round();
+        final red = lightPalette
+            ? (227 + veil * 4 + light * (12 + lilac * 5)).round()
+            : (4 + veil * 2 + light * (20 + lilac * 10)).round();
+        final green = lightPalette
+            ? (233 + veil * 4 + light * (13 - lilac * 3)).round()
+            : (10 + veil * 3 + light * (31 - lilac * 5)).round();
+        final blue = lightPalette
+            ? (237 + veil * 5 + light * (14 + lilac * 5)).round()
+            : (12 + veil * 5 + light * (31 + lilac * 7)).round();
         colors[index] = (0xff << 24) | (red << 16) | (green << 8) | blue;
       }
     }
@@ -166,11 +190,18 @@ class GalaxyBackgroundPainter extends CustomPainter {
     );
   }
 
-  static void _paintStars(Canvas canvas, Size size) {
+  static void _paintStars(
+    Canvas canvas,
+    Size size, {
+    required bool lightPalette,
+  }) {
     final random = math.Random(0x47a1a9);
     final unit = size.shortestSide;
     final area = size.width * size.height;
-    final count = (area / 150).round().clamp(700, 5200);
+    // Keep the field visibly populated outside the Milky Way band as well.
+    // This is recorded once per viewport size, so the denser sky stays cheap
+    // during globe rotation and gestures.
+    final count = (area / 56).round().clamp(1600, 14000);
     final groups = List<List<Offset>>.generate(4, (_) => <Offset>[]);
 
     // Rejection sampling leaves a dense, irregular band and quiet outer space.
@@ -184,10 +215,10 @@ class GalaxyBackgroundPainter extends CustomPainter {
       final y = (point.dy - size.height * 0.5) / unit;
       final across = _across(x, y);
       final density =
-          0.10 +
-          0.84 *
-              _bell(across, 0.21) *
-              (0.55 + 0.45 * _noise(x * 9 + 47, y * 9 + 13));
+          0.22 +
+          0.78 *
+              _bell(across, 0.22) *
+              (0.58 + 0.42 * _noise(x * 9 + 47, y * 9 + 13));
       if (random.nextDouble() > density) continue;
       final brightness = random.nextDouble();
       final group = brightness < 0.65
@@ -200,12 +231,19 @@ class GalaxyBackgroundPainter extends CustomPainter {
       groups[group].add(point);
     }
 
-    const colors = <Color>[
-      Color(0x597f91b9),
-      Color(0x889baecc),
-      Color(0xadafc8e7),
-      Color(0xc7e1d4c0),
-    ];
+    final colors = lightPalette
+        ? const <Color>[
+            Color(0x24929db1),
+            Color(0x3a7f8aa0),
+            Color(0x4d68758d),
+            Color(0x5f596680),
+          ]
+        : const <Color>[
+            Color(0x6d7d8799),
+            Color(0x9b9aa8bb),
+            Color(0xbfc0cede),
+            Color(0xdceaf2fb),
+          ];
     const widths = <double>[0.50, 0.65, 0.85, 1.05];
     final paint = Paint()..strokeCap = StrokeCap.round;
     for (var group = 0; group < groups.length; group++) {
@@ -216,29 +254,38 @@ class GalaxyBackgroundPainter extends CustomPainter {
     }
 
     // A handful of brighter suns, with minute soft shoulders and no starbursts.
-    final brightCount = (area / 38000).round().clamp(5, 22);
+    final brightCount = (area / 25000).round().clamp(8, 38);
     for (var index = 0; index < brightCount; index++) {
       final point = Offset(
         random.nextDouble() * size.width,
         random.nextDouble() * size.height,
       );
       final warm = random.nextDouble() < 0.35;
-      final tint = warm ? const Color(0xffecd8b9) : const Color(0xffc7dcf5);
+      final tint = lightPalette
+          ? const Color(0xff6f7d9a)
+          : warm
+          ? const Color(0xffecd8b9)
+          : const Color(0xffb6a9e8);
       final radius = 0.45 + random.nextDouble() * 0.25;
       canvas.drawCircle(
         point,
         radius * 2.4,
-        Paint()..color = tint.withAlpha(12),
+        Paint()..color = tint.withAlpha(lightPalette ? 7 : 12),
       );
       canvas.drawCircle(
         point,
         radius * 1.5,
-        Paint()..color = tint.withAlpha(30),
+        Paint()..color = tint.withAlpha(lightPalette ? 16 : 30),
       );
-      canvas.drawCircle(point, radius, Paint()..color = tint.withAlpha(190));
+      canvas.drawCircle(
+        point,
+        radius,
+        Paint()..color = tint.withAlpha(lightPalette ? 90 : 190),
+      );
     }
   }
 
   @override
-  bool shouldRepaint(covariant GalaxyBackgroundPainter oldDelegate) => false;
+  bool shouldRepaint(covariant GalaxyBackgroundPainter oldDelegate) =>
+      oldDelegate.lightPalette != lightPalette;
 }

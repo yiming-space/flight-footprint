@@ -28,6 +28,8 @@
 	<true/>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>用于读取照片的拍摄位置，快速添加旅行足迹。</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>点击地图定位按钮时，用于将地图移动到你当前所在位置。</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

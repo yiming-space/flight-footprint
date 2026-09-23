@@ -1,5 +1,6 @@
 import 'dart:ui' as ui;
 
+import 'package:flight_footprint/core/localization/app_strings.dart';
 import 'package:flight_footprint/features/map/map.dart';
 import 'package:flight_footprint/features/map/map_projection.dart';
 import 'package:flutter/material.dart';
@@ -100,6 +101,7 @@ void main() {
     tester,
   ) async {
     Widget app(double width) => MaterialApp(
+      localizationsDelegates: const [AppStringsDelegate()],
       home: SizedBox(
         width: width,
         child: const MapFullscreenPage(

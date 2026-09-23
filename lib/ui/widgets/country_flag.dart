@@ -54,7 +54,7 @@ class CountryFlag extends StatelessWidget {
                 child: DecoratedBox(
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    border: Border.all(color: colors.textSecondary, width: .8),
+                    border: Border.all(color: colors.border, width: .8),
                   ),
                 ),
               ),

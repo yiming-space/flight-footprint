@@ -1,21 +1,21 @@
 # 航迹 · Flight Footprint
 
-一个独立、离线、本地优先的 Flutter 飞行记录应用。当前 Android 优化版为 `1.1.6`，数据无需登录即可记录在设备内；云同步和版本检查都是可选的自建能力。
+一个独立、离线、本地优先的 Flutter 飞行记录应用。Android 最新版为 `1.2.0`；记录保存在设备内，无需登录。云同步是可选的自建能力，版本检查需要联网。
 
-<img width="4500" height="2000" alt="app00" src="https://github.com/user-attachments/assets/6dfe0337-5632-4911-b3c7-10347d550a13" />
+![Flight Footprint v1.2.0：平面航线地图、地球模式与飞行护照卡](docs/images/flight-footprint-v1.2.0-showcase.png)
 
-## 1.1.6 功能
+*Android 模拟器实拍 · 深色主题*
 
-- 飞行地图 / 旅行足迹离线切换，支持平面地图与可旋转、缩放的地球模式
-- 平面地图和地球模式支持航线动画、机场点选、地名显示、国界线与星空背景
-- 航线动画按飞行时间顺序播放，飞机跟随航线移动，动画结束后保留目的地信息
-- 旅行足迹按国家 / 地区与行政区统计，点亮已到访板块并支持香港、澳门、台湾等地区规则
-- 航班快速记录、年份筛选与长按删除
-- 总里程、机场、机型、航司、城市与国家 / 地区统计
+## 主要功能
+
+- 飞行地图与旅行足迹切换；平面地图支持缩放、拖动、点选和定位，地球模式支持真实昼夜、旋转与航线动画
+- 旅行足迹按国家 / 地区与中国行政区统计；平面地图点亮已到访板块，地球模式显示足迹点
+- 航班记录支持年份筛选、搜索、编辑、删除，以及机场和航班信息自动补全
+- 统计总里程、飞行时间、航班、机场、航线、机型、航司、城市与国家 / 地区，并生成可保存或分享的飞行护照卡
 - SQLite 本地数据存储
 - JSON 备份导出与恢复导入（兼容网页版导出记录）
 - 中文 / English 全局切换
-- 关于页自动检查 GitHub 最新发布，发现新版本时提示；Android 下载 APK，macOS 下载并打开 DMG
+- 「我的」页面提供版本检查；Android 可下载新版 APK，macOS 可下载并打开 DMG
 - 航空公司与航班号必填，可选通过 ADSBdb / FlightBoard 兼容路线源自动补全
 - 可选连接自建 Cloudflare Worker + D1，支持本地覆盖云端与云端恢复到本地
 - macOS 桌面端采用侧栏 + 工作区布局，适配大屏窗口
@@ -27,8 +27,8 @@
   <tr>
     <td width="50%" valign="top">
       <h3>Android</h3>
-      <p>APK · v1.1.6 · 本地优先</p>
-      <a href="https://github.com/yiming-space/flight-footprint/releases/download/v1.1.6/app-release.apk">
+      <p>APK · v1.2.0 · 本地优先</p>
+      <a href="https://github.com/yiming-space/flight-footprint/releases/download/v1.2.0/app-release.apk">
         <img alt="下载 Android APK" src="https://img.shields.io/badge/下载_Android_APK-9BEA3D?style=for-the-badge&logo=android&logoColor=0B1017&labelColor=0B1017" />
       </a>
     </td>
@@ -64,7 +64,7 @@ flutter run
 - 地图、机场坐标和行政区数据均随安装包离线提供。
 - 机场索引由 [OurAirports 公共机场数据](https://ourairports.com/data/) 生成，保留 IATA、ICAO、正式名、行政城市、机场类型、定期航班标记和别名；生成脚本为 `tool/generate_airport_index.py`。
 - 索引保留上一个版本中已移除的 IATA 别名，避免历史记录因数据源更新而失去坐标。
-- 1.1.6 的核心记录功能不要求账号、配对码或网络；更新检查仅在进入关于页或用户主动点击时联网。
+- 1.2.0 的核心记录功能不要求账号、配对码或网络；进入「我的」页面检查更新及手动检查时需要联网。
 - 未连接云端时完全离线可用；连接云端也不会改变 SQLite 本地数据源。
 
 ## 可选云端同步

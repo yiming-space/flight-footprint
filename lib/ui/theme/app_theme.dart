@@ -186,10 +186,23 @@ abstract final class AppColors {
   static const lime = Color(0xFFA8E85C);
   static const purple = Color(0xFF9274FF);
   static const routePurple = Color(0xFFA39AD6);
+  static const routePurpleLight = Color(0xFFA89FD4);
   static const routePurpleDeep = Color(0xFF6E648F);
   static const flightArrival = Color(0xFF7B66B5);
   static const mapBlueDeep = Color(0xFF6F8FB5);
   static const mapLavender = Color(0xFF8E82B9);
+  // Visited regions stay quiet beneath the brighter city markers.
+  static const footprintRegionDark = Color(0xFF65734F);
+  static const footprintRegionLight = Color(0xFFCDD3F0);
+  // Shared detailed/offline night basemap: a slight cool bias keeps the gray
+  // geography aligned with the app's surfaces without reading as blue land.
+  static const detailMapNightLand = Color(0xFF404345);
+  static const detailMapNightWater = Color(0xFF131517);
+  static const detailMapNightLandcover = Color(0xFF494C4E);
+  static const detailMapNightBoundary = Color(0xFF7A7D80);
+  static const detailMapNightRoad = Color(0xFF727679);
+  static const detailMapNightLabel = Color(0xFFE0E0E0);
+  static const detailMapNightWaterLabel = Color(0xFFBEBEBE);
   static const danger = Color(0xFFFF7A7A);
 }
 

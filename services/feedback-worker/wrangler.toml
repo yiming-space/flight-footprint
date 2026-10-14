@@ -1,0 +1,15 @@
+name = "flight-footprint-feedback"
+main = "src/index.mjs"
+compatibility_date = "2026-10-01"
+
+[vars]
+GITHUB_OWNER = "yiming-space"
+GITHUB_REPO = "flight-footprint"
+
+[[durable_objects.bindings]]
+name = "FEEDBACK_STATE"
+class_name = "FeedbackState"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["FeedbackState"]

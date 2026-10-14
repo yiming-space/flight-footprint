@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'flat_map_painter.dart';
+import 'detail_map.dart';
 import 'geojson_map_data.dart';
 import 'globe_map.dart';
 import 'map_explorer_controls.dart';
@@ -50,6 +51,8 @@ class OfflineMap extends StatefulWidget {
     this.onMapTap,
     this.onSelection,
     this.onInteractionChanged,
+    this.initialCamera,
+    this.onCameraChanged,
     this.onPlaceLongPress,
     this.loader = const GeoJsonMapLoader(),
   });
@@ -173,6 +176,10 @@ class OfflineMap extends StatefulWidget {
   final ValueChanged<MapCoordinate>? onMapTap;
   final ValueChanged<MapSelection>? onSelection;
   final ValueChanged<bool>? onInteractionChanged;
+
+  /// Restores the geographic camera when switching between basemap engines.
+  final MapCamera? initialCamera;
+  final ValueChanged<MapCamera>? onCameraChanged;
   final Future<void> Function(List<MapPlace> candidates)? onPlaceLongPress;
   final GeoJsonMapLoader loader;
 
@@ -190,6 +197,10 @@ class MapFullscreenPage extends StatefulWidget {
     required this.routes,
     required this.places,
     this.initialGlobeMode = false,
+    this.initialDetailedMap = false,
+    this.userLocation,
+    this.initialDetailCamera,
+    this.onDetailCameraChanged,
     this.onAddPlace,
     this.onPlaceLongPress,
     this.placesListenable,
@@ -203,6 +214,10 @@ class MapFullscreenPage extends StatefulWidget {
   final List<MapRoute> routes;
   final List<MapPlace> places;
   final bool initialGlobeMode;
+  final bool initialDetailedMap;
+  final MapCoordinate? userLocation;
+  final DetailMapCamera? initialDetailCamera;
+  final ValueChanged<DetailMapCamera>? onDetailCameraChanged;
   final Future<void> Function(BuildContext context)? onAddPlace;
   final Future<void> Function(List<MapPlace> candidates)? onPlaceLongPress;
   final Listenable? placesListenable;
@@ -222,6 +237,8 @@ class _MapFullscreenPageState extends State<MapFullscreenPage>
   bool _landscape = false;
   bool _orientationChanging = false;
   bool _globeMode = false;
+  bool _detailedMap = false;
+  DetailMapCamera? _detailCamera;
   bool _routeAnimationStarted = false;
   bool _mapInteracting = false;
   int _viewReset = 0;
@@ -256,6 +273,8 @@ class _MapFullscreenPageState extends State<MapFullscreenPage>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _globeMode = widget.initialGlobeMode;
+    _detailedMap = widget.initialDetailedMap && DetailMap.supported;
+    _detailCamera = widget.initialDetailCamera;
     _places = widget.places;
     _animationRoutes = _deduplicateRoutes(widget.routes);
     _animationRouteSignature = _routeSignature(_animationRoutes);
@@ -522,34 +541,32 @@ class _MapFullscreenPageState extends State<MapFullscreenPage>
                         enabled: !_globeMode,
                         child: IgnorePointer(
                           ignoring: _globeMode,
-                          child: OfflineMap(
-                            key: ValueKey('flat-$_viewReset'),
-                            mode: widget.mode,
-                            airports: widget.airports,
-                            routes: _animationRoutes,
-                            places: _places,
-                            // Center the first frame on the recorded routes or
-                            // cities. The complete-world vertical extent
-                            // remains the minimum zoom, so the user can always
-                            // pinch back out to the whole map.
-                            fitToData: true,
-                            fillViewportHeight: true,
-                            fitZoomMultiplier: 1,
-                            enableInteraction: true,
-                            horizontalWrap: true,
-                            routeAnimationProgress: _routeController.value,
-                            showRouteAnimationPlane: _routeAnimationStarted,
-                            onInteractionChanged: _handleMapInteraction,
-                            // Fullscreen flat maps follow the selected app
-                            // theme; the light palette keeps the map readable
-                            // without losing the existing interactions.
-                            useLightPalette: null,
-                            onPlaceLongPress: widget.onPlaceLongPress,
-                            onSelection: widget.onSelection == null
-                                ? null
-                                : (selection) =>
-                                      widget.onSelection!(context, selection),
-                          ),
+                          child: _detailedMap && !_globeMode
+                              ? DetailMap(
+                                  key: ValueKey('detail-$_viewReset'),
+                                  headerTopOffset: 56,
+                                  initialCamera: _detailCamera,
+                                  onCameraChanged: (camera) {
+                                    _detailCamera = camera;
+                                    widget.onDetailCameraChanged?.call(camera);
+                                  },
+                                  mode: widget.mode,
+                                  airports: widget.airports,
+                                  routes: _animationRoutes,
+                                  places: _places,
+                                  userLocation: widget.userLocation,
+                                  fallback: _offlineFlatMap(),
+                                  onUseOffline: () =>
+                                      setState(() => _detailedMap = false),
+                                  onPlaceLongPress: widget.onPlaceLongPress,
+                                  onSelection: widget.onSelection == null
+                                      ? null
+                                      : (selection) => widget.onSelection!(
+                                          context,
+                                          selection,
+                                        ),
+                                )
+                              : _offlineFlatMap(),
                         ),
                       ),
                     ),
@@ -563,13 +580,12 @@ class _MapFullscreenPageState extends State<MapFullscreenPage>
                             active: _globeMode,
                             resetSignal: _viewReset,
                             mode: widget.mode,
-                            // Travel footprint globe shows visited places only;
-                            // flight arcs belong exclusively to flight mode.
                             routes: widget.mode == MapMode.flight
                                 ? _animationRoutes
                                 : const [],
                             airports: widget.airports,
                             places: _places,
+                            userLocation: widget.userLocation,
                             routeAnimationProgress: _routeController.value,
                             showRouteAnimationPlane: _routeAnimationStarted,
                             onInteractionChanged: _handleMapInteraction,
@@ -592,7 +608,9 @@ class _MapFullscreenPageState extends State<MapFullscreenPage>
                 minimum: const EdgeInsets.all(12),
                 child: MapExplorerGlass(
                   blurEnabled:
-                      !_mapInteracting && !_routeController.isAnimating,
+                      !_detailedMap &&
+                      !_mapInteracting &&
+                      !_routeController.isAnimating,
                   child: MapExplorerButton(
                     label: strings.t('close'),
                     icon: Icons.close_rounded,
@@ -610,11 +628,18 @@ class _MapFullscreenPageState extends State<MapFullscreenPage>
                 builder: (context, _) {
                   final hasRoutes =
                       widget.mode == MapMode.flight &&
-                      _animationRoutes.isNotEmpty;
+                      _animationRoutes.isNotEmpty &&
+                      (!_detailedMap || _globeMode);
                   return MapExplorerControls(
                     globeMode: _globeMode,
+                    detailedMap: _detailedMap,
+                    onToggleBasemap: DetailMap.supported
+                        ? () => setState(() => _detailedMap = !_detailedMap)
+                        : null,
                     mapInteracting:
-                        _mapInteracting || _routeController.isAnimating,
+                        _detailedMap ||
+                        _mapInteracting ||
+                        _routeController.isAnimating,
                     landscape: _landscape,
                     onModeChanged: (globe) {
                       if (_globeMode != globe) {
@@ -626,7 +651,10 @@ class _MapFullscreenPageState extends State<MapFullscreenPage>
                             (!Platform.isAndroid && !Platform.isIOS)
                         ? null
                         : _toggleLandscape,
-                    onReset: () => setState(() => _viewReset++),
+                    onReset: () => setState(() {
+                      _detailCamera = null;
+                      _viewReset++;
+                    }),
                     onPlayback: hasRoutes ? _toggleRouteAnimation : null,
                     playbackLabel: _routeAnimationTooltip(strings),
                     playbackIcon: _routeAnimationIcon,
@@ -648,6 +676,42 @@ class _MapFullscreenPageState extends State<MapFullscreenPage>
       ),
     );
   }
+
+  Widget _offlineFlatMap() => OfflineMap(
+    key: ValueKey('flat-$_viewReset'),
+    mode: widget.mode,
+    airports: widget.airports,
+    routes: _animationRoutes,
+    places: _places,
+    // Center the first frame on the recorded routes or
+    // cities. The complete-world vertical extent
+    // remains the minimum zoom, so the user can always
+    // pinch back out to the whole map.
+    fitToData: true,
+    fillViewportHeight: true,
+    fitZoomMultiplier: 1,
+    enableInteraction: true,
+    horizontalWrap: true,
+    userLocation: widget.userLocation,
+    initialCamera: _detailCamera,
+    onCameraChanged: (camera) {
+      if (!_detailedMap && !_globeMode) {
+        _detailCamera = camera;
+        widget.onDetailCameraChanged?.call(camera);
+      }
+    },
+    routeAnimationProgress: _routeController.value,
+    showRouteAnimationPlane: _routeAnimationStarted,
+    onInteractionChanged: _handleMapInteraction,
+    // Fullscreen flat maps follow the selected app
+    // theme; the light palette keeps the map readable
+    // without losing the existing interactions.
+    useLightPalette: null,
+    onPlaceLongPress: widget.onPlaceLongPress,
+    onSelection: widget.onSelection == null
+        ? null
+        : (selection) => widget.onSelection!(context, selection),
+  );
 }
 
 class _OfflineMapState extends State<OfflineMap> with TickerProviderStateMixin {
@@ -671,6 +735,9 @@ class _OfflineMapState extends State<OfflineMap> with TickerProviderStateMixin {
   // The interaction floor belongs to the complete map viewport, not to the
   // currently visited routes or cities. It is refreshed for each orientation.
   double _minScale = 1;
+  double _maxScale = 20;
+  MapCamera? _pendingCamera;
+  MapCamera? _lastReportedCamera;
   Size? _lastMapSize;
   MillerProjectionViewport? _projectionViewport;
   FlatMapPainter? _lastPainter;
@@ -696,6 +763,7 @@ class _OfflineMapState extends State<OfflineMap> with TickerProviderStateMixin {
   void initState() {
     super.initState();
     _transform = TransformationController();
+    _pendingCamera = widget.initialCamera;
     _sceneScaleNotifier = ValueNotifier(_sceneScale);
     _transform.addListener(_onTransformChanged);
     _ensureAnimations();
@@ -770,10 +838,11 @@ class _OfflineMapState extends State<OfflineMap> with TickerProviderStateMixin {
         !_interactionActive) {
       _normalizeHorizontalPan(_lastMapSize);
     }
-    final scale = _transform.value
-        .getMaxScaleOnAxis()
-        .clamp(_minScale, 20.0)
+    final scale = _transform.value.storage[0]
+        .abs()
+        .clamp(_minScale, _maxScale)
         .toDouble();
+    _publishCamera();
     if (_interactionActive) {
       _sceneScale = scale;
       return;
@@ -801,11 +870,28 @@ class _OfflineMapState extends State<OfflineMap> with TickerProviderStateMixin {
     _syncSceneScale();
   }
 
+  void _publishCamera() {
+    final size = _lastMapSize;
+    if (widget.onCameraChanged == null ||
+        !_hasPresentedFit ||
+        size == null ||
+        size.isEmpty ||
+        _normalizingHorizontalPan) {
+      return;
+    }
+    final camera = MapCamera.fromOffline(
+      _projectionFor(size),
+      _transform.value,
+    );
+    _lastReportedCamera = camera;
+    widget.onCameraChanged!(camera);
+  }
+
   void _syncSceneScale() {
     if (!mounted) return;
-    final scale = _transform.value
-        .getMaxScaleOnAxis()
-        .clamp(_minScale, 20.0)
+    final scale = _transform.value.storage[0]
+        .abs()
+        .clamp(_minScale, _maxScale)
         .toDouble();
     _sceneScale = scale;
     final notifier = _sceneScaleListenable;
@@ -967,8 +1053,8 @@ class _OfflineMapState extends State<OfflineMap> with TickerProviderStateMixin {
         MediaQuery.disableAnimationsOf(context)) {
       _fitAnimation?.stop();
       _fitAnimationActive = false;
-      _transform.value = target;
       _hasPresentedFit = true;
+      _transform.value = target;
       return;
     }
 
@@ -1012,9 +1098,9 @@ class _OfflineMapState extends State<OfflineMap> with TickerProviderStateMixin {
           projected = Offset(projected.dx - copies * worldWidth, projected.dy);
         }
       }
-      final scale = _transform.value
-          .getMaxScaleOnAxis()
-          .clamp(_minScale, 20.0)
+      final scale = _transform.value.storage[0]
+          .abs()
+          .clamp(_minScale, _maxScale)
           .toDouble();
       final baseX = (1 - scale) * size.width / 2;
       final baseY = (1 - scale) * size.height / 2;
@@ -1039,6 +1125,13 @@ class _OfflineMapState extends State<OfflineMap> with TickerProviderStateMixin {
   @override
   void didUpdateWidget(covariant OfflineMap oldWidget) {
     super.didUpdateWidget(oldWidget);
+    final camera = widget.initialCamera;
+    if (camera != null &&
+        !camera.matches(oldWidget.initialCamera) &&
+        !camera.matches(_lastReportedCamera)) {
+      _pendingCamera = camera;
+      _invalidateFit();
+    }
     final modeChanged = oldWidget.mode != widget.mode;
     if (oldWidget.assetPath != widget.assetPath ||
         oldWidget.loader != widget.loader) {
@@ -1205,7 +1298,7 @@ class _OfflineMapState extends State<OfflineMap> with TickerProviderStateMixin {
               // explore closer, but a pinch-out can never shrink the world map
               // below the viewport-filling baseline (recomputed on rotation).
               minScale: _minScale,
-              maxScale: 20,
+              maxScale: _maxScale,
               boundaryMargin: _boundaryMargin(mapSize),
               onInteractionStart: (_) {
                 _interactionActive = true;
@@ -1356,7 +1449,7 @@ class _OfflineMapState extends State<OfflineMap> with TickerProviderStateMixin {
     final worldWidth = _worldPixelWidth(size);
     if (worldWidth <= 0) return;
     final matrix = _transform.value;
-    final scale = matrix.getMaxScaleOnAxis();
+    final scale = matrix.storage[0].abs();
     if (!scale.isFinite || scale <= 0) return;
     final baseTranslation = (1 - scale) * size.width / 2;
     var pan = matrix.storage[12] - baseTranslation;
@@ -1383,15 +1476,34 @@ class _OfflineMapState extends State<OfflineMap> with TickerProviderStateMixin {
     // This deliberately allows horizontal cropping in portrait orientation:
     // the user's requested reference is a map that reaches both top and
     // bottom edges, not a distorted world stretched to the phone's shape.
+    final projection = _projectionFor(size);
+    final sharedCamera =
+        widget.initialCamera != null || widget.onCameraChanged != null;
     _minScale = _interactionFloor(size);
+    _maxScale = sharedCamera
+        ? math.max(20, 512 * math.pow(2, 17) / projection.worldPixelWidth)
+        : 20;
     final previousSize = _lastFittedMapSize;
     _lastFittedMapSize = size;
     final viewportChanged = previousSize != null && previousSize != size;
     final preserveCameraOnResize =
         viewportChanged && sameFitRevision && _hasPresentedFit;
-    final matrix = preserveCameraOnResize
-        ? _resizedCameraMatrix(previousSize!, size)
+    final camera =
+        _pendingCamera ??
+        (preserveCameraOnResize && sharedCamera
+            ? MapCamera.fromOffline(
+                _projectionFor(previousSize),
+                _transform.value,
+              )
+            : null);
+    final matrix = camera != null
+        ? camera.toOffline(projection)
+        : preserveCameraOnResize
+        ? _resizedCameraMatrix(previousSize, size)
         : _fitMatrix(size, points);
+    if (sharedCamera) {
+      _minScale = math.min(_minScale, 512 / projection.worldPixelWidth);
+    }
     final fitToken = ++_pendingFitToken;
     _pendingFitMatrix = Matrix4.copy(matrix);
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -1400,11 +1512,12 @@ class _OfflineMapState extends State<OfflineMap> with TickerProviderStateMixin {
           _lastFittedMapSize == size &&
           _pendingFitToken == fitToken) {
         _pendingFitMatrix = null;
+        _pendingCamera = null;
         // During a rotation Android is already animating the window bounds.
         // Do not add a second camera interpolation between portrait and
         // landscape matrices; the old matrix can temporarily leave the map
         // stranded at one edge of the newly shaped viewport.
-        _presentFit(matrix, animate: !viewportChanged);
+        _presentFit(matrix, animate: camera == null && !viewportChanged);
       }
     });
   }

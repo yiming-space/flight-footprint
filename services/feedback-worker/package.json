@@ -1,0 +1,11 @@
+{
+  "name": "flight-footprint-feedback-worker",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}

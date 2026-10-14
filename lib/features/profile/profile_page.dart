@@ -24,6 +24,7 @@ import '../../data/airport_localization.dart';
 import '../../domain/flight.dart';
 import '../../ui/theme/app_theme.dart';
 import '../../ui/widgets/widgets.dart';
+import 'feedback_page.dart';
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({
@@ -528,6 +529,20 @@ class _ProfilePageState extends State<ProfilePage> {
               wide: true,
               onTap: () => _editTravellerName(context),
             ),
+            const _ProfileGroupDivider(),
+            _ProfileActionTile(
+              title: s.t('feedbackTitle'),
+              subtitle: s.t('feedbackEntryHint'),
+              icon: Icons.chat_bubble_outline_rounded,
+              color: colors.lime,
+              backgroundColor: Colors.transparent,
+              textColor: textColor,
+              secondaryTextColor: secondaryColor,
+              wide: true,
+              onTap: () => Navigator.of(context).push<void>(
+                MaterialPageRoute(builder: (_) => const FeedbackPage()),
+              ),
+            ),
           ],
         ),
       ],
@@ -676,27 +691,7 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
-  // Preference tiles use the same direct card colors as flight cards. The
-  // fill itself carries the hierarchy, so no outline or white wash is needed.
-  Color _profileSurfaceTint(Color accent) => accent;
-
   List<BoxShadow> _cardShadow() => AppShadows.card(context);
-
-  String _updateSubtitle(BuildContext context) {
-    final strings = context.strings;
-    if (_isCheckingForUpdates) return strings.t('checkingForUpdates');
-    final result = _updateResult;
-    if (result?.status == UpdateCheckStatus.available) {
-      return '${strings.t('updateAvailable')} · v${result!.latestVersion}';
-    }
-    if (result?.status == UpdateCheckStatus.upToDate) {
-      return strings.t('upToDate');
-    }
-    if (result?.status == UpdateCheckStatus.unavailable) {
-      return strings.t('updateCheckFailed');
-    }
-    return strings.t('checkForUpdatesHint');
-  }
 
   String? _updateValue() {
     if (_isCheckingForUpdates) return '…';

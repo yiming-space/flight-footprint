@@ -40,8 +40,12 @@ class SolarPosition {
             0.014615 * math.cos(2 * gamma) -
             0.040849 * math.sin(2 * gamma));
     var longitude = (720 - utcMinutes - equationOfTime) / 4;
-    while (longitude > 180) longitude -= 360;
-    while (longitude < -180) longitude += 360;
+    while (longitude > 180) {
+      longitude -= 360;
+    }
+    while (longitude < -180) {
+      longitude += 360;
+    }
     final cosDeclination = math.cos(declination);
     return SolarPosition(
       x: cosDeclination * math.sin(longitude * math.pi / 180),

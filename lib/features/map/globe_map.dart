@@ -621,9 +621,7 @@ class _GlobeMapState extends State<GlobeMap> with TickerProviderStateMixin {
       const lightPalette = false;
       if (snapshot.connectionState != ConnectionState.done) {
         return ColoredBox(
-          color: lightPalette
-              ? const Color(0xfff6f1ed)
-              : const Color(0xff000000),
+          color: const Color(0xff000000),
           child: Center(
             child: SizedBox(
               width: 22,
@@ -635,17 +633,11 @@ class _GlobeMapState extends State<GlobeMap> with TickerProviderStateMixin {
       }
       if (snapshot.hasError || snapshot.data == null) {
         return ColoredBox(
-          color: lightPalette
-              ? const Color(0xfff6f1ed)
-              : const Color(0xff000000),
+          color: const Color(0xff000000),
           child: Center(
             child: Text(
               '地球加载失败',
-              style: TextStyle(
-                color: lightPalette
-                    ? const Color(0xff24324f)
-                    : AppThemeColors.dark.textPrimary,
-              ),
+              style: TextStyle(color: AppThemeColors.dark.textPrimary),
             ),
           ),
         );

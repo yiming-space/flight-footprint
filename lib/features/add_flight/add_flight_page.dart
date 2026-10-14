@@ -520,10 +520,13 @@ class _AddFlightPageState extends State<AddFlightPage>
                                 ),
                                 if (_lookupMessage != null) ...[
                                   const SizedBox(height: AppSpacing.sm),
-                                  Text(
-                                    _lookupMessage!,
-                                    style: AppTextStyles.label.copyWith(
-                                      color: colors.textSecondary,
+                                  Semantics(
+                                    liveRegion: true,
+                                    child: Text(
+                                      _lookupMessage!,
+                                      style: AppTextStyles.label.copyWith(
+                                        color: colors.textSecondary,
+                                      ),
                                     ),
                                   ),
                                 ],
@@ -879,6 +882,7 @@ class _AddFlightPageState extends State<AddFlightPage>
   }
 
   Future<void> _lookupFlight() async {
+    if (_lookingUp || _saving) return;
     final parsed = _syncFlightIdentity();
     final airline = parsed?.$1 ?? '';
     final flightNumber = parsed?.$2 ?? '';
@@ -887,6 +891,11 @@ class _AddFlightPageState extends State<AddFlightPage>
       setState(() => _lookupMessage = strings.t('requiredHint'));
       return;
     }
+    // A lookup must never fill a different flight after edits during the wait.
+    final requestedIdentity = _flightIdentity.text;
+    final requestedDate = _date;
+    final requestedDeparture = _departure?.iataCode;
+    final requestedArrival = _arrival?.iataCode;
     FocusScope.of(context).unfocus();
     setState(() {
       _lookingUp = true;
@@ -896,9 +905,18 @@ class _AddFlightPageState extends State<AddFlightPage>
       final result = await widget.controller.lookupFlight(
         airline: airline,
         flightNumber: flightNumber,
-        flightDate: _date,
+        flightDate: requestedDate,
+        departureIata: requestedDeparture,
+        arrivalIata: requestedArrival,
       );
       if (!mounted) return;
+      if (_flightIdentity.text != requestedIdentity ||
+          _date != requestedDate ||
+          _departure?.iataCode != requestedDeparture ||
+          _arrival?.iataCode != requestedArrival) {
+        setState(() => _lookupMessage = strings.t('flightLookupChanged'));
+        return;
+      }
       if (result == null) {
         setState(() => _lookupMessage = strings.t('flightLookupNoResult'));
         return;
@@ -966,9 +984,37 @@ class _AddFlightPageState extends State<AddFlightPage>
             filled.contains(strings.t('duration'))) {
           _more = true;
         }
-        _lookupMessage = filled.isEmpty
-            ? strings.t('flightLookupSuccess')
+        var message = filled.isEmpty
+            ? strings.t('flightLookupUnchanged')
             : '${strings.t('flightLookupSuccess')} · ${filled.join('、')}';
+        if (filled.contains(strings.t('aircraft'))) {
+          final source = result.aircraftSource ?? result.source;
+          final detail = strings
+              .t(
+                result.aircraftObservedAt == null
+                    ? 'flightAircraftReference'
+                    : 'flightAircraftLive',
+              )
+              .replaceAll('{source}', source);
+          final registration = result.registration?.trim();
+          message += '\n$detail';
+          if (registration != null && registration.isNotEmpty) {
+            message += ' · $registration';
+          }
+        } else if (_aircraft.text.trim().isEmpty) {
+          final today = DateTime.now();
+          final isToday =
+              requestedDate.year == today.year &&
+              requestedDate.month == today.month &&
+              requestedDate.day == today.day;
+          final hint = result.aircraftLookupAttempted
+              ? 'flightAircraftNotFound'
+              : isToday
+              ? 'flightAircraftManualHint'
+              : 'flightAircraftDateHint';
+          message += '\n${strings.t(hint)}';
+        }
+        _lookupMessage = message;
       });
     } catch (_) {
       if (mounted) {
@@ -984,6 +1030,7 @@ class _AddFlightPageState extends State<AddFlightPage>
     // when the user starts typing a new combined airline + flight number.
     _airline.clear();
     _flightNumber.clear();
+    if (_lookupMessage != null) setState(() => _lookupMessage = null);
   }
 
   (String airline, String flightNumber)? _syncFlightIdentity() {

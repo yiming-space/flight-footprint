@@ -1,7 +1,7 @@
 name: flight_footprint
 description: "A local-first, offline flight and travel footprint journal."
 publish_to: 'none'
-version: 1.2.0+15
+version: 1.3.0+16
 
 environment:
   sdk: ^3.13.1
@@ -19,6 +19,7 @@ dependencies:
   flutter_secure_storage: ^10.3.1
   http: ^1.6.0
   intl: ^0.20.3
+  maplibre: ^0.3.6
   package_info_plus: ^10.2.1
   path: ^1.9.1
   path_provider: ^2.1.6
@@ -39,6 +40,23 @@ flutter:
   shaders:
     - shaders/globe_surface.frag
   assets:
+    - assets/images/aircraft/a320-200-side-right-v2.png
+    - assets/images/aircraft/a321lr-side-right-v1.png
+    - assets/images/aircraft/a321neo-side-right-v2.png
+    - assets/images/aircraft/a330-300-side-right-v1.png
+    - assets/images/aircraft/a330-900neo-side-right-v2.png
+    - assets/images/aircraft/a350-900-side-right-v3.png
+    - assets/images/aircraft/a350-1000-side-right-v1.png
+    - assets/images/aircraft/a380-800-side-right-v1.png
+    - assets/images/aircraft/b737-max-8-side-right-v2.png
+    - assets/images/aircraft/b737-max-9-side-right-v2.png
+    - assets/images/aircraft/b737-800-side-right-v2.png
+    - assets/images/aircraft/b777-300er-side-right-v1.png
+    - assets/images/aircraft/b787-8-side-right-v1.png
+    - assets/images/aircraft/b787-10-side-right-v1.png
+    - assets/images/aircraft/b787-9-side-right-v1.png
+    - assets/images/aircraft/e190-e2-side-right-v1.png
+    - assets/images/aircraft/aircraft-generic-side-right-v4.png
     - assets/data/airport-coordinates.json
     - assets/data/natural-earth-ii.jpg
     - assets/data/earth-night.jpg

@@ -215,6 +215,7 @@ class _AppShellState extends State<AppShell>
     final pages = [
       HomePage(
         controller: widget.controller,
+        isActive: _index == 0,
         onMapModeChanged: _setHomeMapMode,
       ),
       FlightsPage(controller: widget.controller, onAdd: _openAdd),

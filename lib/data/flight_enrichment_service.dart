@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import 'airline_catalog.dart';
@@ -17,6 +18,9 @@ class FlightEnrichment {
     this.arrivalIata,
     this.aircraftType,
     this.registration,
+    this.aircraftSource,
+    this.aircraftObservedAt,
+    this.aircraftLookupAttempted = false,
     this.departedAt,
     this.arrivedAt,
     this.durationMinutes,
@@ -30,6 +34,9 @@ class FlightEnrichment {
   final String? arrivalIata;
   final String? aircraftType;
   final String? registration;
+  final String? aircraftSource;
+  final DateTime? aircraftObservedAt;
+  final bool aircraftLookupAttempted;
   final DateTime? departedAt;
   final DateTime? arrivedAt;
   final int? durationMinutes;
@@ -41,14 +48,25 @@ class FlightEnrichment {
 ///
 /// ADSBdb is queried first for a callsign route. FlightBoard's open-source
 /// route workflow uses the free adsb.im / adsb.lol routeset endpoints, so they
-/// are tried as a compatible fallback. Both sources are optional and are
-/// intentionally kept behind one interface so another provider can be added
-/// without changing the form or the local data model.
+/// are tried as a compatible fallback. For an explicitly selected current
+/// date, a fresh, unambiguous ADSB.lol callsign observation can additionally
+/// supply equipment, with ADSBdb aircraft metadata used only for that observed
+/// identity. These optional feeds never establish a historical assignment.
 class FlightEnrichmentService {
   FlightEnrichmentService({
     http.Client? client,
     this.requestTimeout = const Duration(seconds: 7),
+    DateTime Function()? now,
+    this.enableLiveAircraft = const bool.fromEnvironment(
+      'FLIGHT_FOOTPRINT_ENABLE_LIVE_AIRCRAFT',
+      defaultValue: !kReleaseMode,
+    ),
+    this.enableAdsbLolRouteset = const bool.fromEnvironment(
+      'FLIGHT_FOOTPRINT_ENABLE_ADSB_LOL_ROUTESET',
+      defaultValue: !kReleaseMode,
+    ),
   }) : _client = client ?? http.Client(),
+       _now = now ?? DateTime.now,
        _ownsClient = client == null;
 
   static const _adsbdbBase = 'https://api.adsbdb.com/v0/callsign';
@@ -224,16 +242,86 @@ class FlightEnrichmentService {
   final http.Client _client;
   final bool _ownsClient;
   final Duration requestTimeout;
+  final DateTime Function() _now;
+
+  /// Experimental observations are opt-in in release builds until provider
+  /// access and data licensing have been confirmed. Tests can inject a value.
+  final bool enableLiveAircraft;
+
+  /// ADSB.lol's routeset fallback is separately opt-in for the same reason.
+  /// ADSBdb and the existing adsb.im route fallback remain available.
+  final bool enableAdsbLolRouteset;
 
   /// Looks up a flight without making the result a prerequisite for saving.
   Future<FlightEnrichment?> lookup({
     required String airline,
     required String flightNumber,
     DateTime? flightDate,
+    String? departureIata,
+    String? arrivalIata,
   }) async {
     final callsigns = _callsignCandidates(airline, flightNumber);
     if (callsigns.isEmpty) return null;
 
+    final instant = _now();
+    final liveCallsigns = callsigns
+        .where((value) => RegExp(r'^[A-Z]{3}\d{1,4}[A-Z]?$').hasMatch(value))
+        .take(2)
+        .toList(growable: false);
+    final attemptLive =
+        enableLiveAircraft &&
+        flightDate != null &&
+        _calendarDay(flightDate) == _calendarDay(instant) &&
+        liveCallsigns.isNotEmpty;
+    // Start the independent, bounded live request alongside the old route
+    // workflow. An early route hit must not skip the equipment lookup.
+    final liveFuture = attemptLive
+        ? _lookupLiveAircraft(liveCallsigns, instant)
+        : Future<_ObservedAircraft?>.value(null);
+    final route = await _lookupRoute(callsigns, flightDate);
+    final live = await liveFuture;
+    final routeMatches =
+        route == null ||
+        ((departureIata == null ||
+                departureIata.trim().isEmpty ||
+                _clean(departureIata) == route.departureIata) &&
+            (arrivalIata == null ||
+                arrivalIata.trim().isEmpty ||
+                _clean(arrivalIata) == route.arrivalIata));
+    final boundAircraft = routeMatches ? live : null;
+    if (route == null && boundAircraft == null) return null;
+    return FlightEnrichment(
+      airline: route?.airline,
+      flightNumber: route?.flightNumber ?? _clean(flightNumber),
+      departureIata: route?.departureIata,
+      arrivalIata: route?.arrivalIata,
+      aircraftType: routeMatches
+          ? boundAircraft?.type ?? route?.aircraftType
+          : null,
+      // A live model must not inherit an unrelated route's registration
+      // when the receiver has no registration for that physical aircraft.
+      registration: !routeMatches
+          ? null
+          : boundAircraft != null
+          ? boundAircraft.registration
+          : route?.registration,
+      aircraftSource: routeMatches
+          ? boundAircraft?.source ?? route?.aircraftSource
+          : null,
+      aircraftObservedAt: boundAircraft?.observedAt,
+      aircraftLookupAttempted: attemptLive,
+      departedAt: route?.departedAt,
+      arrivedAt: route?.arrivedAt,
+      durationMinutes: route?.durationMinutes,
+      distanceKm: route?.distanceKm,
+      source: route?.source ?? boundAircraft!.source,
+    );
+  }
+
+  Future<FlightEnrichment?> _lookupRoute(
+    List<String> callsigns,
+    DateTime? flightDate,
+  ) async {
     for (final callsign in callsigns) {
       final result = await _lookupAdsbdb(callsign, flightDate: flightDate);
       if (result != null && _matchesFlightDate(result, flightDate)) {
@@ -251,6 +339,132 @@ class FlightEnrichmentService {
 
   void dispose() {
     if (_ownsClient) _client.close();
+  }
+
+  Future<_ObservedAircraft?> _lookupLiveAircraft(
+    List<String> callsigns,
+    DateTime instant,
+  ) async {
+    final matches = <_ObservedAircraft>[];
+    final timeout = requestTimeout < const Duration(seconds: 3)
+        ? requestTimeout
+        : const Duration(seconds: 3);
+    for (final callsign in callsigns) {
+      final payload = await _getJson(
+        Uri.parse('https://api.adsb.lol/v2/callsign/$callsign'),
+        timeout: timeout,
+      );
+      if (payload == null) continue;
+      // The public v2 endpoint reports `now` as Unix milliseconds. Accept
+      // seconds as well, but never substitute the device clock for missing
+      // provider evidence or accept a stale cache as today's assignment.
+      final providerNow = _dateTime(payload['now']);
+      if (providerNow == null ||
+          providerNow.difference(instant.toUtc()).abs() >
+              const Duration(minutes: 5)) {
+        continue;
+      }
+      final aircraft = payload['ac'];
+      if (aircraft is! List) continue;
+      for (final value in aircraft) {
+        final item = _asMap(value);
+        if (item == null ||
+            _clean(item['flight']?.toString() ?? '') != callsign) {
+          continue;
+        }
+        final seenValue = item['seen'];
+        final seen = seenValue is num
+            ? seenValue.toDouble()
+            : double.tryParse(seenValue?.toString() ?? '');
+        if (seen == null || !seen.isFinite || seen < 0 || seen > 120) continue;
+        final observedAt = providerNow.subtract(
+          Duration(milliseconds: (seen * 1000).round()),
+        );
+        if (_calendarDay(observedAt) != _calendarDay(instant)) continue;
+        final hexValue = _clean(item['hex']?.toString() ?? '');
+        final hex = RegExp(r'^[0-9A-F]{6}$').hasMatch(hexValue)
+            ? hexValue
+            : null;
+        final registration = _stringFrom(item['r'], const []);
+        if (hex == null && registration == null) continue;
+        final candidate = _ObservedAircraft(
+          type: _aircraftModel(item['t']),
+          registration: registration,
+          hex: hex,
+          observedAt: observedAt,
+          source: 'ADSB.lol',
+        );
+        final sameIndex = matches.indexWhere(
+          (existing) =>
+              (hex != null && existing.hex == hex) ||
+              (registration != null &&
+                  existing.registration != null &&
+                  _clean(existing.registration!) == _clean(registration)),
+        );
+        if (sameIndex < 0) {
+          matches.add(candidate);
+        } else {
+          final previous = matches[sameIndex];
+          // Duplicates must describe the same physical aircraft, not hide
+          // conflicting assignments behind one shared identifier.
+          if ((hex != null && previous.hex != null && hex != previous.hex) ||
+              (registration != null &&
+                  previous.registration != null &&
+                  _clean(registration) != _clean(previous.registration!)) ||
+              (candidate.type != null &&
+                  previous.type != null &&
+                  candidate.type != previous.type)) {
+            return null;
+          }
+          if (candidate.type != null && previous.type == null) {
+            matches[sameIndex] = candidate;
+          }
+        }
+      }
+    }
+    // Reused callsigns / multiple aircraft are deliberately not resolved
+    // using nearest coordinates or an inferred route segment.
+    if (matches.length != 1) return null;
+    final observed = matches.single;
+    if (observed.type != null) return observed;
+    final identifier = observed.registration ?? observed.hex!;
+    final payload = await _getJson(
+      Uri.parse(
+        'https://api.adsbdb.com/v0/aircraft/${Uri.encodeComponent(identifier)}',
+      ),
+      timeout: timeout,
+    );
+    final response = _asMap(payload?['response']);
+    final aircraft = _asMap(response?['aircraft']);
+    if (aircraft == null) return null;
+    final registration = _stringFrom(aircraft['registration'], const []);
+    final hex = _stringFrom(aircraft['mode_s'], const []);
+    if (observed.registration != null &&
+        registration != null &&
+        _clean(observed.registration!) != _clean(registration)) {
+      return null;
+    }
+    if (observed.hex != null && hex != null && observed.hex != _clean(hex)) {
+      return null;
+    }
+    final identityMatches =
+        (observed.registration != null &&
+            registration != null &&
+            _clean(observed.registration!) == _clean(registration)) ||
+        (observed.hex != null && hex != null && observed.hex == _clean(hex));
+    if (!identityMatches) return null;
+    final type =
+        _aircraftModel(aircraft['icao_type']) ??
+        _aircraftModel(aircraft['type']) ??
+        _aircraftModel(aircraft['model']);
+    if (type == null) return null;
+    return _ObservedAircraft(
+      type: type,
+      registration: observed.registration ?? registration,
+      hex: observed.hex,
+      observedAt: observed.observedAt,
+      source: 'ADSB.lol + ADSBdb',
+    );
   }
 
   List<String> _callsignCandidates(String airline, String flightNumber) {
@@ -313,6 +527,10 @@ class FlightEnrichmentService {
     DateTime? flightDate,
   }) async {
     for (final endpoint in _flightBoardEndpoints) {
+      if (!enableAdsbLolRouteset &&
+          Uri.parse(endpoint).host == 'api.adsb.lol') {
+        continue;
+      }
       final payload = await _postJson(Uri.parse(endpoint), {
         'callsign': callsign,
         'lat': 0,
@@ -333,7 +551,7 @@ class FlightEnrichmentService {
     return null;
   }
 
-  Future<Map<String, dynamic>?> _getJson(Uri uri) async {
+  Future<Map<String, dynamic>?> _getJson(Uri uri, {Duration? timeout}) async {
     try {
       final response = await _client
           .get(
@@ -343,7 +561,7 @@ class FlightEnrichmentService {
               'user-agent': 'FlightFootprint/1.0 personal-flight-diary',
             },
           )
-          .timeout(requestTimeout);
+          .timeout(timeout ?? requestTimeout);
       return _decodeJson(response);
     } on Object {
       return null;
@@ -481,6 +699,23 @@ class FlightEnrichmentService {
         !arrivedAt.isAfter(departedAt)) {
       arrivedAt = arrivedAt.add(const Duration(days: 1));
     }
+    final explicitDeparture = _isTimeOnly(departureTimeValue)
+        ? null
+        : _dateTime(departureTimeValue);
+    final explicitFlightDay = _dateTime(
+      _firstValue(route, payload, const ['flightDate', 'flight_date']),
+    );
+    final equipmentDay = explicitDeparture ?? explicitFlightDay;
+    // Standing-data routes describe a usual route, not the aircraft that
+    // operated a selected date. Time-only values anchored by fallbackDate
+    // are useful for the form but do not prove a dated aircraft assignment.
+    // Airport fallback tolerates an adjacent timezone day. Equipment requires
+    // an exact proved departure day; an arrival date alone is ambiguous for
+    // an overnight flight and must not bind an airframe.
+    final keepRouteAircraft =
+        flightDate == null ||
+        (equipmentDay != null &&
+            _calendarDay(equipmentDay) == _calendarDay(flightDate));
     return FlightEnrichment(
       airline: _stringFrom(airlineValue, const ['name', 'label']),
       flightNumber:
@@ -492,8 +727,11 @@ class FlightEnrichmentService {
           fallbackFlightNumber,
       departureIata: departure,
       arrivalIata: arrival,
-      aircraftType: aircraftType,
-      registration: _stringFrom(aircraft, const ['registration', 'reg']),
+      aircraftType: keepRouteAircraft ? aircraftType : null,
+      registration: keepRouteAircraft
+          ? _stringFrom(aircraft, const ['registration', 'reg'])
+          : null,
+      aircraftSource: keepRouteAircraft && aircraftType != null ? source : null,
       departedAt: departedAt,
       arrivedAt: arrivedAt,
       durationMinutes: duration,
@@ -597,6 +835,24 @@ class FlightEnrichmentService {
       'A21N' || 'A321NEO' => 'A321neo',
       'B38M' || '7M8' => 'B737 MAX 8',
       'B39M' || '7M9' => 'B737 MAX 9',
+      'A332' => 'A330-200',
+      'A333' => 'A330-300',
+      'A338' => 'A330-800',
+      'A339' => 'A330-900NEO',
+      'A359' => 'A350-900',
+      'A35K' => 'A350-1000',
+      'A388' => 'A380-800',
+      'B738' => 'B737-800',
+      'B739' => 'B737-900',
+      'B77W' => 'B777-300ER',
+      'B77L' => 'B777-200LR',
+      'B772' => 'B777-200',
+      'B773' => 'B777-300',
+      'B788' => 'B787-8',
+      'B789' => 'B787-9',
+      'B78X' => 'B787-10',
+      'E290' => 'E190-E2',
+      'E295' => 'E195-E2',
       _ => code,
     };
   }
@@ -834,6 +1090,7 @@ class FlightEnrichmentService {
       final milliseconds = numeric >= 100000000000
           ? numeric.round()
           : (numeric * 1000).round();
+      if (milliseconds > 8640000000000000) return null;
       return DateTime.fromMillisecondsSinceEpoch(milliseconds, isUtc: true);
     }
     if (value is Map) {
@@ -889,4 +1146,20 @@ class FlightEnrichmentService {
       for (final entry in value.entries) entry.key.toString(): entry.value,
     };
   }
+}
+
+class _ObservedAircraft {
+  const _ObservedAircraft({
+    required this.type,
+    required this.registration,
+    required this.hex,
+    required this.observedAt,
+    required this.source,
+  });
+
+  final String? type;
+  final String? registration;
+  final String? hex;
+  final DateTime observedAt;
+  final String source;
 }

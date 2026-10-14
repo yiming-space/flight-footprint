@@ -21,6 +21,8 @@ class MapExplorerControls extends StatelessWidget {
     this.routeCaption,
     this.onAddPlace,
     this.mapInteracting = false,
+    this.detailedMap = false,
+    this.onToggleBasemap,
   });
 
   final bool globeMode;
@@ -39,6 +41,8 @@ class MapExplorerControls extends StatelessWidget {
   /// keeps the controls readable without forcing the map below to be sampled
   /// and blurred for every gesture frame.
   final bool mapInteracting;
+  final bool detailedMap;
+  final VoidCallback? onToggleBasemap;
 
   @override
   Widget build(BuildContext context) {
@@ -68,6 +72,13 @@ class MapExplorerControls extends StatelessWidget {
         selected: globeMode,
         onPressed: () => onModeChanged(true),
       ),
+      if (onToggleBasemap != null && !globeMode)
+        MapExplorerButton(
+          label: strings.t(detailedMap ? 'offlineBasemap' : 'detailedBasemap'),
+          icon: Icons.layers_outlined,
+          selected: detailedMap,
+          onPressed: onToggleBasemap,
+        ),
       if (onPlayback != null)
         MapExplorerButton(
           label: playbackLabel!,

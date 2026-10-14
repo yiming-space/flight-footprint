@@ -18,9 +18,15 @@ import '../../ui/theme/app_theme.dart';
 import '../../ui/widgets/widgets.dart';
 
 class HomePage extends StatefulWidget {
-  const HomePage({super.key, required this.controller, this.onMapModeChanged});
+  const HomePage({
+    super.key,
+    required this.controller,
+    this.onMapModeChanged,
+    this.isActive = true,
+  });
   final AppController controller;
   final ValueChanged<MapMode>? onMapModeChanged;
+  final bool isActive;
   @override
   State<HomePage> createState() => _HomePageState();
 }
@@ -32,6 +38,8 @@ class _HomePageState extends State<HomePage> {
   // Flat map is the practical daily view; globe remains the immersive
   // presentation behind the second round control.
   bool _globeMode = false;
+  bool _detailedMap = false;
+  DetailMapCamera? _detailCamera;
   CityCatalog? _mapCatalog;
   _HomeMapData? _mapDataCache;
   final _mapPreviewKey = GlobalKey();
@@ -98,6 +106,10 @@ class _HomePageState extends State<HomePage> {
               child: _HomeMapControls(
                 mode: _mode,
                 globeMode: _globeMode,
+                detailedMap: _detailedMap,
+                onToggleBasemap: DetailMap.supported && !_globeMode
+                    ? () => setState(() => _detailedMap = !_detailedMap)
+                    : null,
                 onToggleMode: () {
                   final nextMode = _mode == MapMode.flight
                       ? MapMode.travelFootprint
@@ -146,28 +158,38 @@ class _HomePageState extends State<HomePage> {
               enabled: !_globeMode,
               child: IgnorePointer(
                 ignoring: _globeMode,
-                child: OfflineMap(
-                  key: const ValueKey('home-flat-map'),
-                  mode: _mode,
-                  airports: airports,
-                  routes: mapRoutes,
-                  places: places,
-                  fitPoints: fitPoints,
-                  fitToData: true,
-                  fillViewportHeight: true,
-                  coverViewport: true,
-                  enableInteraction: true,
-                  horizontalWrap: true,
-                  horizontalPadding: 0,
-                  verticalPadding: 0,
-                  userLocation: userLocation,
-                  // The cartographic colors follow the selected app theme.
-                  // In dark mode this keeps the existing deep map; Ice White
-                  // gets a cool, low-contrast map with glacier-blue routes.
-                  useLightPalette: null,
-                  onPlaceLongPress: _handlePlaceLongPress,
-                  onSelection: _handleMapSelection,
-                ),
+                child:
+                    _detailedMap &&
+                        !_globeMode &&
+                        widget.isActive &&
+                        !_openingHorizontalMap
+                    ? DetailMap(
+                        mode: _mode,
+                        airports: airports,
+                        routes: mapRoutes,
+                        places: places,
+                        userLocation: userLocation,
+                        initialCamera: _detailCamera,
+                        onCameraChanged: (camera) => _detailCamera = camera,
+                        fallback: _offlineHomeMap(
+                          airports,
+                          mapRoutes,
+                          places,
+                          fitPoints,
+                          userLocation,
+                        ),
+                        onUseOffline: () =>
+                            setState(() => _detailedMap = false),
+                        onSelection: _handleMapSelection,
+                        onPlaceLongPress: _handlePlaceLongPress,
+                      )
+                    : _offlineHomeMap(
+                        airports,
+                        mapRoutes,
+                        places,
+                        fitPoints,
+                        userLocation,
+                      ),
               ),
             ),
           ),
@@ -194,6 +216,44 @@ class _HomePageState extends State<HomePage> {
       ),
     );
   }
+
+  Widget _offlineHomeMap(
+    List<MapAirport> airports,
+    List<MapRoute> mapRoutes,
+    List<MapPlace> places,
+    List<MapCoordinate> fitPoints,
+    MapCoordinate? userLocation,
+  ) => OfflineMap(
+    key: const ValueKey('home-flat-map'),
+    mode: _mode,
+    airports: airports,
+    routes: mapRoutes,
+    places: places,
+    fitPoints: fitPoints,
+    fitToData: true,
+    fillViewportHeight: true,
+    coverViewport: true,
+    enableInteraction: true,
+    horizontalWrap: true,
+    horizontalPadding: 0,
+    verticalPadding: 0,
+    userLocation: userLocation,
+    initialCamera: _detailCamera,
+    onCameraChanged: (camera) {
+      if (!_detailedMap &&
+          !_globeMode &&
+          widget.isActive &&
+          !_openingHorizontalMap) {
+        _detailCamera = camera;
+      }
+    },
+    // The cartographic colors follow the selected app theme.
+    // In dark mode this keeps the existing deep map; Ice White
+    // gets a cool, low-contrast map with glacier-blue routes.
+    useLightPalette: null,
+    onPlaceLongPress: _handlePlaceLongPress,
+    onSelection: _handleMapSelection,
+  );
 
   _HomeMapData _homeMapData() {
     final allFlights = widget.controller.flights;
@@ -328,7 +388,7 @@ class _HomePageState extends State<HomePage> {
     required List<MapPlace> places,
   }) async {
     if (_openingHorizontalMap) return;
-    _openingHorizontalMap = true;
+    setState(() => _openingHorizontalMap = true);
     try {
       if (Platform.isAndroid || Platform.isIOS) {
         await SystemChrome.setPreferredOrientations(const [
@@ -344,6 +404,10 @@ class _HomePageState extends State<HomePage> {
           builder: (_) => MapFullscreenPage(
             mode: mode,
             initialGlobeMode: globeMode,
+            initialDetailedMap: _detailedMap,
+            initialDetailCamera: _detailCamera,
+            onDetailCameraChanged: (camera) => _detailCamera = camera,
+            userLocation: _userLocation,
             airports: airports,
             routes: routes,
             places: places,
@@ -358,7 +422,7 @@ class _HomePageState extends State<HomePage> {
         await SystemChrome.setPreferredOrientations(const []);
         await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
       }
-      _openingHorizontalMap = false;
+      if (mounted) setState(() => _openingHorizontalMap = false);
     }
   }
 
@@ -543,6 +607,8 @@ class _HomeMapControls extends StatelessWidget {
   const _HomeMapControls({
     required this.mode,
     required this.globeMode,
+    required this.detailedMap,
+    required this.onToggleBasemap,
     required this.onToggleMode,
     required this.onToggleProjection,
     required this.onLocate,
@@ -552,6 +618,8 @@ class _HomeMapControls extends StatelessWidget {
 
   final MapMode mode;
   final bool globeMode;
+  final bool detailedMap;
+  final VoidCallback? onToggleBasemap;
   final VoidCallback onToggleMode;
   final VoidCallback onToggleProjection;
   final VoidCallback onLocate;
@@ -617,6 +685,23 @@ class _HomeMapControls extends StatelessWidget {
             onPressed: onToggleProjection,
           ),
         ),
+        if (onToggleBasemap != null) ...[
+          const SizedBox(height: 10),
+          LiquidGlassIconButton(
+            tooltip: strings.t(
+              detailedMap ? 'offlineBasemap' : 'detailedBasemap',
+            ),
+            icon: detailedMap ? Icons.layers_rounded : Icons.layers_outlined,
+            size: 48,
+            iconSize: 22,
+            blurEnabled: false,
+            tintColor: detailedMap ? colors.lime : controlTint,
+            tintOpacity: controlTintOpacity,
+            foregroundColor: detailedMap ? colors.onPrimary : controlForeground,
+            borderColor: controlBorder,
+            onPressed: onToggleBasemap,
+          ),
+        ],
         const SizedBox(height: 10),
         Semantics(
           button: true,

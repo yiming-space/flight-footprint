@@ -118,41 +118,29 @@ class FlatMapPainter extends CustomPainter {
   ];
   static const _lightRouteColors = <Color>[
     // Lavender routes separate the travel layer from the global blue UI.
-    Color(0xffa89fd4),
-    Color(0xffa89fd4),
-    Color(0xffa89fd4),
-    Color(0xffa89fd4),
-    Color(0xffa89fd4),
+    AppColors.routePurpleLight,
   ];
-  static const _darkLandColors = <Color>[
-    Color(0xff1d3a35),
-    Color(0xff1d3a35),
-    Color(0xff1d3a35),
-    Color(0xff1d3a35),
-    Color(0xff1d3a35),
-  ];
-  static const _lightLandColors = <Color>[
+  static const _darkLandColors = <Color>[AppColors.detailMapNightLand];
+  static final _lightLandColors = <Color>[AppThemeColors.light.surface];
+  // Transparent passport artwork has no ocean fill behind its continents;
+  // retain its quiet blue-gray silhouette so white land cannot disappear.
+  static const _passportLightLandColors = <Color>[
     Color(0xffd3dde3),
     Color(0xffd0dae0),
     Color(0xffd7e0e4),
     Color(0xffd2dce2),
     Color(0xffd5dfe3),
   ];
-  // The pale-lime footprint is deliberately distinct from the blue land
-  // family, so visited regions read as progress rather than geography.
-  static const _darkFootprintFill = Color(0xff3f6b55);
-  // Keep the ice-white palette quiet, but give visited regions enough
-  // contrast to read at a glance on both the dashboard and full-screen map.
-  static const _lightFootprintFill = Color(0xff98b9da);
-
   List<Color> get _routeColors =>
       lightPalette ? _lightRouteColors : _darkRouteColors;
 
-  List<Color> get _landColors =>
-      lightPalette ? _lightLandColors : _darkLandColors;
+  List<Color> get _landColors => lightPalette
+      ? (transparentBackground ? _passportLightLandColors : _lightLandColors)
+      : _darkLandColors;
 
-  Color get _mapBackground =>
-      lightPalette ? const Color(0xfff4f4f0) : AppThemeColors.dark.background;
+  Color get _mapBackground => lightPalette
+      ? AppThemeColors.light.iceTint
+      : AppColors.detailMapNightWater;
 
   // Passport artwork is painted on the card surface rather than an opaque
   // map panel. Reuse that exact surface for boundary strokes so country and
@@ -162,22 +150,33 @@ class FlatMapPainter extends CustomPainter {
       ? (lightPalette ? Colors.white : AppThemeColors.dark.surface)
       : _mapBackground;
 
-  Color get _maritimeFill =>
-      lightPalette ? const Color(0xfffdfdf5) : AppThemeColors.dark.surfaceDeep;
+  Color get _maritimeFill => lightPalette
+      ? AppThemeColors.light.iceTint
+      : AppColors.detailMapNightWater;
 
   Color get _maritimeStroke => _surfaceColor;
 
-  Color get _countryBoundary => _surfaceColor;
+  Color get _countryBoundary => transparentBackground
+      ? _surfaceColor
+      : lightPalette
+      ? AppThemeColors.light.border
+      : AppColors.detailMapNightBoundary.withValues(alpha: .7);
 
-  Color get _nationalBoundary => _surfaceColor;
+  Color get _nationalBoundary => _countryBoundary;
 
-  Color get _internalBoundary => _surfaceColor;
+  Color get _internalBoundary => transparentBackground
+      ? _surfaceColor
+      : lightPalette
+      ? AppThemeColors.light.border.withValues(alpha: .7)
+      : AppColors.detailMapNightBoundary.withValues(alpha: .4);
 
-  Color get _gridColor =>
-      lightPalette ? const Color(0xffd8ddd6) : AppThemeColors.dark.border;
+  Color get _gridColor => lightPalette
+      ? AppThemeColors.light.border
+      : AppColors.detailMapNightBoundary;
 
-  Color get _footprintFill =>
-      lightPalette ? _lightFootprintFill : _darkFootprintFill;
+  Color get _footprintFill => lightPalette
+      ? AppColors.footprintRegionLight
+      : AppColors.footprintRegionDark;
 
   Color get _markerOutline =>
       lightPalette ? const Color(0xfffdfdf5) : AppThemeColors.dark.background;
@@ -187,7 +186,7 @@ class FlatMapPainter extends CustomPainter {
 
   bool get _isCompactPassportArtwork => compactWorldViewport;
 
-  double get _scale => visualScale.clamp(1.0, 20.0).toDouble();
+  double get _scale => visualScale.clamp(.0001, 1000000.0).toDouble();
 
   double _screen(double value) => value / _scale;
 
@@ -606,10 +605,9 @@ class FlatMapPainter extends CustomPainter {
       }
       return result;
     });
-    final paint = Paint()
-      ..color = _footprintFill.withValues(
-        alpha: lightPalette ? (china ? .54 : .50) : (china ? .68 : .62),
-      );
+    // A solid semantic fill keeps countries and provinces equally legible.
+    // Overlapping geometry must not accumulate translucent color.
+    final paint = Paint()..color = _footprintFill;
     for (final index in visitedIndices) {
       canvas.drawPath(paths[index], paint);
     }
@@ -1365,14 +1363,14 @@ class FlatMapPainter extends CustomPainter {
       text: value,
       style: TextStyle(
         color: lightPalette
-            ? const Color(0xff30404c)
-            : AppThemeColors.dark.textPrimary,
+            ? AppThemeColors.light.textSecondary
+            : AppColors.detailMapNightLabel,
         fontWeight: FontWeight.w500,
         fontSize: _screen(10),
         shadows: [
           Shadow(
             color: lightPalette
-                ? const Color(0xfffdfdf5)
+                ? AppThemeColors.light.surface
                 : AppThemeColors.dark.background,
             blurRadius: _screen(2.5),
           ),

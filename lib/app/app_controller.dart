@@ -1,6 +1,3 @@
-import 'dart:ui';
-
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../data/airport_catalog.dart';
@@ -108,10 +105,14 @@ class AppController extends ChangeNotifier {
     required String airline,
     required String flightNumber,
     DateTime? flightDate,
+    String? departureIata,
+    String? arrivalIata,
   }) => flightEnrichment.lookup(
     airline: airline,
     flightNumber: flightNumber,
     flightDate: flightDate,
+    departureIata: departureIata,
+    arrivalIata: arrivalIata,
   );
 
   Future<SpreadsheetImportResult> parseFlightSpreadsheet({

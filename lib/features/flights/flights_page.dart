@@ -452,19 +452,17 @@ class _TwoColumnFlightSliver extends StatelessWidget {
       separatorBuilder: (_, _) => const SizedBox(height: AppSpacing.cardGap),
       itemBuilder: (context, row) {
         final first = row * 2;
-        return IntrinsicHeight(
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Expanded(child: cardBuilder(flights[first])),
-              const SizedBox(width: AppSpacing.cardGap),
-              Expanded(
-                child: first + 1 < flights.length
-                    ? cardBuilder(flights[first + 1])
-                    : const SizedBox.shrink(),
-              ),
-            ],
-          ),
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(child: cardBuilder(flights[first])),
+            const SizedBox(width: AppSpacing.cardGap),
+            Expanded(
+              child: first + 1 < flights.length
+                  ? cardBuilder(flights[first + 1])
+                  : const SizedBox.shrink(),
+            ),
+          ],
         );
       },
     );

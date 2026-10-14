@@ -38,6 +38,55 @@ const _airports = [
 ];
 
 void main() {
+  testWidgets('restores an online camera instead of fitting all records', (
+    tester,
+  ) async {
+    MapCamera? reported;
+    const desired = MapCamera(MapCoordinate(35.6, 139.7), 9);
+    Future<void> show(MapCamera camera, {Key? key}) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SizedBox(
+            width: 390,
+            height: 300,
+            child: OfflineMap(
+              key: key,
+              loader: const _Loader(),
+              airports: _airports,
+              initialCamera: camera,
+              onCameraChanged: (value) => reported = value,
+              coverViewport: true,
+              horizontalWrap: true,
+              enableInteraction: true,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+    }
+
+    await show(desired);
+    expect(reported?.matches(desired), isTrue);
+    // A newly mounted offline map must also restore after returning online.
+    await show(desired, key: const ValueKey('remounted'));
+    expect(reported?.matches(desired), isTrue);
+    const moved = MapCamera(MapCoordinate(-33.8, 151.2), 5);
+    await show(moved, key: const ValueKey('remounted'));
+    expect(reported?.matches(moved), isTrue);
+    final viewer = tester.widget<InteractiveViewer>(
+      find.byType(InteractiveViewer),
+    );
+    await tester.drag(find.byType(InteractiveViewer), const Offset(40, 10));
+    await tester.pumpAndSettle();
+    expect(reported?.matches(moved), isFalse);
+    final panned = reported!;
+    final matrix = Matrix4.copy(viewer.transformationController!.value);
+    // Echoing the current camera on an unrelated parent rebuild must not refit.
+    await show(panned, key: const ValueKey('remounted'));
+    expect(viewer.transformationController!.value.storage, matrix.storage);
+  });
+
   testWidgets(
     'preview applies fit and returns to the same camera after resize',
     (tester) async {

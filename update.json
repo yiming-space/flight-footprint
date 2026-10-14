@@ -1,9 +1,9 @@
 {
-  "version": "1.2.0",
-  "build": 15,
-  "releaseUrl": "https://github.com/yiming-space/flight-footprint/releases/tag/v1.2.0",
-  "apkUrl": "https://github.com/yiming-space/flight-footprint/releases/download/v1.2.0/app-release.apk",
-  "apkSize": 70285766,
-  "apkSha256": "f7a94528aeb4e23e0ecf8cdb1762def65ec2c6b191533d7f4b0fda75e63af335",
-  "notes": "地图与界面升级：优化地球昼夜、星空和航线，修复地图定位与切换位移；护照卡复用首页地图，并改进飞行记录和统计界面。"
+  "version": "1.3.0",
+  "build": 16,
+  "releaseUrl": "https://github.com/yiming-space/flight-footprint/releases/tag/v1.3.0",
+  "apkUrl": "https://github.com/yiming-space/flight-footprint/releases/download/v1.3.0/app-release.apk",
+  "apkSize": 117291076,
+  "apkSha256": "078bc7fdaff5f999bf74684a6c08443a3adb6b684ad4760e3a4dad80d5c64f9b",
+  "notes": "机型收藏与统计升级：16 款飞机插画、循环卡组和翻转详情；航司与城市次数随胶囊平滑增长，国家旗帜矩阵与地图配色统一。新增 App 内反馈，优化详情对齐和大字号。正式版暂不开放实验性实时机型查询。"
 }

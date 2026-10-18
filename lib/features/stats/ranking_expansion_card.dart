@@ -14,6 +14,10 @@ class RankingExpansionCard extends StatefulWidget {
     required this.keyPrefix,
     this.onTap,
     this.pageBuilder,
+    this.overviewBuilder,
+    this.flipOnOpen = false,
+    this.flipSourceRadius = 28,
+    this.semanticsLabel,
   }) : assert(onTap != null || pageBuilder != null);
 
   final String title;
@@ -22,6 +26,11 @@ class RankingExpansionCard extends StatefulWidget {
   final String keyPrefix;
   final VoidCallback? onTap;
   final WidgetBuilder? pageBuilder;
+  final bool flipOnOpen;
+  final double flipSourceRadius;
+  final String? semanticsLabel;
+  final Widget Function(BuildContext context, VoidCallback onTap)?
+  overviewBuilder;
 
   @override
   State<RankingExpansionCard> createState() => _RankingExpansionCardState();
@@ -64,6 +73,8 @@ class _RankingExpansionCardState extends State<RankingExpansionCard> {
       context: context,
       sourceRect: rect,
       builder: builder,
+      flipFront: widget.flipOnOpen ? _overview(context, () {}) : null,
+      flipSourceRadius: widget.flipSourceRadius,
     );
     final custom = route is PageRouteBuilder<void> && !_reduced;
     Animation<double>? animation;
@@ -110,10 +121,19 @@ class _RankingExpansionCardState extends State<RankingExpansionCard> {
     }
   }
 
+  Widget _overview(BuildContext context, VoidCallback onTap) =>
+      widget.overviewBuilder?.call(context, onTap) ??
+      RankingOverviewCard(
+        title: widget.title,
+        subtitle: widget.subtitle,
+        icon: widget.icon,
+        onTap: onTap,
+      );
+
   @override
   Widget build(BuildContext context) => Semantics(
     button: true,
-    label: '${widget.title}, ${widget.subtitle}',
+    label: widget.semanticsLabel ?? '${widget.title}, ${widget.subtitle}',
     onTap: _open,
     excludeSemantics: true,
     hidden: _hidden,
@@ -144,12 +164,7 @@ class _RankingExpansionCardState extends State<RankingExpansionCard> {
           scale: _pressed && !_reduced ? .985 : 1,
           duration: const Duration(milliseconds: 80),
           curve: Curves.easeOut,
-          child: RankingOverviewCard(
-            title: widget.title,
-            subtitle: widget.subtitle,
-            icon: widget.icon,
-            onTap: _open,
-          ),
+          child: _overview(context, _open),
         ),
       ),
     ),

@@ -31,9 +31,13 @@ class ProfilePage extends StatefulWidget {
     super.key,
     required this.controller,
     this.isActive = false,
+    this.isHomeActive = false,
+    this.updateService,
   });
   final AppController controller;
   final bool isActive;
+  final bool isHomeActive;
+  final AppUpdateService? updateService;
 
   @override
   State<ProfilePage> createState() => _ProfilePageState();
@@ -44,6 +48,7 @@ class _ProfilePageState extends State<ProfilePage> {
   static const _sectionGap = 18.0;
 
   AppController get controller => widget.controller;
+  bool get _canPromptForUpdates => widget.isActive || widget.isHomeActive;
 
   bool _isRecognizingSpreadsheet = false;
   bool _isReadingCalendar = false;
@@ -53,13 +58,14 @@ class _ProfilePageState extends State<ProfilePage> {
   String? _promptedUpdateVersion;
   String? _appVersion;
   AppUpdateResult? _updateResult;
-  final AppUpdateService _updateService = AppUpdateService();
+  late final AppUpdateService _updateService =
+      widget.updateService ?? AppUpdateService();
 
   @override
   void initState() {
     super.initState();
     unawaited(_loadAppVersion());
-    if (widget.isActive) _scheduleAutomaticUpdateCheck();
+    if (_canPromptForUpdates) _scheduleAutomaticUpdateCheck();
   }
 
   Future<void> _loadAppVersion() async {
@@ -79,7 +85,8 @@ class _ProfilePageState extends State<ProfilePage> {
   @override
   void didUpdateWidget(covariant ProfilePage oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.isActive && !oldWidget.isActive) {
+    if (_canPromptForUpdates &&
+        !(oldWidget.isActive || oldWidget.isHomeActive)) {
       _scheduleAutomaticUpdateCheck();
     }
   }
@@ -91,8 +98,10 @@ class _ProfilePageState extends State<ProfilePage> {
     }
     _hasScheduledAutomaticUpdateCheck = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || !widget.isActive) {
-        _hasScheduledAutomaticUpdateCheck = false;
+      _hasScheduledAutomaticUpdateCheck = false;
+      if (!mounted ||
+          !_canPromptForUpdates ||
+          ModalRoute.of(context)?.isCurrent != true) {
         return;
       }
       _hasCheckedForUpdatesAutomatically = true;
@@ -102,7 +111,7 @@ class _ProfilePageState extends State<ProfilePage> {
 
   @override
   void dispose() {
-    _updateService.dispose();
+    if (widget.updateService == null) _updateService.dispose();
     super.dispose();
   }
 
@@ -719,10 +728,10 @@ class _ProfilePageState extends State<ProfilePage> {
     });
 
     if (automatic) {
-      // The page remains mounted inside the shell's IndexedStack even after
-      // the user switches tabs. Do not place a dialog over another page; let
-      // the next visit retry the quiet check instead.
-      if (!widget.isActive) {
+      // This state also owns the home startup check while offstage. Prompt
+      // only on home/About, never over another tab or a pushed route/sheet.
+      // The next eligible visit may retry a result that was not presented.
+      if (!_canPromptForUpdates || ModalRoute.of(context)?.isCurrent != true) {
         _hasCheckedForUpdatesAutomatically = false;
         return;
       }

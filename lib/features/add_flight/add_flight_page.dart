@@ -10,6 +10,7 @@ import '../../data/airline_catalog.dart';
 import '../../data/airport_catalog.dart';
 import '../../data/airport_localization.dart';
 import '../../data/flight_draft_store.dart';
+import '../../data/flight_enrichment_service.dart';
 import '../../domain/airport.dart';
 import '../../domain/flight.dart';
 import '../../ui/theme/app_theme.dart';
@@ -985,7 +986,14 @@ class _AddFlightPageState extends State<AddFlightPage>
           _more = true;
         }
         var message = filled.isEmpty
-            ? strings.t('flightLookupUnchanged')
+            ? strings.t(
+                result.aircraftLookupAttempted &&
+                        result.departureIata == null &&
+                        result.arrivalIata == null &&
+                        _aircraft.text.trim().isEmpty
+                    ? 'flightLookupNoResult'
+                    : 'flightLookupUnchanged',
+              )
             : '${strings.t('flightLookupSuccess')} · ${filled.join('、')}';
         if (filled.contains(strings.t('aircraft'))) {
           final source = result.aircraftSource ?? result.source;
@@ -1001,17 +1009,36 @@ class _AddFlightPageState extends State<AddFlightPage>
           if (registration != null && registration.isNotEmpty) {
             message += ' · $registration';
           }
+          final observed = result.aircraftObservedAt;
+          if (observed != null) {
+            message +=
+                ' · ${strings.t('flightAircraftObservedAt').replaceAll('{time}', DateFormat('HH:mm').format(observed.toLocal()))}';
+          }
         } else if (_aircraft.text.trim().isEmpty) {
           final today = DateTime.now();
           final isToday =
               requestedDate.year == today.year &&
               requestedDate.month == today.month &&
               requestedDate.day == today.day;
-          final hint = result.aircraftLookupAttempted
-              ? 'flightAircraftNotFound'
-              : isToday
-              ? 'flightAircraftManualHint'
-              : 'flightAircraftDateHint';
+          final hint = switch (result.aircraftLookupStatus) {
+            AircraftLookupStatus.unavailable => 'flightAircraftUnavailable',
+            AircraftLookupStatus.rateLimited => 'flightAircraftRateLimited',
+            AircraftLookupStatus.ambiguous => 'flightAircraftAmbiguous',
+            AircraftLookupStatus.stale => 'flightAircraftStale',
+            AircraftLookupStatus.typeUnavailable =>
+              'flightAircraftTypeUnavailable',
+            AircraftLookupStatus.routeConflict => 'flightAircraftRouteConflict',
+            AircraftLookupStatus.unsupported => 'flightAircraftUnsupported',
+            AircraftLookupStatus.notToday => 'flightAircraftDateHint',
+            AircraftLookupStatus.disabled =>
+              isToday ? 'flightAircraftManualHint' : 'flightAircraftDateHint',
+            _ =>
+              result.aircraftLookupAttempted
+                  ? 'flightAircraftNotFound'
+                  : isToday
+                  ? 'flightAircraftManualHint'
+                  : 'flightAircraftDateHint',
+          };
           message += '\n${strings.t(hint)}';
         }
         _lookupMessage = message;
@@ -1278,7 +1305,14 @@ class _AddFlightPageState extends State<AddFlightPage>
           : (durationMinutes != null && durationMinutes > 0
                 ? _date.add(Duration(minutes: durationMinutes))
                 : null);
-      final status = flightStatusForDeparture(_date, DateTime.now());
+      final status = initial?.isCompleted == true
+          ? FlightStatus.completed
+          : flightStatusForDeparture(
+              _date,
+              DateTime.now(),
+              arrivedAt: arrivedAt,
+              durationMinutes: durationMinutes,
+            );
       if (initial == null) {
         await widget.controller.addFlight(
           departure: _departure!,

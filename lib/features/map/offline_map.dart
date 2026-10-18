@@ -197,7 +197,6 @@ class MapFullscreenPage extends StatefulWidget {
     required this.routes,
     required this.places,
     this.initialGlobeMode = false,
-    this.initialDetailedMap = false,
     this.userLocation,
     this.initialDetailCamera,
     this.onDetailCameraChanged,
@@ -214,7 +213,6 @@ class MapFullscreenPage extends StatefulWidget {
   final List<MapRoute> routes;
   final List<MapPlace> places;
   final bool initialGlobeMode;
-  final bool initialDetailedMap;
   final MapCoordinate? userLocation;
   final DetailMapCamera? initialDetailCamera;
   final ValueChanged<DetailMapCamera>? onDetailCameraChanged;
@@ -237,7 +235,8 @@ class _MapFullscreenPageState extends State<MapFullscreenPage>
   bool _landscape = false;
   bool _orientationChanging = false;
   bool _globeMode = false;
-  bool _detailedMap = false;
+  bool get _detailedMap => DetailMap.supported;
+  bool _detailFallback = false;
   DetailMapCamera? _detailCamera;
   bool _routeAnimationStarted = false;
   bool _mapInteracting = false;
@@ -273,7 +272,6 @@ class _MapFullscreenPageState extends State<MapFullscreenPage>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _globeMode = widget.initialGlobeMode;
-    _detailedMap = widget.initialDetailedMap && DetailMap.supported;
     _detailCamera = widget.initialDetailCamera;
     _places = widget.places;
     _animationRoutes = _deduplicateRoutes(widget.routes);
@@ -545,6 +543,7 @@ class _MapFullscreenPageState extends State<MapFullscreenPage>
                               ? DetailMap(
                                   key: ValueKey('detail-$_viewReset'),
                                   headerTopOffset: 56,
+                                  attributionBottomOffset: 76,
                                   initialCamera: _detailCamera,
                                   onCameraChanged: (camera) {
                                     _detailCamera = camera;
@@ -552,12 +551,20 @@ class _MapFullscreenPageState extends State<MapFullscreenPage>
                                   },
                                   mode: widget.mode,
                                   airports: widget.airports,
-                                  routes: _animationRoutes,
+                                  // Native detail aggregates by direction
+                                  // without dropping distinct recorded tracks.
+                                  routes: widget.routes,
                                   places: _places,
                                   userLocation: widget.userLocation,
                                   fallback: _offlineFlatMap(),
-                                  onUseOffline: () =>
-                                      setState(() => _detailedMap = false),
+                                  onFallbackChanged: (fallback) {
+                                    if (mounted &&
+                                        _detailFallback != fallback) {
+                                      setState(
+                                        () => _detailFallback = fallback,
+                                      );
+                                    }
+                                  },
                                   onPlaceLongPress: widget.onPlaceLongPress,
                                   onSelection: widget.onSelection == null
                                       ? null
@@ -629,13 +636,9 @@ class _MapFullscreenPageState extends State<MapFullscreenPage>
                   final hasRoutes =
                       widget.mode == MapMode.flight &&
                       _animationRoutes.isNotEmpty &&
-                      (!_detailedMap || _globeMode);
+                      (!_detailedMap || _detailFallback || _globeMode);
                   return MapExplorerControls(
                     globeMode: _globeMode,
-                    detailedMap: _detailedMap,
-                    onToggleBasemap: DetailMap.supported
-                        ? () => setState(() => _detailedMap = !_detailedMap)
-                        : null,
                     mapInteracting:
                         _detailedMap ||
                         _mapInteracting ||
@@ -695,7 +698,7 @@ class _MapFullscreenPageState extends State<MapFullscreenPage>
     userLocation: widget.userLocation,
     initialCamera: _detailCamera,
     onCameraChanged: (camera) {
-      if (!_detailedMap && !_globeMode) {
+      if ((!_detailedMap || _detailFallback) && !_globeMode) {
         _detailCamera = camera;
         widget.onDetailCameraChanged?.call(camera);
       }

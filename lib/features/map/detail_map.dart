@@ -9,13 +9,15 @@ import 'package:maplibre/maplibre.dart' as ml;
 import '../../core/localization/app_strings.dart';
 import '../../ui/theme/app_theme.dart';
 import 'detail_map_data.dart';
+import 'detail_map_footprint.dart';
+import 'detail_map_routes.dart';
 import 'detail_map_attribution.dart';
 import 'detail_map_style.dart';
 import 'map_models.dart';
 import 'map_camera.dart';
 export 'map_camera.dart';
 
-/// Experimental online basemap. The original map is always the fallback.
+/// Default online flat map, with the local map as an automatic fallback.
 class DetailMap extends StatefulWidget {
   const DetailMap({
     super.key,
@@ -24,12 +26,13 @@ class DetailMap extends StatefulWidget {
     required this.routes,
     required this.places,
     required this.fallback,
-    required this.onUseOffline,
+    this.onFallbackChanged,
     this.userLocation,
     this.onSelection,
     this.onPlaceLongPress,
     this.loader,
     this.headerTopOffset = 0,
+    this.attributionBottomOffset = 92,
     this.initialCamera,
     this.onCameraChanged,
   });
@@ -44,12 +47,13 @@ class DetailMap extends StatefulWidget {
   final List<MapRoute> routes;
   final List<MapPlace> places;
   final Widget fallback;
-  final VoidCallback onUseOffline;
+  final ValueChanged<bool>? onFallbackChanged;
   final MapCoordinate? userLocation;
   final ValueChanged<MapSelection>? onSelection;
   final Future<void> Function(List<MapPlace>)? onPlaceLongPress;
   final DetailMapStyleLoader? loader;
   final double headerTopOffset;
+  final double attributionBottomOffset;
   final DetailMapCamera? initialCamera;
   final ValueChanged<DetailMapCamera>? onCameraChanged;
 
@@ -60,14 +64,23 @@ class DetailMap extends StatefulWidget {
 class _DetailMapState extends State<DetailMap> {
   Map<String, dynamic>? _base;
   ml.MapController? _controller;
+  ml.StyleController? _activeStyle;
   Timer? _deadline;
   Timer? _readinessCheck;
   Size _viewport = Size.zero;
   bool _failed = false;
   bool _ready = false;
+  bool? _reportedFallback;
   int _revision = 0;
   String? _palette;
   String? _composedStyle;
+  DetailFootprintResult? _footprint;
+  List<MapPlace>? _footprintPlaces;
+  Future<DetailFootprintResult>? _footprintTask;
+  int _recordsRevision = 0;
+  final _routeCache = DetailRouteCache();
+  final _sourceCache = DetailSourceCache();
+  int? _selectedRouteIndex;
 
   @override
   void initState() {
@@ -80,6 +93,7 @@ class _DetailMapState extends State<DetailMap> {
     _deadline?.cancel();
     _readinessCheck?.cancel();
     _controller = null;
+    _activeStyle = null;
     _composedStyle = null;
     _palette = null;
     setState(() {
@@ -87,10 +101,12 @@ class _DetailMapState extends State<DetailMap> {
       _ready = false;
       _base = null;
     });
+    _notifyFallback(false);
     _deadline = Timer(const Duration(seconds: 25), () {
       if (mounted && revision == _revision && !_ready) {
         _readinessCheck?.cancel();
         setState(() => _failed = true);
+        _notifyFallback(true);
       }
     });
     try {
@@ -100,8 +116,21 @@ class _DetailMapState extends State<DetailMap> {
       if (mounted && revision == _revision) {
         _deadline?.cancel();
         setState(() => _failed = true);
+        _notifyFallback(true);
       }
     }
+  }
+
+  void _notifyFallback(bool fallback) {
+    // Loading can begin during a parent's build. Report after that frame,
+    // and ignore callbacks from a no-longer-current readiness state.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _failed != fallback || _reportedFallback == fallback) {
+        return;
+      }
+      _reportedFallback = fallback;
+      widget.onFallbackChanged?.call(fallback);
+    });
   }
 
   @override
@@ -114,6 +143,10 @@ class _DetailMapState extends State<DetailMap> {
   @override
   void didUpdateWidget(covariant DetailMap oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.mode != widget.mode ||
+        !identical(oldWidget.routes, widget.routes)) {
+      _selectedRouteIndex = null;
+    }
     if (oldWidget.mode != widget.mode ||
         !identical(oldWidget.airports, widget.airports) ||
         !identical(oldWidget.places, widget.places) ||
@@ -149,18 +182,11 @@ class _DetailMapState extends State<DetailMap> {
           ),
   ]);
 
-  Map<String, dynamic> get _routes => detailFeatureCollection([
-    if (widget.mode == MapMode.flight)
-      for (var i = 0; i < widget.routes.length; i++)
-        {
-          'type': 'Feature',
-          'properties': {'kind': 'route', 'index': i},
-          'geometry': {
-            'type': 'LineString',
-            'coordinates': detailRouteCoordinates(widget.routes[i]),
-          },
-        },
-  ]);
+  DetailRouteData get _routeData =>
+      _routeCache.data(widget.routes, enabled: widget.mode == MapMode.flight);
+  Map<String, dynamic> get _routes => _routeData.collection;
+  Map<String, dynamic> get _selectedRoute =>
+      _routeData.selected(_selectedRouteIndex);
 
   Map<String, dynamic> get _location => detailFeatureCollection([
     if (widget.userLocation case final location?)
@@ -174,33 +200,97 @@ class _DetailMapState extends State<DetailMap> {
       chinese: chinese,
       points: _points,
       routes: _routes,
+      selectedRoute: _selectedRoute,
       location: _location,
+      regions:
+          widget.mode == MapMode.travelFootprint &&
+              identical(_footprintPlaces, widget.places)
+          ? _footprint?.collection ?? emptyDetailFootprint
+          : emptyDetailFootprint,
     ),
   );
 
   Future<void> _updateRecords() async {
-    final style = _controller?.style;
+    final style = _activeStyle ?? _controller?.style;
     if (style == null || _failed) return;
+    final revision = ++_recordsRevision;
     try {
       // Deliberately no camera calls: locating or editing a record must not
       // pull the user away from the area they are looking at.
-      await style.updateGeoJsonSource(
-        id: 'ff-points',
-        data: jsonEncode(_points),
-      );
-      if (!mounted) return;
-      await style.updateGeoJsonSource(
-        id: 'ff-routes',
-        data: jsonEncode(_routes),
-      );
-      if (!mounted) return;
-      await style.updateGeoJsonSource(
+      await _updateSource(style, id: 'ff-points', data: jsonEncode(_points));
+      if (!mounted || revision != _recordsRevision || style != _activeStyle) {
+        return;
+      }
+      await _updateSource(style, id: 'ff-routes', data: _routeData.encoded);
+      if (!mounted || revision != _recordsRevision || style != _activeStyle) {
+        return;
+      }
+      await _updateSource(
+        style,
         id: 'ff-location',
         data: jsonEncode(_location),
       );
+      if (!mounted || revision != _recordsRevision) return;
+      await _updateSource(
+        style,
+        id: 'ff-route-selection',
+        data: jsonEncode(_selectedRoute),
+      );
+      if (!mounted || revision != _recordsRevision) return;
+      var encoded = jsonEncode(emptyDetailFootprint);
+      if (widget.mode == MapMode.travelFootprint &&
+          widget.places.any((place) => place.isVisited)) {
+        if (!identical(_footprintPlaces, widget.places)) {
+          _footprintPlaces = widget.places;
+          _footprint = null;
+          _footprintTask = DetailFootprintLoader().load(widget.places);
+        }
+        try {
+          final result = await _footprintTask!;
+          if (!mounted || revision != _recordsRevision) return;
+          _footprint = result;
+          encoded = result.encoded;
+        } catch (_) {
+          // Optional highlighting must never take away the detailed map or
+          // its tappable city markers if local boundary loading fails.
+          if (!mounted || revision != _recordsRevision) return;
+          _footprintPlaces = null;
+          _footprintTask = null;
+        }
+      }
+      if (!mounted || revision != _recordsRevision || style != _activeStyle) {
+        return;
+      }
+      await _updateSource(style, id: 'ff-regions', data: encoded);
     } catch (_) {
       // A style switch may destroy the previous sources mid-update. The new
       // onStyleLoaded callback reapplies the current records.
+    }
+  }
+
+  Future<void> _updateSource(
+    ml.StyleController style, {
+    required String id,
+    required String data,
+  }) => _sourceCache.update(
+    style: style,
+    id: id,
+    data: data,
+    send: () => style.updateGeoJsonSource(id: id, data: data),
+  );
+
+  void _selectRoute(int? index) {
+    if (_selectedRouteIndex == index) return;
+    _selectedRouteIndex = index;
+    final style = _activeStyle;
+    if (style != null && !_failed) {
+      unawaited(
+        _updateSource(
+          style,
+          id: 'ff-route-selection',
+          data: jsonEncode(_selectedRoute),
+        ).catchError((Object _) {}),
+      );
     }
   }
 
@@ -244,6 +334,7 @@ class _DetailMapState extends State<DetailMap> {
       return;
     }
     if (airports.isNotEmpty || places.isNotEmpty) {
+      _selectRoute(null);
       widget.onSelection?.call(
         MapSelection(airports: airports, places: places),
       );
@@ -253,8 +344,36 @@ class _DetailMapState extends State<DetailMap> {
       Rect.fromCircle(center: input.screenPoint, radius: 6),
       layerIds: const ['ff-routes'],
     );
-    if (hits.isEmpty) return;
-    final index = (hits.first.properties['index'] as num?)?.toInt();
+    int? index;
+    var nearest = double.infinity;
+    final checked = <int>{};
+    final worldWidth = (512 * math.pow(2, controller.getCamera().zoom))
+        .toDouble();
+    for (final hit in hits) {
+      final candidate = (hit.properties['index'] as num?)?.toInt();
+      if (candidate == null || !checked.add(candidate)) continue;
+      final feature = _routeData.byIndex[candidate];
+      if (feature == null) continue;
+      final geometry = feature['geometry'] as Map;
+      final projected = controller.toScreenLocations([
+        for (final point in geometry['coordinates'] as List)
+          ml.Geographic(
+            lon: (point[0] as num).toDouble(),
+            lat: (point[1] as num).toDouble(),
+          ),
+      ]);
+      final distance = detailRouteScreenDistance(
+        input.screenPoint,
+        projected,
+        offset: ((feature['properties'] as Map)['offset'] as num).toDouble(),
+        worldWidth: worldWidth,
+      );
+      if (distance < nearest) {
+        nearest = distance;
+        index = candidate;
+      }
+    }
+    _selectRoute(index);
     if (index != null && index >= 0 && index < widget.routes.length) {
       widget.onSelection?.call(MapSelection(route: widget.routes[index]));
     }
@@ -288,13 +407,17 @@ class _DetailMapState extends State<DetailMap> {
         _deadline?.cancel();
         _readinessCheck?.cancel();
         setState(() => _ready = true);
+        _notifyFallback(false);
       }
     } catch (_) {
       // The bounded deadline falls back if the native surface never loads.
     }
   }
 
-  void _onStyleLoaded(ml.StyleController _) {
+  void _onStyleLoaded(ml.StyleController style) {
+    // Native style-loaded can precede onMapCreated. Use the supplied style
+    // directly so first-entry highlighting does not depend on a later toggle.
+    _activeStyle = style;
     unawaited(_updateRecords());
     _readinessCheck?.cancel();
     if (!_ready && !_failed) {
@@ -333,9 +456,7 @@ class _DetailMapState extends State<DetailMap> {
     return Stack(
       fit: StackFit.expand,
       children: [
-        if (_base == null || _failed)
-          widget.fallback
-        else
+        if (_base != null && !_failed)
           LayoutBuilder(
             builder: (context, constraints) {
               _viewport = constraints.biggest;
@@ -390,6 +511,7 @@ class _DetailMapState extends State<DetailMap> {
                 ),
                 onMapCreated: (controller) {
                   _controller = controller;
+                  _activeStyle ??= controller.style;
                   widget.onCameraChanged?.call(
                     MapCamera(center, widget.initialCamera?.zoom ?? zoom),
                   );
@@ -397,64 +519,64 @@ class _DetailMapState extends State<DetailMap> {
                 onStyleLoaded: _onStyleLoaded,
                 onEvent: _onEvent,
                 children: [
-                  DetailMapAttribution(topOffset: widget.headerTopOffset),
+                  DetailMapAttribution(
+                    bottomOffset: widget.attributionBottomOffset,
+                  ),
                 ],
               );
             },
           ),
-        Positioned(
-          top: widget.headerTopOffset,
-          left: 0,
-          right: 80,
-          child: SafeArea(
-            bottom: false,
-            child: Align(
-              alignment: Alignment.topLeft,
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Material(
-                  color: colors.surface,
-                  shape: const StadiumBorder(),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 4,
-                    ),
-                    child: Wrap(
-                      crossAxisAlignment: WrapCrossAlignment.center,
-                      spacing: 8,
-                      children: [
-                        Text(
-                          strings.t(
-                            _failed
-                                ? 'detailMapFailed'
-                                : _ready
-                                ? 'detailMapPreview'
-                                : 'detailMapLoading',
+        // Do not briefly display a different map projection on every open.
+        // Wait for real detailed tiles over a quiet surface; the local map
+        // appears only on failure. Native readiness queries still work below.
+        if (!_ready && !_failed)
+          AbsorbPointer(child: ColoredBox(color: colors.background)),
+        if (_failed) widget.fallback,
+        if (!_ready || _failed)
+          Positioned(
+            top: widget.headerTopOffset,
+            left: 0,
+            right: 80,
+            child: SafeArea(
+              bottom: false,
+              child: Align(
+                alignment: Alignment.topLeft,
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Material(
+                    color: colors.surface,
+                    shape: const StadiumBorder(),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 4,
+                      ),
+                      child: Wrap(
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        spacing: 8,
+                        children: [
+                          Text(
+                            strings.t(
+                              _failed ? 'detailMapFailed' : 'detailMapLoading',
+                            ),
+                            style: TextStyle(
+                              color: colors.textSecondary,
+                              fontSize: 12,
+                            ),
                           ),
-                          style: TextStyle(
-                            color: colors.textSecondary,
-                            fontSize: 12,
-                          ),
-                        ),
-                        if (_failed)
-                          TextButton(
-                            onPressed: _load,
-                            child: Text(strings.t('retry')),
-                          ),
-                        if (_failed)
-                          TextButton(
-                            onPressed: widget.onUseOffline,
-                            child: Text(strings.t('offlineBasemap')),
-                          ),
-                      ],
+                          if (_failed)
+                            TextButton(
+                              onPressed: _load,
+                              child: Text(strings.t('retry')),
+                            ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
               ),
             ),
           ),
-        ),
       ],
     );
   }

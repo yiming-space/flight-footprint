@@ -58,9 +58,7 @@ class CityRankingPage extends StatelessWidget {
                   padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
                   sliver: SliverToBoxAdapter(
                     child: Text(
-                      strings.isZh
-                          ? '累计 · 起降次数'
-                          : 'All time · Takeoffs and landings',
+                      cityVisitSummary(items.length, isZh: strings.isZh),
                       style: AppTextStyles.bodySecondary.copyWith(
                         color: colors.textSecondary,
                       ),
@@ -118,7 +116,7 @@ class CityRankingPage extends StatelessWidget {
                           leadingWidth: rankWidth,
                           countLabel: strings.isZh
                               ? '${entry.count} 次'
-                              : '${entry.count} movements',
+                              : '${entry.count} visits',
                           fillReveal: reveal,
                           followFill: animated,
                           countBuilder: animated
@@ -130,7 +128,7 @@ class CityRankingPage extends StatelessWidget {
                                   reveal: reveal,
                                   labelForCount: (value) => strings.isZh
                                       ? '$value 次'
-                                      : '$value movements',
+                                      : '$value visits',
                                   style: style,
                                 )
                               : null,

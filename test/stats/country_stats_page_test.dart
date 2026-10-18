@@ -80,7 +80,7 @@ void main() {
       expect(flag.showBorder, isFalse);
     }
     expect(find.text('101'), findsOneWidget);
-    expect(find.text('All time · Takeoffs and landings'), findsOneWidget);
+    expect(find.text('7 countries/regions visited'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -97,7 +97,7 @@ void main() {
         expect(
           tester.getSemantics(find.byKey(const ValueKey('China'))),
           matchesSemantics(
-            label: 'China, 101 takeoffs and landings',
+            label: 'China, 101 visits',
             isButton: true,
             hasTapAction: true,
           ),
@@ -152,7 +152,7 @@ void main() {
         Scaffold(
           body: RankingOverviewCard(
             title: 'Country statistics',
-            subtitle: '7 countries / regions recorded',
+            subtitle: '7 countries/regions visited',
             icon: Icons.public_rounded,
             onTap: () => navigator.currentState!.push<void>(
               MaterialPageRoute<void>(builder: (_) => page()),

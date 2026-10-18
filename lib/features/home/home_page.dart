@@ -38,7 +38,10 @@ class _HomePageState extends State<HomePage> {
   // Flat map is the practical daily view; globe remains the immersive
   // presentation behind the second round control.
   bool _globeMode = false;
-  bool _detailedMap = false;
+  // Online detail is the normal flat map; the local renderer is automatic
+  // fallback (and remains the native desktop renderer).
+  bool get _detailedMap => DetailMap.supported;
+  bool _detailFallback = false;
   DetailMapCamera? _detailCamera;
   CityCatalog? _mapCatalog;
   _HomeMapData? _mapDataCache;
@@ -106,10 +109,6 @@ class _HomePageState extends State<HomePage> {
               child: _HomeMapControls(
                 mode: _mode,
                 globeMode: _globeMode,
-                detailedMap: _detailedMap,
-                onToggleBasemap: DetailMap.supported && !_globeMode
-                    ? () => setState(() => _detailedMap = !_detailedMap)
-                    : null,
                 onToggleMode: () {
                   final nextMode = _mode == MapMode.flight
                       ? MapMode.travelFootprint
@@ -178,8 +177,11 @@ class _HomePageState extends State<HomePage> {
                           fitPoints,
                           userLocation,
                         ),
-                        onUseOffline: () =>
-                            setState(() => _detailedMap = false),
+                        onFallbackChanged: (fallback) {
+                          if (mounted && _detailFallback != fallback) {
+                            setState(() => _detailFallback = fallback);
+                          }
+                        },
                         onSelection: _handleMapSelection,
                         onPlaceLongPress: _handlePlaceLongPress,
                       )
@@ -240,7 +242,7 @@ class _HomePageState extends State<HomePage> {
     userLocation: userLocation,
     initialCamera: _detailCamera,
     onCameraChanged: (camera) {
-      if (!_detailedMap &&
+      if ((!_detailedMap || _detailFallback) &&
           !_globeMode &&
           widget.isActive &&
           !_openingHorizontalMap) {
@@ -404,7 +406,6 @@ class _HomePageState extends State<HomePage> {
           builder: (_) => MapFullscreenPage(
             mode: mode,
             initialGlobeMode: globeMode,
-            initialDetailedMap: _detailedMap,
             initialDetailCamera: _detailCamera,
             onDetailCameraChanged: (camera) => _detailCamera = camera,
             userLocation: _userLocation,
@@ -607,8 +608,6 @@ class _HomeMapControls extends StatelessWidget {
   const _HomeMapControls({
     required this.mode,
     required this.globeMode,
-    required this.detailedMap,
-    required this.onToggleBasemap,
     required this.onToggleMode,
     required this.onToggleProjection,
     required this.onLocate,
@@ -618,8 +617,6 @@ class _HomeMapControls extends StatelessWidget {
 
   final MapMode mode;
   final bool globeMode;
-  final bool detailedMap;
-  final VoidCallback? onToggleBasemap;
   final VoidCallback onToggleMode;
   final VoidCallback onToggleProjection;
   final VoidCallback onLocate;
@@ -685,23 +682,6 @@ class _HomeMapControls extends StatelessWidget {
             onPressed: onToggleProjection,
           ),
         ),
-        if (onToggleBasemap != null) ...[
-          const SizedBox(height: 10),
-          LiquidGlassIconButton(
-            tooltip: strings.t(
-              detailedMap ? 'offlineBasemap' : 'detailedBasemap',
-            ),
-            icon: detailedMap ? Icons.layers_rounded : Icons.layers_outlined,
-            size: 48,
-            iconSize: 22,
-            blurEnabled: false,
-            tintColor: detailedMap ? colors.lime : controlTint,
-            tintOpacity: controlTintOpacity,
-            foregroundColor: detailedMap ? colors.onPrimary : controlForeground,
-            borderColor: controlBorder,
-            onPressed: onToggleBasemap,
-          ),
-        ],
         const SizedBox(height: 10),
         Semantics(
           button: true,

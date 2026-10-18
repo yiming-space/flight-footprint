@@ -58,8 +58,12 @@ class FlightDataController extends ChangeNotifier {
     DateTime? nextTransition;
     for (final flight in flights) {
       if (flight.effectiveStatusAt(now) != FlightStatus.upcoming) continue;
-      final transition = flightStatusTransitionAt(flight.departedAt);
-      if (!transition.isAfter(now)) continue;
+      final transition = flightStatusTransitionAt(
+        flight.departedAt,
+        arrivedAt: flight.arrivedAt,
+        durationMinutes: flight.durationMinutes,
+      );
+      if (transition == null || !transition.isAfter(now)) continue;
       if (nextTransition == null || transition.isBefore(nextTransition)) {
         nextTransition = transition;
       }

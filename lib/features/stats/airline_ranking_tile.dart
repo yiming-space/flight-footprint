@@ -50,6 +50,9 @@ class _AirlineRankingTileState extends State<AirlineRankingTile> {
     maxCount: widget.maxCount,
     rank: widget.rank,
     countLabel: widget.countLabel,
+    containContentInFill: true,
+    minimumFillFraction: .50,
+    countTravelSpace: 16,
     accentColor: _brandColor,
     leading: AirlineLogo(
       key: ValueKey(widget.iataCode),

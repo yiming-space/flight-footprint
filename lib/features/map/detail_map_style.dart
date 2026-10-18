@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
 import '../../ui/theme/app_theme.dart';
+import 'detail_map_footprint.dart';
 
 /// Only the public style is requested here. Personal records stay on-device.
 class DetailMapStyleLoader {
@@ -37,6 +38,8 @@ Map<String, dynamic> buildDetailMapStyle(
   required Map<String, dynamic> points,
   required Map<String, dynamic> routes,
   required Map<String, dynamic> location,
+  Map<String, dynamic> regions = emptyDetailFootprint,
+  Map<String, dynamic> selectedRoute = emptyDetailFootprint,
 }) {
   final colors = light ? AppThemeColors.light : AppThemeColors.dark;
   final land = detailMapColor(
@@ -122,11 +125,56 @@ Map<String, dynamic> buildDetailMapStyle(
     layer['paint'] = paint;
     layers.add(layer);
   }
+  // Place visited fills above landcover but below water, boundaries, roads
+  // and all labels. Do not rebuild the basemap or camera when records change.
+  final regionLayer = <String, dynamic>{
+    'id': 'ff-regions',
+    'type': 'fill',
+    'source': 'ff-regions',
+    'maxzoom': 8,
+    'paint': {
+      'fill-color': detailMapColor(
+        light ? AppColors.detailFootprintLight : AppColors.detailFootprintDark,
+      ),
+      'fill-antialias': true,
+      // Bundled country geometry is overview-resolution. Fade out before
+      // street scale, where coastline simplification would become apparent.
+      'fill-opacity': [
+        'interpolate',
+        ['linear'],
+        ['zoom'],
+        0,
+        light ? .5 : .72,
+        4,
+        light ? .5 : .72,
+        6,
+        light ? .2 : .28,
+        8,
+        0,
+      ],
+    },
+  };
+  final insertion = layers.indexWhere(
+    (layer) => layer['type'] == 'line' || layer['type'] == 'symbol',
+  );
+  final waterMasks = [
+    for (final layer in layers)
+      if (layer['type'] == 'fill' && layer['source-layer'] == 'water')
+        <String, dynamic>{...layer, 'id': 'ff-region-water-${layer['id']}'},
+  ];
+  layers.insertAll(insertion < 0 ? layers.length : insertion, [
+    regionLayer,
+    // Redraw detailed coastlines/lakes over the overview-resolution fill.
+    // Native water masks keep the tint off water without raster compositing.
+    ...waterMasks,
+  ]);
   base['sources'] = {
     ...base['sources'] as Map,
     'ff-points': {'type': 'geojson', 'data': points},
     'ff-routes': {'type': 'geojson', 'data': routes},
+    'ff-route-selection': {'type': 'geojson', 'data': selectedRoute},
     'ff-location': {'type': 'geojson', 'data': location},
+    'ff-regions': {'type': 'geojson', 'data': regions},
   };
   layers.addAll([
     {
@@ -138,8 +186,43 @@ Map<String, dynamic> buildDetailMapStyle(
         'line-color': detailMapColor(
           light ? AppColors.routePurpleLight : AppColors.routePurple,
         ),
-        'line-width': 1.6,
-        'line-opacity': light ? 1 : .9,
+        'line-width': [
+          'interpolate',
+          ['linear'],
+          ['zoom'],
+          0,
+          1.0,
+          2,
+          1.15,
+          5,
+          1.4,
+          12,
+          1.65,
+        ],
+        'line-offset': [
+          'coalesce',
+          ['get', 'offset'],
+          0,
+        ],
+        'line-opacity': light ? .9 : .62,
+      },
+    },
+    {
+      'id': 'ff-route-selection',
+      'type': 'line',
+      'source': 'ff-route-selection',
+      'layout': {'line-cap': 'round', 'line-join': 'round'},
+      'paint': {
+        'line-color': detailMapColor(
+          light ? AppColors.routePurpleLight : AppColors.routePurple,
+        ),
+        'line-width': 2.05,
+        'line-offset': [
+          'coalesce',
+          ['get', 'offset'],
+          0,
+        ],
+        'line-opacity': 1,
       },
     },
     {
@@ -148,8 +231,26 @@ Map<String, dynamic> buildDetailMapStyle(
       'source': 'ff-points',
       'paint': {
         'circle-color': detailMapColor(colors.lime),
-        'circle-radius': 4.5,
-        'circle-stroke-width': 1.5,
+        'circle-radius': [
+          'interpolate',
+          ['linear'],
+          ['zoom'],
+          0,
+          3.4,
+          2,
+          3.8,
+          5,
+          4.5,
+        ],
+        'circle-stroke-width': [
+          'interpolate',
+          ['linear'],
+          ['zoom'],
+          0,
+          1.0,
+          5,
+          1.5,
+        ],
         'circle-stroke-color': land,
       },
     },
@@ -176,10 +277,12 @@ Map<String, dynamic> buildDetailMapStyle(
       'type': 'circle',
       'source': 'ff-location',
       'paint': {
-        'circle-color': '#48B8FF',
+        'circle-color': '#B69CFF',
         'circle-radius': 6,
         'circle-stroke-width': 2.5,
         'circle-stroke-color': '#FFFFFF',
+        'circle-opacity': 1,
+        'circle-stroke-opacity': 1,
       },
     },
   ]);

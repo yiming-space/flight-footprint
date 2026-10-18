@@ -162,7 +162,7 @@ class _AircraftCollectionPageState extends State<AircraftCollectionPage> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(isZh ? '机型图鉴' : 'Aircraft collection'),
+        title: Text(context.strings.t('aircraftCollection')),
         backgroundColor: colors.background,
         surfaceTintColor: Colors.transparent,
         scrolledUnderElevation: 0,
@@ -187,9 +187,9 @@ class _AircraftCollectionPageState extends State<AircraftCollectionPage> {
                   Padding(
                     padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
                     child: Text(
-                      isZh
-                          ? '已搭乘 ${widget.items.length} 种机型'
-                          : '${widget.items.length} aircraft ${widget.items.length == 1 ? 'type' : 'types'} flown',
+                      context.strings
+                          .t('aircraftTypesCount')
+                          .replaceAll('{count}', '${widget.items.length}'),
                       key: const ValueKey('aircraft-collection-summary'),
                       style: AppTextStyles.bodySecondary.copyWith(
                         color: colors.textSecondary,
@@ -238,12 +238,10 @@ class _AircraftCollectionPageState extends State<AircraftCollectionPage> {
                   child: Center(
                     child: Text(
                       widget.items.isEmpty
-                          ? (isZh
-                                ? '还没有机型记录\n为已完成航班添加机型后，会显示在这里。'
-                                : 'No aircraft recorded yet\nAdd an aircraft type to a completed flight to start your collection.')
+                          ? context.strings.t('aircraftCollectionEmpty')
                           : (isZh
-                                ? '还没有搭乘这一制造商的机型'
-                                : 'No aircraft from this manufacturer yet'),
+                                ? '还没有解锁这一制造商的机型'
+                                : 'No aircraft from this manufacturer unlocked yet'),
                       textAlign: TextAlign.center,
                       style: AppTextStyles.body.copyWith(
                         color: colors.textSecondary,
@@ -273,6 +271,7 @@ class _AircraftCollectionPageState extends State<AircraftCollectionPage> {
                                   recycleArc: false,
                                   cycleDepth: true,
                                   showControls: false,
+                                  maxRearCards: 4,
                                   animateEntrance: animateEntrance,
                                   key: ValueKey(
                                     'aircraft-deck-${_manufacturer?.name ?? 'all'}',
@@ -507,7 +506,7 @@ class _AircraftCardState extends State<_AircraftCard> {
 }
 
 /// Shares complete, model-specific artwork between the collection and detail.
-/// Models without artwork deliberately keep a labeled neutral icon.
+/// Recorded model labels stay exact even when artwork comes from its family.
 class AircraftExhibitArtwork extends StatelessWidget {
   const AircraftExhibitArtwork({
     super.key,

@@ -2,6 +2,69 @@ import 'dart:math' as math;
 
 import 'map_models.dart';
 
+/// Illustrative arcs in the detailed map's Mercator plane, not flight tracks.
+/// Reversing the directed chord reverses its normal: return trips bow onto
+/// the other side instead of drawing two nearly parallel pixel offsets.
+List<List<double>> detailIllustratedRouteCoordinates(MapRoute route) {
+  if (route.track.length >= 2) return detailRouteCoordinates(route);
+  const maxLatitude = 85.0511287798066;
+  double project(double latitude) => math.log(
+    math.tan(
+      math.pi / 4 + latitude.clamp(-maxLatitude, maxLatitude) * math.pi / 360,
+    ),
+  );
+  final longitude = route.from.longitude >= -180 && route.from.longitude < 180
+      ? route.from.longitude
+      : _longitude(route.from.longitude);
+  var delta = _longitude(route.to.longitude - route.from.longitude);
+  // Keep the exactly half-world case antisymmetric too.
+  if (delta == -180 && route.to.longitude > route.from.longitude) delta = 180;
+  final endLongitude =
+      route.to.longitude +
+      ((longitude + delta - route.to.longitude) / 360).round() * 360;
+  final ax = longitude * math.pi / 180, ay = project(route.from.latitude);
+  final bx = ax + delta * math.pi / 180, by = project(route.to.latitude);
+  final dx = bx - ax, dy = by - ay;
+  final length = math.sqrt(dx * dx + dy * dy);
+  if (length < 1e-10) {
+    return [
+      [
+        longitude,
+        route.from.latitude.clamp(-maxLatitude, maxLatitude).toDouble(),
+      ],
+      [
+        endLongitude,
+        route.to.latitude.clamp(-maxLatitude, maxLatitude).toDouble(),
+      ],
+    ];
+  }
+  final bend = math.min(length * .32, .75);
+  final cx = (ax + bx) / 2 - dy / length * bend;
+  final cy = ((ay + by) / 2 + dx / length * bend).clamp(-math.pi, math.pi);
+  // Bounded geometry is cached, never recalculated on camera movement.
+  final steps = (length * 16).ceil().clamp(24, 64);
+  final points = <List<double>>[];
+  for (var i = 0; i <= steps; i++) {
+    if (i == 0 || i == steps) {
+      points.add([
+        i == 0 ? longitude : endLongitude,
+        (i == 0 ? route.from.latitude : route.to.latitude)
+            .clamp(-maxLatitude, maxLatitude)
+            .toDouble(),
+      ]);
+      continue;
+    }
+    final t = i / steps, u = 1 - t;
+    final x = u * u * ax + 2 * u * t * cx + t * t * bx;
+    final y = u * u * ay + 2 * u * t * cy + t * t * by;
+    points.add([
+      x * 180 / math.pi,
+      (2 * math.atan(math.exp(y)) - math.pi / 2) * 180 / math.pi,
+    ]);
+  }
+  return points;
+}
+
 /// GeoJSON coordinates with adjacent longitudes unwrapped across the dateline.
 List<List<double>> detailRouteCoordinates(MapRoute route) {
   if (route.track.length >= 2) {

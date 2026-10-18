@@ -356,7 +356,12 @@ class FlightSpreadsheetImportService {
       arrivedAt: arrivedAt,
       createdAt: createdAt,
       updatedAt: createdAt,
-      status: flightStatusForDeparture(departedAt, now),
+      status: flightStatusForDeparture(
+        departedAt,
+        now,
+        arrivedAt: arrivedAt,
+        durationMinutes: durationMinutes,
+      ),
       airline: airline,
       flightNumber: flightNumber,
       aircraftType: _cell(values, header.aircraft).nullIfEmpty,

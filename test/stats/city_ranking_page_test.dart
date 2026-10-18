@@ -196,7 +196,7 @@ void main() {
     await tester.tap(find.text('Open'));
     await tester.pumpAndSettle();
 
-    expect(find.text('累计 · 起降次数'), findsOneWidget);
+    expect(find.text('到访 1 座城市'), findsOneWidget);
     expect(find.text('4 次'), findsOneWidget);
     expect(find.byType(BottomSheet), findsNothing);
     await tester.tap(find.text('上海'));
@@ -241,7 +241,7 @@ void main() {
     await tester.pumpWidget(
       host(CityRankingPage(items: const [], onCitySelected: (_) {})),
     );
-    expect(find.text('累计 · 起降次数'), findsOneWidget);
+    expect(find.text('到访 0 座城市'), findsOneWidget);
     expect(find.text('暂无数据'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });

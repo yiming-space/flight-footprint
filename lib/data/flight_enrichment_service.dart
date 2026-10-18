@@ -5,6 +5,20 @@ import 'package:http/http.dart' as http;
 
 import 'airline_catalog.dart';
 
+enum AircraftLookupStatus {
+  matched,
+  noMatch,
+  unavailable,
+  rateLimited,
+  ambiguous,
+  stale,
+  typeUnavailable,
+  routeConflict,
+  disabled,
+  notToday,
+  unsupported,
+}
+
 /// Best-effort flight details returned by an external provider.
 ///
 /// The app never depends on this object to save a flight: local entry remains
@@ -21,6 +35,7 @@ class FlightEnrichment {
     this.aircraftSource,
     this.aircraftObservedAt,
     this.aircraftLookupAttempted = false,
+    this.aircraftLookupStatus,
     this.departedAt,
     this.arrivedAt,
     this.durationMinutes,
@@ -37,6 +52,7 @@ class FlightEnrichment {
   final String? aircraftSource;
   final DateTime? aircraftObservedAt;
   final bool aircraftLookupAttempted;
+  final AircraftLookupStatus? aircraftLookupStatus;
   final DateTime? departedAt;
   final DateTime? arrivedAt;
   final int? durationMinutes;
@@ -56,6 +72,7 @@ class FlightEnrichmentService {
   FlightEnrichmentService({
     http.Client? client,
     this.requestTimeout = const Duration(seconds: 7),
+    this.lookupTimeout = const Duration(seconds: 8),
     DateTime Function()? now,
     this.enableLiveAircraft = const bool.fromEnvironment(
       'FLIGHT_FOOTPRINT_ENABLE_LIVE_AIRCRAFT',
@@ -242,7 +259,11 @@ class FlightEnrichmentService {
   final http.Client _client;
   final bool _ownsClient;
   final Duration requestTimeout;
+  final Duration lookupTimeout;
   final DateTime Function() _now;
+  bool _disposed = false;
+  final _inFlight = <String, Future<FlightEnrichment?>>{};
+  final _cache = <String, ({DateTime at, FlightEnrichment result})>{};
 
   /// Experimental observations are opt-in in release builds until provider
   /// access and data licensing have been confirmed. Tests can inject a value.
@@ -259,11 +280,67 @@ class FlightEnrichmentService {
     DateTime? flightDate,
     String? departureIata,
     String? arrivalIata,
-  }) async {
+  }) {
+    if (_disposed) return Future.value(null);
     final callsigns = _callsignCandidates(airline, flightNumber);
-    if (callsigns.isEmpty) return null;
-
+    if (callsigns.isEmpty) return Future.value(null);
     final instant = _now();
+    final key = jsonEncode([
+      callsigns,
+      flightDate?.toIso8601String(),
+      _clean(departureIata ?? ''),
+      _clean(arrivalIata ?? ''),
+      _calendarDay(instant).toIso8601String(),
+    ]);
+    final cached = _cache[key];
+    if (cached != null) {
+      final age = instant.difference(cached.at);
+      final observed = cached.result.aircraftObservedAt;
+      if (!age.isNegative &&
+          age < const Duration(seconds: 15) &&
+          (observed == null || _freshObservation(observed, instant))) {
+        return Future.value(cached.result);
+      }
+      _cache.remove(key);
+    }
+    final pending = _inFlight[key];
+    if (pending != null) return pending;
+    late final Future<FlightEnrichment?> task;
+    task =
+        _performLookup(
+              callsigns,
+              flightNumber,
+              flightDate,
+              departureIata,
+              arrivalIata,
+              instant,
+            )
+            .then((result) {
+              if (!_disposed &&
+                  result != null &&
+                  result.aircraftLookupStatus !=
+                      AircraftLookupStatus.unavailable) {
+                if (_cache.length >= 32) _cache.remove(_cache.keys.first);
+                _cache[key] = (at: _now(), result: result);
+              }
+              return result;
+            })
+            .whenComplete(() {
+              if (identical(_inFlight[key], task)) _inFlight.remove(key);
+            });
+    _inFlight[key] = task;
+    return task;
+  }
+
+  Future<FlightEnrichment?> _performLookup(
+    List<String> callsigns,
+    String flightNumber,
+    DateTime? flightDate,
+    String? departureIata,
+    String? arrivalIata,
+    DateTime instant,
+  ) async {
+    final budget = _LookupBudget(lookupTimeout);
     final liveCallsigns = callsigns
         .where((value) => RegExp(r'^[A-Z]{3}\d{1,4}[A-Z]?$').hasMatch(value))
         .take(2)
@@ -276,10 +353,20 @@ class FlightEnrichmentService {
     // Start the independent, bounded live request alongside the old route
     // workflow. An early route hit must not skip the equipment lookup.
     final liveFuture = attemptLive
-        ? _lookupLiveAircraft(liveCallsigns, instant)
-        : Future<_ObservedAircraft?>.value(null);
-    final route = await _lookupRoute(callsigns, flightDate);
+        ? _lookupLiveAircraft(liveCallsigns, instant, budget)
+        : Future.value(
+            _LiveLookupResult(
+              !enableLiveAircraft
+                  ? AircraftLookupStatus.disabled
+                  : flightDate == null ||
+                        _calendarDay(flightDate) != _calendarDay(instant)
+                  ? AircraftLookupStatus.notToday
+                  : AircraftLookupStatus.unsupported,
+            ),
+          );
+    final route = await _lookupRoute(callsigns, flightDate, budget);
     final live = await liveFuture;
+    if (_disposed) return null;
     final routeMatches =
         route == null ||
         ((departureIata == null ||
@@ -288,8 +375,21 @@ class FlightEnrichmentService {
             (arrivalIata == null ||
                 arrivalIata.trim().isEmpty ||
                 _clean(arrivalIata) == route.arrivalIata));
-    final boundAircraft = routeMatches ? live : null;
-    if (route == null && boundAircraft == null) return null;
+    final liveStatus =
+        live.aircraft != null &&
+            !_freshObservation(live.aircraft!.observedAt, _now())
+        ? AircraftLookupStatus.stale
+        : live.status;
+    final boundAircraft =
+        routeMatches && liveStatus == AircraftLookupStatus.matched
+        ? live.aircraft
+        : null;
+    if (route == null &&
+        boundAircraft == null &&
+        !attemptLive &&
+        live.status != AircraftLookupStatus.unsupported) {
+      return null;
+    }
     return FlightEnrichment(
       airline: route?.airline,
       flightNumber: route?.flightNumber ?? _clean(flightNumber),
@@ -310,26 +410,40 @@ class FlightEnrichmentService {
           : null,
       aircraftObservedAt: boundAircraft?.observedAt,
       aircraftLookupAttempted: attemptLive,
+      aircraftLookupStatus: !routeMatches && attemptLive
+          ? AircraftLookupStatus.routeConflict
+          : liveStatus,
       departedAt: route?.departedAt,
       arrivedAt: route?.arrivedAt,
       durationMinutes: route?.durationMinutes,
       distanceKm: route?.distanceKm,
-      source: route?.source ?? boundAircraft!.source,
+      source: route?.source ?? boundAircraft?.source ?? 'ADSB.lol',
     );
   }
 
   Future<FlightEnrichment?> _lookupRoute(
     List<String> callsigns,
     DateTime? flightDate,
+    _LookupBudget budget,
   ) async {
     for (final callsign in callsigns) {
-      final result = await _lookupAdsbdb(callsign, flightDate: flightDate);
+      if (_disposed || budget.remaining <= Duration.zero) break;
+      final result = await _lookupAdsbdb(
+        callsign,
+        flightDate: flightDate,
+        budget: budget,
+      );
       if (result != null && _matchesFlightDate(result, flightDate)) {
         return result;
       }
     }
     for (final callsign in callsigns) {
-      final result = await _lookupFlightBoard(callsign, flightDate: flightDate);
+      if (_disposed || budget.remaining <= Duration.zero) break;
+      final result = await _lookupFlightBoard(
+        callsign,
+        flightDate: flightDate,
+        budget: budget,
+      );
       if (result != null && _matchesFlightDate(result, flightDate)) {
         return result;
       }
@@ -338,23 +452,38 @@ class FlightEnrichmentService {
   }
 
   void dispose() {
+    _disposed = true;
+    _cache.clear();
+    _inFlight.clear();
     if (_ownsClient) _client.close();
   }
 
-  Future<_ObservedAircraft?> _lookupLiveAircraft(
+  Future<_LiveLookupResult> _lookupLiveAircraft(
     List<String> callsigns,
     DateTime instant,
+    _LookupBudget budget,
   ) async {
     final matches = <_ObservedAircraft>[];
+    var failure = AircraftLookupStatus.noMatch;
+    var incomplete = false;
     final timeout = requestTimeout < const Duration(seconds: 3)
         ? requestTimeout
         : const Duration(seconds: 3);
     for (final callsign in callsigns) {
-      final payload = await _getJson(
+      final reply = await _getReply(
         Uri.parse('https://api.adsb.lol/v2/callsign/$callsign'),
         timeout: timeout,
+        budget: budget,
       );
-      if (payload == null) continue;
+      final payload = reply.payload;
+      if (payload == null) {
+        incomplete = incomplete || reply.status != AircraftLookupStatus.noMatch;
+        if (reply.status == AircraftLookupStatus.rateLimited ||
+            failure != AircraftLookupStatus.rateLimited) {
+          failure = reply.status;
+        }
+        continue;
+      }
       // The public v2 endpoint reports `now` as Unix milliseconds. Accept
       // seconds as well, but never substitute the device clock for missing
       // provider evidence or accept a stale cache as today's assignment.
@@ -362,10 +491,15 @@ class FlightEnrichmentService {
       if (providerNow == null ||
           providerNow.difference(instant.toUtc()).abs() >
               const Duration(minutes: 5)) {
+        failure = AircraftLookupStatus.stale;
         continue;
       }
       final aircraft = payload['ac'];
-      if (aircraft is! List) continue;
+      if (aircraft is! List) {
+        incomplete = true;
+        failure = AircraftLookupStatus.unavailable;
+        continue;
+      }
       for (final value in aircraft) {
         final item = _asMap(value);
         if (item == null ||
@@ -376,11 +510,17 @@ class FlightEnrichmentService {
         final seen = seenValue is num
             ? seenValue.toDouble()
             : double.tryParse(seenValue?.toString() ?? '');
-        if (seen == null || !seen.isFinite || seen < 0 || seen > 120) continue;
+        if (seen == null || !seen.isFinite || seen < 0 || seen > 120) {
+          failure = AircraftLookupStatus.stale;
+          continue;
+        }
         final observedAt = providerNow.subtract(
           Duration(milliseconds: (seen * 1000).round()),
         );
-        if (_calendarDay(observedAt) != _calendarDay(instant)) continue;
+        if (!_freshObservation(observedAt, instant)) {
+          failure = AircraftLookupStatus.stale;
+          continue;
+        }
         final hexValue = _clean(item['hex']?.toString() ?? '');
         final hex = RegExp(r'^[0-9A-F]{6}$').hasMatch(hexValue)
             ? hexValue
@@ -414,7 +554,7 @@ class FlightEnrichmentService {
               (candidate.type != null &&
                   previous.type != null &&
                   candidate.type != previous.type)) {
-            return null;
+            return const _LiveLookupResult(AircraftLookupStatus.ambiguous);
           }
           if (candidate.type != null && previous.type == null) {
             matches[sameIndex] = candidate;
@@ -424,47 +564,77 @@ class FlightEnrichmentService {
     }
     // Reused callsigns / multiple aircraft are deliberately not resolved
     // using nearest coordinates or an inferred route segment.
-    if (matches.length != 1) return null;
+    if (matches.length > 1) {
+      return const _LiveLookupResult(AircraftLookupStatus.ambiguous);
+    }
+    if (incomplete || matches.isEmpty) return _LiveLookupResult(failure);
     final observed = matches.single;
-    if (observed.type != null) return observed;
+    if (observed.type != null) {
+      return _LiveLookupResult(AircraftLookupStatus.matched, observed);
+    }
     final identifier = observed.registration ?? observed.hex!;
-    final payload = await _getJson(
+    final registry = await _getReply(
       Uri.parse(
         'https://api.adsbdb.com/v0/aircraft/${Uri.encodeComponent(identifier)}',
       ),
       timeout: timeout,
+      budget: budget,
     );
-    final response = _asMap(payload?['response']);
+    final payload = registry.payload;
+    if (payload == null) {
+      return _LiveLookupResult(
+        registry.status == AircraftLookupStatus.noMatch
+            ? AircraftLookupStatus.typeUnavailable
+            : registry.status,
+      );
+    }
+    final response = _asMap(payload['response']);
     final aircraft = _asMap(response?['aircraft']);
-    if (aircraft == null) return null;
+    if (aircraft == null) {
+      return const _LiveLookupResult(AircraftLookupStatus.typeUnavailable);
+    }
     final registration = _stringFrom(aircraft['registration'], const []);
     final hex = _stringFrom(aircraft['mode_s'], const []);
     if (observed.registration != null &&
         registration != null &&
         _clean(observed.registration!) != _clean(registration)) {
-      return null;
+      return const _LiveLookupResult(AircraftLookupStatus.ambiguous);
     }
     if (observed.hex != null && hex != null && observed.hex != _clean(hex)) {
-      return null;
+      return const _LiveLookupResult(AircraftLookupStatus.ambiguous);
     }
     final identityMatches =
         (observed.registration != null &&
             registration != null &&
             _clean(observed.registration!) == _clean(registration)) ||
         (observed.hex != null && hex != null && observed.hex == _clean(hex));
-    if (!identityMatches) return null;
+    if (!identityMatches) {
+      return const _LiveLookupResult(AircraftLookupStatus.ambiguous);
+    }
     final type =
         _aircraftModel(aircraft['icao_type']) ??
         _aircraftModel(aircraft['type']) ??
         _aircraftModel(aircraft['model']);
-    if (type == null) return null;
-    return _ObservedAircraft(
-      type: type,
-      registration: observed.registration ?? registration,
-      hex: observed.hex,
-      observedAt: observed.observedAt,
-      source: 'ADSB.lol + ADSBdb',
+    if (type == null) {
+      return const _LiveLookupResult(AircraftLookupStatus.typeUnavailable);
+    }
+    return _LiveLookupResult(
+      AircraftLookupStatus.matched,
+      _ObservedAircraft(
+        type: type,
+        registration: observed.registration ?? registration,
+        hex: observed.hex,
+        observedAt: observed.observedAt,
+        source: 'ADSB.lol + ADSBdb',
+      ),
     );
+  }
+
+  bool _freshObservation(DateTime observed, DateTime instant) {
+    final age = instant.toUtc().difference(observed.toUtc());
+    return _calendarDay(observed) == _calendarDay(instant) &&
+        age >= const Duration(seconds: -30) &&
+        age <= const Duration(seconds: 120);
   }
 
   List<String> _callsignCandidates(String airline, String flightNumber) {
@@ -505,9 +675,11 @@ class FlightEnrichmentService {
   Future<FlightEnrichment?> _lookupAdsbdb(
     String callsign, {
     DateTime? flightDate,
+    required _LookupBudget budget,
   }) async {
     final payload = await _getJson(
       Uri.parse('$_adsbdbBase/${Uri.encodeComponent(callsign)}'),
+      budget: budget,
     );
     if (payload == null) return null;
     final response = _asMap(payload['response']);
@@ -525,8 +697,10 @@ class FlightEnrichmentService {
   Future<FlightEnrichment?> _lookupFlightBoard(
     String callsign, {
     DateTime? flightDate,
+    required _LookupBudget budget,
   }) async {
     for (final endpoint in _flightBoardEndpoints) {
+      if (_disposed || budget.remaining <= Duration.zero) break;
       if (!enableAdsbLolRouteset &&
           Uri.parse(endpoint).host == 'api.adsb.lol') {
         continue;
@@ -535,7 +709,7 @@ class FlightEnrichmentService {
         'callsign': callsign,
         'lat': 0,
         'lng': 0,
-      });
+      }, budget: budget);
       if (payload == null) continue;
       final route = _findRouteMap(payload);
       if (route == null) continue;
@@ -551,7 +725,20 @@ class FlightEnrichmentService {
     return null;
   }
 
-  Future<Map<String, dynamic>?> _getJson(Uri uri, {Duration? timeout}) async {
+  Future<Map<String, dynamic>?> _getJson(
+    Uri uri, {
+    Duration? timeout,
+    required _LookupBudget budget,
+  }) async => (await _getReply(uri, timeout: timeout, budget: budget)).payload;
+
+  Future<_ProviderReply> _getReply(
+    Uri uri, {
+    Duration? timeout,
+    required _LookupBudget budget,
+  }) async {
+    if (_disposed || budget.remaining <= Duration.zero) {
+      return const _ProviderReply(null, AircraftLookupStatus.unavailable);
+    }
     try {
       final response = await _client
           .get(
@@ -561,17 +748,31 @@ class FlightEnrichmentService {
               'user-agent': 'FlightFootprint/1.0 personal-flight-diary',
             },
           )
-          .timeout(timeout ?? requestTimeout);
-      return _decodeJson(response);
+          .timeout(budget.cap(timeout ?? requestTimeout));
+      if (response.statusCode == 429) {
+        return const _ProviderReply(null, AircraftLookupStatus.rateLimited);
+      }
+      if (response.statusCode == 404) {
+        return const _ProviderReply(null, AircraftLookupStatus.noMatch);
+      }
+      final payload = _decodeJson(response);
+      return _ProviderReply(
+        payload,
+        payload == null
+            ? AircraftLookupStatus.unavailable
+            : AircraftLookupStatus.matched,
+      );
     } on Object {
-      return null;
+      return const _ProviderReply(null, AircraftLookupStatus.unavailable);
     }
   }
 
   Future<Map<String, dynamic>?> _postJson(
     Uri uri,
-    Map<String, Object> body,
-  ) async {
+    Map<String, Object> body, {
+    required _LookupBudget budget,
+  }) async {
+    if (_disposed || budget.remaining <= Duration.zero) return null;
     try {
       final response = await _client
           .post(
@@ -583,7 +784,7 @@ class FlightEnrichmentService {
             },
             body: jsonEncode(body),
           )
-          .timeout(requestTimeout);
+          .timeout(budget.cap(requestTimeout));
       return _decodeJson(response);
     } on Object {
       return null;
@@ -1146,6 +1347,26 @@ class FlightEnrichmentService {
       for (final entry in value.entries) entry.key.toString(): entry.value,
     };
   }
+}
+
+class _LookupBudget {
+  _LookupBudget(this.limit);
+  final Duration limit;
+  final Stopwatch _clock = Stopwatch()..start();
+  Duration get remaining => limit - _clock.elapsed;
+  Duration cap(Duration request) => request < remaining ? request : remaining;
+}
+
+class _ProviderReply {
+  const _ProviderReply(this.payload, this.status);
+  final Map<String, dynamic>? payload;
+  final AircraftLookupStatus status;
+}
+
+class _LiveLookupResult {
+  const _LiveLookupResult(this.status, [this.aircraft]);
+  final AircraftLookupStatus status;
+  final _ObservedAircraft? aircraft;
 }
 
 class _ObservedAircraft {

@@ -19,10 +19,11 @@ void main() {
       '日期,航空公司,航班号,出发城市,出发时间,到达城市,到达时间,里程数,客票号,客票状态',
       '2026-08-28,深圳航空,ZH1234,深圳,23:40,厦门,01:20,520,781234,已出票',
     ].join('\n');
-    final result = FlightSpreadsheetImportService(airports: airports).parse(
+    final service = FlightSpreadsheetImportService(airports: airports);
+    final result = service.parse(
       bytes: utf8.encode(source),
       fileName: '行程记录.csv',
-      now: DateTime(2026, 8, 28, 12),
+      now: DateTime(2026, 8, 29, 0, 30),
     );
 
     expect(result.sheetName, 'CSV');
@@ -36,7 +37,20 @@ void main() {
     expect(flight.durationMinutes, 100);
     expect(flight.distanceKm, 520);
     expect(flight.note, isNull);
-    expect(flight.status, FlightStatus.completed);
+    expect(flight.status, FlightStatus.upcoming);
+    expect(
+      service
+          .parse(
+            bytes: utf8.encode(source),
+            fileName: '行程记录.csv',
+            now: flight.arrivedAt!,
+          )
+          .rows
+          .single
+          .flight
+          .status,
+      FlightStatus.completed,
+    );
     expect(result.rows.single.departureAirportName, '深圳宝安T3');
     expect(result.rows.single.arrivalAirportName, '厦门高崎');
   });

@@ -471,7 +471,7 @@ void main() {
         ),
       ),
     );
-    expect(find.text('已搭乘 4 种机型'), findsOneWidget);
+    expect(find.text('已解锁 4 种'), findsOneWidget);
     await tester.tap(find.byType(AircraftCollectionOverviewCard));
     await tester.pumpAndSettle();
     expect(find.byType(AircraftCollectionPage), findsOneWidget);
@@ -606,7 +606,7 @@ void main() {
       expect(find.text('A350-900'), findsNothing);
       expect(find.text('A350-1000'), findsNothing);
       expect(find.text('B777-300ER'), findsOneWidget);
-      expect(find.text('已搭乘 4 种机型'), findsOneWidget);
+      expect(find.text('已解锁 4 种'), findsOneWidget);
       await tester.tap(find.byKey(const ValueKey('aircraft-filter-other')));
       await tester.pumpAndSettle();
       expect(find.text('COMAC C919'), findsOneWidget);
@@ -632,7 +632,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.textContaining('还没有机型记录'), findsOneWidget);
+    expect(find.textContaining('还没有解锁机型'), findsOneWidget);
     expect(find.byType(Image), findsNothing);
     await tester.pumpWidget(
       _host(
@@ -644,7 +644,7 @@ void main() {
     );
     await tester.tap(find.byKey(const ValueKey('aircraft-filter-boeing')));
     await tester.pumpAndSettle();
-    expect(find.text('还没有搭乘这一制造商的机型'), findsOneWidget);
+    expect(find.text('还没有解锁这一制造商的机型'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -939,7 +939,7 @@ void main() {
       expect(
         tester.getSemantics(find.byType(AircraftCollectionOverviewCard)),
         matchesSemantics(
-          label: 'Aircraft collection, 1 aircraft type flown',
+          label: 'Unlocked aircraft, 1 aircraft unlocked',
           isButton: true,
           hasTapAction: true,
         ),

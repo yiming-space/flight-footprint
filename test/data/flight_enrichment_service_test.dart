@@ -118,6 +118,259 @@ Future<FlightEnrichment?> _lookupToday(
     );
 
 void main() {
+  group('live lookup reliability', () {
+    for (final example in <(http.Response, AircraftLookupStatus)>[
+      (_liveResponse([]), AircraftLookupStatus.noMatch),
+      (http.Response('{}', 503), AircraftLookupStatus.unavailable),
+      (http.Response('{}', 429), AircraftLookupStatus.rateLimited),
+      (http.Response('not json', 200), AircraftLookupStatus.unavailable),
+      (
+        _liveResponse([
+          _plane(),
+          _plane(hex: '780456', registration: 'B-5678'),
+        ]),
+        AircraftLookupStatus.ambiguous,
+      ),
+      (
+        _liveResponse([
+          _plane(),
+        ], observedAt: _now.subtract(const Duration(seconds: 180))),
+        AircraftLookupStatus.stale,
+      ),
+      (
+        _liveResponse([_plane(type: null)]),
+        AircraftLookupStatus.typeUnavailable,
+      ),
+    ]) {
+      test('reports ${example.$2} even without route data', () async {
+        final result = await _lookupToday(_liveClient((_) => example.$1));
+        expect(result, isNotNull);
+        expect(result!.aircraftLookupStatus, example.$2);
+        expect(result.aircraftLookupAttempted, isTrue);
+        expect(result.aircraftType, isNull);
+      });
+    }
+
+    test(
+      'rejects future observations inside the old five-minute clock window',
+      () async {
+        final result = await _lookupToday(
+          _liveClient(
+            (_) => _liveResponse([
+              _plane(seen: 0),
+            ], observedAt: _now.add(const Duration(seconds: 60))),
+          ),
+        );
+        expect(result?.aircraftLookupStatus, AircraftLookupStatus.stale);
+        expect(result?.aircraftType, isNull);
+      },
+    );
+
+    test('retains an explicit airport-conflict reason', () async {
+      final result = await _lookupToday(
+        _liveClient((_) => _liveResponse([_plane()]), route: _routeResponse()),
+        departureIata: 'CAN',
+      );
+      expect(result?.aircraftLookupStatus, AircraftLookupStatus.routeConflict);
+      expect(result?.aircraftType, isNull);
+    });
+
+    test('identical concurrent lookups share one request workflow', () async {
+      final response = Completer<http.Response>();
+      final client = _liveClient((_) => response.future);
+      final service = FlightEnrichmentService(
+        client: client,
+        now: () => _now,
+        enableLiveAircraft: true,
+        enableAdsbLolRouteset: true,
+      );
+      addTearDown(service.dispose);
+      final first = service.lookup(
+        airline: '国航',
+        flightNumber: 'CA123',
+        flightDate: _now,
+      );
+      final second = service.lookup(
+        airline: '国航',
+        flightNumber: 'CA123',
+        flightDate: _now,
+      );
+      expect(identical(first, second), isTrue);
+      response.complete(_liveResponse([_plane()]));
+      final results = await Future.wait([first, second]);
+      expect(
+        results.every((result) => result?.aircraftType == 'A320neo'),
+        isTrue,
+      );
+      expect(client.requests.where(_isLive), hasLength(1));
+    });
+
+    test(
+      'short memory cache expires and airport edits do not reuse it',
+      () async {
+        var instant = _now;
+        final client = _liveClient(
+          (_) => _liveResponse([_plane()], observedAt: instant),
+          route: _routeResponse(),
+        );
+        final service = FlightEnrichmentService(
+          client: client,
+          now: () => instant,
+          enableLiveAircraft: true,
+          enableAdsbLolRouteset: true,
+        );
+        addTearDown(service.dispose);
+        Future<FlightEnrichment?> query({String? departure}) => service.lookup(
+          airline: '国航',
+          flightNumber: 'CA123',
+          flightDate: _now,
+          departureIata: departure,
+        );
+        expect((await query())?.aircraftType, 'A320neo');
+        final requests = client.requests.length;
+        expect((await query())?.aircraftType, 'A320neo');
+        expect(client.requests.length, requests);
+        expect(
+          (await query(departure: 'CAN'))?.aircraftLookupStatus,
+          AircraftLookupStatus.routeConflict,
+        );
+        expect(client.requests.where(_isLive), hasLength(2));
+        instant = instant.add(const Duration(seconds: 16));
+        expect((await query())?.aircraftType, 'A320neo');
+        expect(client.requests.where(_isLive), hasLength(3));
+      },
+    );
+
+    test('cached observations cannot outlive their freshness limit', () async {
+      var instant = _now;
+      final client = _liveClient((_) => _liveResponse([_plane(seen: 115)]));
+      final service = FlightEnrichmentService(
+        client: client,
+        now: () => instant,
+        enableLiveAircraft: true,
+        enableAdsbLolRouteset: true,
+      );
+      addTearDown(service.dispose);
+      Future<FlightEnrichment?> query() => service.lookup(
+        airline: '国航',
+        flightNumber: 'CA123',
+        flightDate: _now,
+      );
+      expect((await query())?.aircraftType, 'A320neo');
+      instant = instant.add(const Duration(seconds: 10));
+      expect((await query())?.aircraftLookupStatus, AircraftLookupStatus.stale);
+      expect(client.requests.where(_isLive), hasLength(2));
+    });
+
+    test(
+      'unavailable results remain retryable instead of poisoning the cache',
+      () async {
+        var failed = true;
+        final client = _liveClient(
+          (_) => failed ? http.Response('{}', 503) : _liveResponse([_plane()]),
+        );
+        final service = FlightEnrichmentService(
+          client: client,
+          now: () => _now,
+          enableLiveAircraft: true,
+          enableAdsbLolRouteset: true,
+        );
+        addTearDown(service.dispose);
+        Future<FlightEnrichment?> query() => service.lookup(
+          airline: '国航',
+          flightNumber: 'CA123',
+          flightDate: _now,
+        );
+        expect(
+          (await query())?.aircraftLookupStatus,
+          AircraftLookupStatus.unavailable,
+        );
+        failed = false;
+        expect((await query())?.aircraftType, 'A320neo');
+        expect(client.requests.where(_isLive), hasLength(2));
+      },
+    );
+
+    test(
+      'a total deadline bounds both live lookup and sequential route fallbacks',
+      () async {
+        final client = _FakeClient((_) => Completer<http.Response>().future);
+        final service = FlightEnrichmentService(
+          client: client,
+          now: () => _now,
+          enableLiveAircraft: true,
+          enableAdsbLolRouteset: true,
+          requestTimeout: const Duration(seconds: 7),
+          lookupTimeout: const Duration(milliseconds: 40),
+        );
+        addTearDown(service.dispose);
+        final clock = Stopwatch()..start();
+        final result = await service.lookup(
+          airline: '国航',
+          flightNumber: 'CA123',
+          flightDate: _now,
+        );
+        expect(clock.elapsed, lessThan(const Duration(milliseconds: 500)));
+        expect(result?.aircraftLookupStatus, AircraftLookupStatus.unavailable);
+        expect(client.requests.length, lessThanOrEqualTo(2));
+      },
+    );
+
+    test(
+      'completed routes are preserved when live lookup reaches the deadline',
+      () async {
+        final client = _liveClient(
+          (_) => Completer<http.Response>().future,
+          route: _routeResponse(),
+        );
+        final service = FlightEnrichmentService(
+          client: client,
+          now: () => _now,
+          enableLiveAircraft: true,
+          enableAdsbLolRouteset: true,
+          lookupTimeout: const Duration(milliseconds: 40),
+        );
+        addTearDown(service.dispose);
+        final result = await service.lookup(
+          airline: '国航',
+          flightNumber: 'CA123',
+          flightDate: _now,
+        );
+        expect(result?.departureIata, 'PEK');
+        expect(result?.aircraftLookupStatus, AircraftLookupStatus.unavailable);
+      },
+    );
+
+    test('disposal prevents stale results and any later request', () async {
+      final response = Completer<http.Response>();
+      final client = _liveClient((_) => response.future);
+      final service = FlightEnrichmentService(
+        client: client,
+        now: () => _now,
+        enableLiveAircraft: true,
+        enableAdsbLolRouteset: true,
+      );
+      final pending = service.lookup(
+        airline: '国航',
+        flightNumber: 'CA123',
+        flightDate: _now,
+      );
+      service.dispose();
+      response.complete(_liveResponse([_plane()]));
+      expect(await pending, isNull);
+      final requests = client.requests.length;
+      expect(
+        await service.lookup(
+          airline: '国航',
+          flightNumber: 'CA123',
+          flightDate: _now,
+        ),
+        isNull,
+      );
+      expect(client.requests.length, requests);
+    });
+  });
+
   test('defaults respect build-time experimental feed flags', () {
     final service = FlightEnrichmentService(
       client: _FakeClient((_) => http.Response('{}', 404)),

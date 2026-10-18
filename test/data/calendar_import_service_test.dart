@@ -14,14 +14,15 @@ void main() {
   test('parses a Umetrip calendar title and infers an overnight arrival', () {
     final service = CalendarImportService(
       airports: airports,
-      clock: () => DateTime(2026, 7, 1, 12),
+      clock: () => DateTime(2026, 7, 4, 23),
     );
-    final result = service.parseEvent({
+    final event = {
       'id': 'calendar-42',
       'title': '乘坐AK128 吉隆坡国际T 2-深圳宝安 当地时间22:05-02:15 【航旅纵横】',
       'startMillis': DateTime(2026, 7, 4, 22, 5).millisecondsSinceEpoch,
       'endMillis': DateTime(2026, 7, 5, 2, 15).millisecondsSinceEpoch,
-    });
+    };
+    final result = service.parseEvent(event);
 
     expect(result, isNotNull);
     expect(result!.eventId, 'calendar-42');
@@ -33,6 +34,10 @@ void main() {
     expect(result.arrivedAt, DateTime(2026, 7, 5, 2, 15));
     expect(result.durationMinutes, 250);
     expect(result.status, FlightStatus.upcoming);
+    expect(
+      service.parseEvent(event, now: result.arrivedAt)?.status,
+      FlightStatus.completed,
+    );
   });
 
   test('ignores an event without a route or flight number', () {

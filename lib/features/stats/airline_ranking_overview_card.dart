@@ -24,6 +24,7 @@ class AirlineRankingOverviewCard extends StatelessWidget {
         : 'Flown with $airlineCount ${airlineCount == 1 ? 'airline' : 'airlines'}',
     icon: Icons.flight_takeoff_rounded,
     keyPrefix: 'airline-ranking',
+    flipOnOpen: true,
     onTap: onTap,
     pageBuilder: pageBuilder,
   );

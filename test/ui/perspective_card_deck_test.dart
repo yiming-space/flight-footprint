@@ -16,6 +16,9 @@ Widget _host({
   bool flipInPlace = false,
   bool cycleDepth = false,
   bool showControls = true,
+  int maxRearCards = 3,
+  int maxBottomPreviews = 0,
+  double height = 600,
   ValueChanged<int>? onIndexChanged,
   Map<int, double>? positions,
 }) => MaterialApp(
@@ -24,7 +27,7 @@ Widget _host({
     body: Center(
       child: SizedBox(
         width: 360,
-        height: 600,
+        height: height,
         child: PerspectiveCardDeck(
           itemCount: count,
           initialIndex: initialIndex,
@@ -36,6 +39,8 @@ Widget _host({
           flipInPlace: flipInPlace,
           cycleDepth: cycleDepth,
           showControls: showControls,
+          maxRearCards: maxRearCards,
+          maxBottomPreviews: maxBottomPreviews,
           onIndexChanged: onIndexChanged,
           itemBuilder: (context, index, relative, active) {
             positions?[index] = relative;
@@ -77,11 +82,127 @@ List<double> _cardTransform(WidgetTester tester, int slot) => tester
 
 void main() {
   testWidgets(
+    'bottom previews use available height without shrinking the front',
+    (tester) async {
+      tester.view.physicalSize = const Size(400, 1100);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final semantics = tester.ensureSemantics();
+      try {
+        for (final height in [600.0, 800.0]) {
+          await tester.pumpWidget(
+            _host(
+              loop: true,
+              cycleDepth: true,
+              showControls: false,
+              maxBottomPreviews: 2,
+              height: height,
+            ),
+          );
+          await tester.pumpAndSettle();
+          final viewport = tester.getRect(
+            find.byKey(const ValueKey('deck-card-stack')),
+          );
+          final front = tester.getRect(
+            find.byKey(const ValueKey('deck-card-transform-0')),
+          );
+          expect(front.height, 340);
+          expect(front.bottom, lessThan(viewport.bottom));
+          final first = tester.getTopLeft(
+            find.byKey(const ValueKey('deck-card-transform-1')),
+          );
+          final second = tester.getTopLeft(
+            find.byKey(const ValueKey('deck-card-transform-2')),
+          );
+          expect(first.dy, closeTo(front.bottom + 12, .01));
+          expect(first.dy, lessThan(viewport.bottom - 60));
+          expect(
+            second.dy,
+            height == 600 ? lessThan(front.top) : closeTo(first.dy + 76, .01),
+          );
+          expect(find.bySemanticsLabel('Aircraft 0'), findsOneWidget);
+          expect(find.bySemanticsLabel('Aircraft 1'), findsNothing);
+          expect(tester.takeException(), isNull);
+        }
+        await tester.pumpWidget(
+          _host(
+            loop: true,
+            cycleDepth: true,
+            showControls: false,
+            maxBottomPreviews: 2,
+            reduceMotion: true,
+            height: 800,
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(find.byKey(const ValueKey('deck-slot-1')), findsNothing);
+        expect(_cardTransform(tester, 0)[0], 1);
+        expect(tester.binding.transientCallbackCount, 0);
+      } finally {
+        semantics.dispose();
+      }
+    },
+  );
+
+  testWidgets('small looping decks land continuously in the bottom preview', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(400, 1100);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    for (final count in [2, 3]) {
+      final positions = <int, double>{};
+      await tester.pumpWidget(
+        _host(
+          count: count,
+          loop: true,
+          cycleDepth: true,
+          showControls: false,
+          maxBottomPreviews: 2,
+          height: 800,
+          positions: positions,
+        ),
+      );
+      final gesture = await tester.startGesture(_dragStart(tester));
+      await gesture.moveBy(const Offset(0, -24));
+      await tester.pump();
+      await gesture.moveBy(Offset(0, (-positions[0]! - .99999) * 176.8));
+      await tester.pump();
+      final outgoingTop = tester
+          .widget<Positioned>(find.byKey(const ValueKey('deck-slot-0')))
+          .top!;
+      final outgoing = _cardTransform(tester, 0);
+      await gesture.moveBy(const Offset(0, -.00002 * 176.8));
+      await tester.pump();
+      final returnedTop = tester
+          .widget<Positioned>(find.byKey(ValueKey('deck-slot-$count')))
+          .top!;
+      final returned = _cardTransform(tester, count);
+      expect(returnedTop, closeTo(outgoingTop, .03));
+      for (var i = 0; i < 16; i++) {
+        expect(returned[i], closeTo(outgoing[i], .0001));
+      }
+      await gesture.cancel();
+      await tester.pumpAndSettle();
+      expect(_active(1), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    }
+  });
+
+  testWidgets(
     'drawn card flies up then tucks behind offscreen and reverses the same path',
     (tester) async {
       final positions = <int, double>{};
       await tester.pumpWidget(
-        _host(count: 8, loop: true, cycleDepth: true, positions: positions),
+        _host(
+          count: 8,
+          loop: true,
+          cycleDepth: true,
+          maxRearCards: 4,
+          positions: positions,
+        ),
       );
       final top = tester
           .widget<Positioned>(find.byKey(const ValueKey('deck-slot-0')))
@@ -192,6 +313,7 @@ void main() {
           loop: true,
           cycleDepth: true,
           showControls: false,
+          maxRearCards: 4,
         ),
       );
       await tester.pumpAndSettle();
@@ -210,6 +332,7 @@ void main() {
         loop: true,
         cycleDepth: true,
         showControls: false,
+        maxRearCards: 4,
         reduceMotion: true,
       ),
     );

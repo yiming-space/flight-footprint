@@ -32,8 +32,12 @@ class PerspectiveCardDeck extends StatefulWidget {
     this.flipInPlace = false,
     this.cycleDepth = false,
     this.showControls = true,
+    this.maxRearCards = 3,
+    this.maxBottomPreviews = 0,
   }) : assert(itemCount >= 0),
-       assert(cardHeight > 0);
+       assert(cardHeight > 0),
+       assert(maxRearCards >= 1 && maxRearCards <= 4),
+       assert(maxBottomPreviews >= 0 && maxBottomPreviews <= 2);
 
   final int itemCount;
   final PerspectiveCardBuilder itemBuilder;
@@ -62,6 +66,14 @@ class PerspectiveCardDeck extends StatefulWidget {
   final bool cycleDepth;
   final bool showControls;
 
+  /// Visible faces behind the front in a looping depth-cycle deck. One extra
+  /// face is preloaded to keep the far edge continuous while dragging.
+  final int maxRearCards;
+
+  /// Reveal the next one or two faces below the active card when space permits.
+  /// They use the same virtual slots and remain passive until becoming active.
+  final int maxBottomPreviews;
+
   @override
   State<PerspectiveCardDeck> createState() => _PerspectiveCardDeckState();
 }
@@ -88,6 +100,12 @@ class _PerspectiveCardDeckState extends State<PerspectiveCardDeck>
   int get _currentIndex => _indexForSlot(_currentSlot);
   bool get _canPrevious => _loops || _currentIndex > 0;
   bool get _canNext => _loops || _currentIndex < _lastIndex;
+  int get _cyclePreloadDepth => widget.maxRearCards + 1;
+  double get _stackTopLimit =>
+      156 +
+      (widget.cycleDepth && _loops
+          ? math.max(0, math.min(widget.maxRearCards, _lastIndex) - 3) * 46
+          : 0);
   double get _stride => (widget.cardHeight * .52).clamp(170.0, 260.0);
   bool get _reduced {
     final media = MediaQuery.maybeOf(context);
@@ -318,18 +336,48 @@ class _PerspectiveCardDeckState extends State<PerspectiveCardDeck>
                       },
                       child: LayoutBuilder(
                         builder: (context, constraints) {
+                          final previewStride =
+                              76 *
+                              MediaQuery.textScalerOf(context).scale(16) /
+                              16;
+                          final canPreview =
+                              !_reduced &&
+                              _loops &&
+                              widget.cycleDepth &&
+                              widget.maxBottomPreviews > 0;
+                          final spareHeight =
+                              constraints.maxHeight - widget.cardHeight;
                           final top = _reduced
                               ? 0.0
-                              : (constraints.maxHeight - widget.cardHeight)
-                                    .clamp(0.0, 156.0);
+                              : (spareHeight -
+                                        (canPreview ? previewStride + 12 : 0))
+                                    .clamp(0.0, _stackTopLimit);
+                          final bottomPreviews = canPreview
+                              ? math.min(
+                                  math.min(
+                                    widget.maxBottomPreviews,
+                                    _lastIndex,
+                                  ),
+                                  math.max(
+                                    0,
+                                    ((spareHeight - top - 12) / previewStride)
+                                        .floor(),
+                                  ),
+                                )
+                              : 0;
                           final base = _position.value.floor();
+                          final preloadDepth = widget.cycleDepth
+                              ? _cyclePreloadDepth
+                              : 4;
                           final indices = _reduced
                               ? <int>[_currentSlot]
                               : _loops
                               ? [
                                   for (
                                     var slot = base - 1;
-                                    slot <= base + math.min(4, _lastIndex);
+                                    slot <=
+                                        base +
+                                            math.min(preloadDepth, _lastIndex);
                                     slot++
                                   )
                                     if (slot - _position.value > -1) slot,
@@ -360,8 +408,18 @@ class _PerspectiveCardDeckState extends State<PerspectiveCardDeck>
                                         widget.flipInPlace))) {
                               return b.compareTo(a);
                             }
-                            final depthOrder = _pose(b - _position.value).depth
-                                .compareTo(_pose(a - _position.value).depth);
+                            final depthOrder =
+                                _pose(
+                                  b - _position.value,
+                                  bottomPreviews: bottomPreviews,
+                                  previewStride: previewStride,
+                                ).depth.compareTo(
+                                  _pose(
+                                    a - _position.value,
+                                    bottomPreviews: bottomPreviews,
+                                    previewStride: previewStride,
+                                  ).depth,
+                                );
                             return depthOrder == 0
                                 ? b.compareTo(a)
                                 : depthOrder;
@@ -371,7 +429,13 @@ class _PerspectiveCardDeckState extends State<PerspectiveCardDeck>
                             clipBehavior: Clip.hardEdge,
                             children: [
                               for (final itemIndex in indices)
-                                _card(context, itemIndex, top),
+                                _card(
+                                  context,
+                                  itemIndex,
+                                  top,
+                                  bottomPreviews: bottomPreviews,
+                                  previewStride: previewStride,
+                                ),
                             ],
                           );
                         },
@@ -438,7 +502,7 @@ class _PerspectiveCardDeckState extends State<PerspectiveCardDeck>
     double opacity,
     double depth,
   })
-  _pose(double relative) {
+  _pose(double relative, {int bottomPreviews = 0, double previewStride = 76}) {
     final behind = math.max(0.0, relative);
     final outgoing = math.max(0.0, -relative);
     final entrance = Curves.easeOutCubic.transform(_entrance.value);
@@ -514,7 +578,7 @@ class _PerspectiveCardDeckState extends State<PerspectiveCardDeck>
       }
     }
     if (widget.cycleDepth && _loops && !_reduced) {
-      final back = math.min(4, _lastIndex).toDouble();
+      final back = math.min(_cyclePreloadDepth, _lastIndex).toDouble();
       final progress = outgoing.clamp(0.0, 1.0);
       depth = behind;
       final weight = (1 - depth).clamp(0.0, 1.0);
@@ -523,12 +587,30 @@ class _PerspectiveCardDeckState extends State<PerspectiveCardDeck>
       y = -depth * (22 + 24 * entrance) + 10 * opening * weight;
       angle = (depth * .18).clamp(0.0, .55);
       x = 0;
-      opacity = (1 - depth * .08).clamp(.68, 1.0) * (4 - depth).clamp(0.0, 1.0);
+      opacity =
+          (1 - depth * .08).clamp(.68, 1.0) *
+          (_cyclePreloadDepth - depth).clamp(0.0, 1.0);
+      if (bottomPreviews > 0 && relative >= 0) {
+        // The next virtual faces advance from below. Further faces travel
+        // behind the opaque front into this queue, retaining the upper stack.
+        final blendProgress = (relative - bottomPreviews).clamp(0.0, 1.0);
+        final blend =
+            1 - blendProgress * blendProgress * (3 - 2 * blendProgress);
+        final previewY = relative <= 1
+            ? relative * (widget.cardHeight + 12)
+            : widget.cardHeight + 12 + (relative - 1) * previewStride;
+        final previewScale =
+            (1 - (relative * .06).clamp(0.0, .30)) *
+            (1 - .02 * opening * weight);
+        y += (previewY + 10 * opening * weight - y) * blend;
+        scale += (previewScale - scale) * blend;
+        angle *= 1 - blend;
+      }
       if (outgoing > 0) {
         final departure = (progress / .56).clamp(0.0, 1.0);
         final flight =
             .18 * departure + .82 * departure * departure * departure;
-        final distance = widget.cardHeight * 1.15 + 156;
+        final distance = widget.cardHeight * 1.15 + _stackTopLimit;
         final tuck = ((progress - .56) / .10).clamp(0.0, 1.0);
         final tucked = tuck * tuck * (3 - 2 * tuck);
         final landing = ((progress - .66) / .34).clamp(0.0, 1.0);
@@ -538,12 +620,15 @@ class _PerspectiveCardDeckState extends State<PerspectiveCardDeck>
         // preview return underneath the incoming face. No edge-on flip or
         // crossover fade; reverse input follows exactly this same path.
         depth = -.05 * (1 - tucked) + back * tucked;
-        final backScale = 1 - (back * .085).clamp(0.0, .30);
-        scale = 1 - .08 * departure + (backScale - .92) * landed;
-        y = -distance * flight + (distance - back * 46) * landed;
-        angle = .12 * departure + ((back * .18).clamp(0.0, .55) - .12) * landed;
-        opacity =
-            1 + ((1 - back * .08) * (4 - back).clamp(0.0, 1.0) - 1) * landed;
+        final backPose = _pose(
+          back,
+          bottomPreviews: bottomPreviews,
+          previewStride: previewStride,
+        );
+        scale = 1 - .08 * departure + (backPose.scale - .92) * landed;
+        y = -distance * flight + (distance + backPose.y) * landed;
+        angle = .12 * departure + (backPose.angle - .12) * landed;
+        opacity = 1 + (backPose.opacity - 1) * landed;
       }
     }
     return (
@@ -556,11 +641,21 @@ class _PerspectiveCardDeckState extends State<PerspectiveCardDeck>
     );
   }
 
-  Widget _card(BuildContext context, int slot, double top) {
+  Widget _card(
+    BuildContext context,
+    int slot,
+    double top, {
+    int bottomPreviews = 0,
+    double previewStride = 76,
+  }) {
     final index = _indexForSlot(slot);
     final relative = _reduced ? 0.0 : slot - _position.value;
     final active = slot == _currentSlot;
-    final pose = _pose(relative);
+    final pose = _pose(
+      relative,
+      bottomPreviews: bottomPreviews,
+      previewStride: previewStride,
+    );
     return Positioned(
       key: ValueKey('deck-slot-$slot'),
       top: top + pose.y,

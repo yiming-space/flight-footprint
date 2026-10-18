@@ -6,24 +6,32 @@ import '../../ui/theme/app_theme.dart';
 
 /// Keep the required credit readable without covering the flight artwork.
 class DetailMapAttribution extends StatelessWidget {
-  const DetailMapAttribution({super.key, required this.topOffset});
-  final double topOffset;
+  const DetailMapAttribution({super.key, this.bottomOffset = 8});
+  final double bottomOffset;
 
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    final light = Theme.of(context).brightness == Brightness.light;
     return Align(
-      alignment: Alignment.topLeft,
+      alignment: Alignment.bottomLeft,
       child: SafeArea(
-        bottom: false,
+        top: false,
+        right: false,
         child: Padding(
-          padding: EdgeInsets.fromLTRB(12, topOffset + 38, 76, 0),
+          padding: EdgeInsets.fromLTRB(8, 0, 8, bottomOffset),
           child: TextButton(
             style: TextButton.styleFrom(
-              backgroundColor: colors.surface,
-              foregroundColor: colors.textSecondary,
-              padding: const EdgeInsets.symmetric(horizontal: 10),
-              shape: const StadiumBorder(),
+              backgroundColor: Colors.transparent,
+              foregroundColor: light
+                  ? colors.textSecondary
+                  : AppColors.detailMapNightLabel,
+              minimumSize: const Size(0, 44),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(4),
+              ),
             ),
             onPressed: () => showModalBottomSheet<void>(
               context: context,
@@ -56,9 +64,19 @@ class DetailMapAttribution extends StatelessWidget {
                 ),
               ),
             ),
-            child: const Text(
+            child: Text(
               '© OpenMapTiles · © OpenStreetMap',
-              style: TextStyle(fontSize: 10),
+              style: TextStyle(
+                fontSize: 9,
+                fontWeight: FontWeight.w400,
+                shadows: [
+                  Shadow(
+                    color: light ? Colors.white : AppColors.detailMapNightWater,
+                    offset: const Offset(0, .5),
+                    blurRadius: 2,
+                  ),
+                ],
+              ),
             ),
           ),
         ),

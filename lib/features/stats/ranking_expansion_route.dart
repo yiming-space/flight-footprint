@@ -1,6 +1,7 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
+import '../../ui/navigation/card_flip_route.dart';
 import '../../ui/theme/app_theme.dart';
 
 /// An anchored container expansion. Layout remains full-sized during flight;
@@ -9,7 +10,19 @@ Route<T> rankingExpansionRoute<T>({
   required BuildContext context,
   required Rect sourceRect,
   required WidgetBuilder builder,
+  Widget? flipFront,
+  double flipSourceRadius = 28,
 }) {
+  if (flipFront != null) {
+    return cardFlipRoute<T>(
+      context: context,
+      sourceRect: sourceRect,
+      front: flipFront,
+      builder: builder,
+      sourceRadius: flipSourceRadius,
+      keyPrefix: 'ranking-flip',
+    );
+  }
   final media = MediaQuery.maybeOf(context);
   final reduced =
       (media?.disableAnimations ?? false) ||

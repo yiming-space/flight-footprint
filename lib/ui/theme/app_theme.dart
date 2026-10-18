@@ -194,6 +194,9 @@ abstract final class AppColors {
   // Visited regions stay quiet beneath the brighter city markers.
   static const footprintRegionDark = Color(0xFF65734F);
   static const footprintRegionLight = Color(0xFFCDD3F0);
+  // Online footprint tint: cool green / clear blue, beneath labels and roads.
+  static const detailFootprintDark = Color(0xFF4E8A75);
+  static const detailFootprintLight = Color(0xFF83B5EB);
   // Shared detailed/offline night basemap: a slight cool bias keeps the gray
   // geography aligned with the app's surfaces without reading as blue land.
   static const detailMapNightLand = Color(0xFF404345);

@@ -60,6 +60,7 @@ Widget _host({
           subtitle: '3 个城市',
           icon: Icons.location_city_rounded,
           keyPrefix: 'city-ranking',
+          flipOnOpen: true,
           pageBuilder: (context) => CityRankingPage(
             items: _items,
             animateEntrance: true,
@@ -83,7 +84,7 @@ Finder _number(String key) => find.byKey(ValueKey('city-ranking-count-$key'));
 
 void main() {
   testWidgets(
-    'city fill and moving count wait for expansion, then never replay on detail return',
+    'city fill and moving count wait for the flip, then never replay on detail return',
     (tester) async {
       tester.view.devicePixelRatio = 1;
       tester.view.physicalSize = const Size(360, 900);
@@ -93,7 +94,7 @@ void main() {
       await tester.tap(find.byType(RankingExpansionCard));
       await tester.pump();
       await tester.pump();
-      await tester.pump(const Duration(milliseconds: 180));
+      await tester.pump(const Duration(milliseconds: 240));
       expect(tester.widget<AirlineRankingRow>(_row('Shanghai')).fillReveal, 0);
       expect(tester.widget<AirlineRankingCount>(_number('Shanghai')).reveal, 0);
       final title = find.text('城市排行');
@@ -101,7 +102,7 @@ void main() {
         find.ancestor(of: title, matching: find.byType(FadeTransition)),
         findsNothing,
       );
-      await tester.pump(const Duration(milliseconds: 190));
+      await tester.pump(const Duration(milliseconds: 230));
       // Compare within the full page, not its moving expansion-origin frame.
       final initial = tester.getRect(_number('Shanghai'));
       final name = tester.getRect(find.text('上海'));

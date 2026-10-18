@@ -20,6 +20,8 @@ class AirlineRankingRow extends StatelessWidget {
     this.accentColor,
     this.onTap,
     this.containContentInFill = false,
+    this.minimumFillFraction = .64,
+    this.countTravelSpace = 0,
     this.leadingWidth = 36,
     this.fillReveal = 1,
     this.countBuilder,
@@ -39,9 +41,14 @@ class AirlineRankingRow extends StatelessWidget {
   final Color? accentColor;
   final VoidCallback? onTap;
 
-  /// Uses one readable baseline for every city at the same width/text scale.
-  /// Labels cannot change bar lengths; airline bars keep their exact ratio.
+  /// Uses one readable baseline at the same width/text scale, then grows with
+  /// the count. Per-row label lengths cannot change comparative bar lengths.
   final bool containContentInFill;
+  final double minimumFillFraction;
+
+  /// A small, stable gap lets an entrance count follow the fill even when a
+  /// long airline name would otherwise consume every available pixel.
+  final double countTravelSpace;
   final double leadingWidth;
 
   /// Decorative entrance only; labels and counts use their final layout.
@@ -324,7 +331,8 @@ class AirlineRankingRow extends StatelessWidget {
     // Determine the bar before measuring any labels. A per-row text minimum
     // made equally frequent cities differ in length and could reverse ranks.
     final textScale = MediaQuery.textScalerOf(context).scale(16) / 16;
-    final baseline = (.64 + .18 * (textScale - 1)).clamp(.64, .90);
+    final minimum = minimumFillFraction.clamp(0.0, .90);
+    final baseline = (minimum + .18 * (textScale - 1)).clamp(minimum, .90);
     final fillWidth = width * (baseline + (1 - baseline) * progress);
     final leadingSlot = leading == null ? 0.0 : leadingWidth + AppSpacing.sm;
     final available = math.max(0.0, fillWidth - inset * 2 - leadingSlot - gap);
@@ -337,7 +345,12 @@ class AirlineRankingRow extends StatelessWidget {
       countStyle,
       maxWidth: available / 2,
     );
-    final availableNameWidth = math.max(0.0, available - countWidth);
+    final remainingNameWidth = math.max(0.0, available - countWidth);
+    final travelSpace = math.min(
+      countTravelSpace.clamp(0.0, double.infinity),
+      remainingNameWidth * .25,
+    );
+    final availableNameWidth = remainingNameWidth - travelSpace;
     final nameWidth = _measureText(
       context,
       name,

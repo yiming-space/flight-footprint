@@ -115,11 +115,17 @@ void main() {
     );
 
     await tester.pumpWidget(app(390));
-    final first = tester.widget<OfflineMap>(find.byType(OfflineMap)).routes;
+    final firstDetail = tester.widget<DetailMap>(find.byType(DetailMap));
+    // Backup is intentionally not mounted during normal online loading.
+    // Its animation list still stays deduplicated; detail retains all source
+    // records so its own visual aggregation can preserve distinct tracks.
+    final first = (firstDetail.fallback as OfflineMap).routes;
     expect(first, hasLength(1));
+    expect(firstDetail.routes, hasLength(2));
 
     await tester.pumpWidget(app(700));
-    final rebuilt = tester.widget<OfflineMap>(find.byType(OfflineMap)).routes;
+    final detail = tester.widget<DetailMap>(find.byType(DetailMap));
+    final rebuilt = (detail.fallback as OfflineMap).routes;
     expect(identical(first, rebuilt), isTrue);
   });
 }

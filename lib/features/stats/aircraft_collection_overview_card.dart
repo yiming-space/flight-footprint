@@ -17,14 +17,15 @@ class AircraftCollectionOverviewCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isZh = context.strings.isZh;
+    final strings = context.strings;
     return RankingExpansionCard(
-      title: isZh ? '机型图鉴' : 'Aircraft collection',
-      subtitle: isZh
-          ? '已搭乘 $aircraftCount 种机型'
-          : '$aircraftCount aircraft ${aircraftCount == 1 ? 'type' : 'types'} flown',
+      title: strings.t('aircraftCollection'),
+      subtitle: strings
+          .t('aircraftTypesCount')
+          .replaceAll('{count}', '$aircraftCount'),
       icon: Icons.airplanemode_active_rounded,
       keyPrefix: 'aircraft-collection',
+      flipOnOpen: true,
       onTap: onTap,
       pageBuilder: pageBuilder,
     );

@@ -252,7 +252,12 @@ class CalendarImportService {
       flightNumber: flightNumber,
       departedAt: times.$1,
       arrivedAt: times.$2,
-      status: flightStatusForDeparture(times.$1, now ?? _clock()),
+      status: flightStatusForDeparture(
+        times.$1,
+        now ?? _clock(),
+        arrivedAt: times.$2,
+        durationMinutes: duration,
+      ),
       distanceKm: airportDistance,
       durationMinutes: duration,
     );

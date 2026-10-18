@@ -137,9 +137,49 @@ void main() {
     );
     expect(find.textContaining('机型来自实时观测：ADSB.lol'), findsOneWidget);
     expect(find.textContaining('B-1234'), findsOneWidget);
+    expect(find.textContaining('观测于'), findsOneWidget);
     expect(tester.takeException(), isNull);
     await _close(tester);
   });
+
+  for (final example in [
+    (AircraftLookupStatus.unavailable, '实时机型来源暂不可用'),
+    (AircraftLookupStatus.rateLimited, '实时机型来源暂时限流'),
+    (AircraftLookupStatus.ambiguous, '飞机记录存在多个匹配或冲突'),
+    (AircraftLookupStatus.stale, '观测记录已过期或时间异常'),
+    (AircraftLookupStatus.routeConflict, '查询航线与所选机场不一致'),
+    (AircraftLookupStatus.typeUnavailable, '已找到飞机，但暂无可靠机型'),
+  ]) {
+    testWidgets(
+      'lookup explains ${example.$1} and leaves manual entry available',
+      (tester) async {
+        final controller = _LookupController();
+        await _open(tester, controller);
+        await _query(tester);
+        controller.response.complete(
+          FlightEnrichment(
+            source: 'ADSB.lol',
+            aircraftLookupAttempted: true,
+            aircraftLookupStatus: example.$1,
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(find.textContaining(example.$2), findsOneWidget);
+        expect(find.textContaining('暂未匹配到实时机型'), findsNothing);
+        expect(
+          tester
+              .widget<FilledButton>(
+                find.widgetWithText(FilledButton, '自动补全航班信息'),
+              )
+              .onPressed,
+          isNotNull,
+        );
+        expect(_field('飞机机型'), findsNothing);
+        expect(tester.takeException(), isNull);
+        await _close(tester);
+      },
+    );
+  }
 
   testWidgets(
     'live lookup never overwrites an existing manually entered model',

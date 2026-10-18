@@ -7,6 +7,7 @@ import '../../core/localization/app_strings.dart';
 import '../../data/airport_localization.dart';
 import '../../data/city_catalog.dart';
 import '../../domain/flight.dart';
+import '../../domain/visited_place.dart';
 import '../../ui/theme/app_theme.dart';
 import '../../ui/widgets/widgets.dart';
 import '../flights/flight_card.dart';
@@ -20,9 +21,12 @@ import 'airline_ranking_overview_card.dart';
 import 'airline_ranking_page.dart';
 import 'city_ranking.dart';
 import 'city_ranking_page.dart';
+import 'country_ranking.dart';
 import 'country_stats_page.dart';
+import 'exploration_overview_card.dart';
 import 'flight_passport_card.dart';
 import 'ranking_expansion_card.dart';
+import 'world_exploration_page.dart';
 
 class StatsPage extends StatefulWidget {
   const StatsPage({super.key, required this.controller});
@@ -35,6 +39,25 @@ class _StatsPageState extends State<StatsPage> {
   static const _wideLayoutBreakpoint = 700.0;
   int? _passportYear;
   late final Future<CityCatalog> _chinaCatalog = CityCatalog.loadChina();
+  CityCatalog? _rankingCityCatalog;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadRankingCities();
+  }
+
+  Future<void> _loadRankingCities() async {
+    try {
+      final china = await _chinaCatalog;
+      if (!mounted) return;
+      final catalog = china.withAirports(widget.controller.airports);
+      setState(() => _rankingCityCatalog = catalog);
+    } catch (_) {
+      // Exact saved names and country codes remain usable if a catalogue
+      // cannot load. Never replace an unknown city with a nearby one.
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -58,16 +81,12 @@ class _StatsPageState extends State<StatsPage> {
       0,
       (sum, flight) => sum + (flight.distanceKm ?? 0),
     );
-    final countryFlags = <String, String>{};
-    for (final flight in flights) {
-      for (final code in [flight.departureIata, flight.arrivalIata]) {
-        final airport = widget.controller.airportFor(code);
-        final country = airport == null ? null : _countryName(code);
-        if (airport != null && country != null) {
-          countryFlags[country] = airport.countryCode.trim().toUpperCase();
-        }
-      }
-    }
+    final countrySummaries = buildCountryRanking(
+      flights,
+      airportFor: widget.controller.airportFor,
+      countryNameForCode: localizedCountryName,
+      visitedPlaces: widget.controller.visitedPlaces,
+    );
     final passportAirports = _passportAirports(passportFlights);
     final passportRoutes = _passportRoutes(passportFlights);
     final passportFlags = _passportFlags(passportFlights);
@@ -79,6 +98,9 @@ class _StatsPageState extends State<StatsPage> {
       airportFor: widget.controller.airportFor,
       cityNameFor: localizedAirportCity,
       countryNameFor: (airport) => localizedCountryName(airport.countryCode),
+      visitedPlaces: widget.controller.visitedPlaces,
+      cityCatalog: _rankingCityCatalog,
+      countryNameForCode: localizedCountryName,
     );
     final footprintPlaces = _footprintPlaces(flights);
     final data = _StatsViewData(
@@ -88,7 +110,7 @@ class _StatsPageState extends State<StatsPage> {
       selectedPassportYear: selectedPassportYear,
       passportFlights: passportFlights,
       passportTotal: passportTotal,
-      countryFlags: countryFlags,
+      countrySummaries: countrySummaries,
       passportAirports: passportAirports,
       passportRoutes: passportRoutes,
       passportFlags: passportFlags,
@@ -143,9 +165,17 @@ class _StatsPageState extends State<StatsPage> {
         height: data.flights.isNotEmpty ? AppSpacing.sm : AppSpacing.section,
       ),
       if (data.flights.isEmpty)
-        _emptyStats(data)
+        if (data.citySummaries.isEmpty && data.countrySummaries.isEmpty)
+          _emptyStats(data)
+        else ...[
+          _footprintStatsCard(data),
+          const SizedBox(height: AppSpacing.cardGap),
+          _cityRankingCard(data.citySummaries),
+          const SizedBox(height: AppSpacing.cardGap),
+          _countryRankingCard(data.countrySummaries),
+        ]
       else ...[
-        _footprintStatsCard(data.footprintPlaces),
+        _footprintStatsCard(data),
         const SizedBox(height: AppSpacing.cardGap),
         _aircraftCollectionCard(data.aircraftSummaries),
         const SizedBox(height: AppSpacing.cardGap),
@@ -153,17 +183,7 @@ class _StatsPageState extends State<StatsPage> {
         const SizedBox(height: AppSpacing.cardGap),
         _cityRankingCard(data.citySummaries),
         const SizedBox(height: AppSpacing.cardGap),
-        _countryRankingCard(
-          _counts(
-            data.flights.expand(
-              (e) => [
-                _countryName(e.departureIata),
-                _countryName(e.arrivalIata),
-              ],
-            ),
-          ),
-          countryCodes: data.countryFlags,
-        ),
+        _countryRankingCard(data.countrySummaries),
       ],
     ];
   }
@@ -193,8 +213,18 @@ class _StatsPageState extends State<StatsPage> {
               );
             },
           ),
-        ] else
-          _emptyStats(data),
+        ] else if (data.citySummaries.isEmpty && data.countrySummaries.isEmpty)
+          _emptyStats(data)
+        else
+          Column(
+            children: [
+              _footprintStatsCard(data),
+              const SizedBox(height: AppSpacing.cardGap),
+              _cityRankingCard(data.citySummaries),
+              const SizedBox(height: AppSpacing.cardGap),
+              _countryRankingCard(data.countrySummaries),
+            ],
+          ),
       ],
     );
   }
@@ -202,7 +232,7 @@ class _StatsPageState extends State<StatsPage> {
   Widget _wideStatsList(_StatsViewData data) {
     return Column(
       children: [
-        _footprintStatsCard(data.footprintPlaces),
+        _footprintStatsCard(data),
         const SizedBox(height: AppSpacing.cardGap),
         _aircraftCollectionCard(data.aircraftSummaries),
         const SizedBox(height: AppSpacing.cardGap),
@@ -210,17 +240,7 @@ class _StatsPageState extends State<StatsPage> {
         const SizedBox(height: AppSpacing.cardGap),
         _cityRankingCard(data.citySummaries),
         const SizedBox(height: AppSpacing.cardGap),
-        _countryRankingCard(
-          _counts(
-            data.flights.expand(
-              (e) => [
-                _countryName(e.departureIata),
-                _countryName(e.arrivalIata),
-              ],
-            ),
-          ),
-          countryCodes: data.countryFlags,
-        ),
+        _countryRankingCard(data.countrySummaries),
       ],
     );
   }
@@ -262,14 +282,11 @@ class _StatsPageState extends State<StatsPage> {
         ),
       );
 
-  Widget _footprintStatsCard(List<MapPlace> places) {
-    final s = context.strings;
+  Widget _footprintStatsCard(_StatsViewData data) {
     return FutureBuilder<CityCatalog>(
       future: _chinaCatalog,
       builder: (context, snapshot) {
-        final colors = context.appColors;
-        final isLight = Theme.of(context).brightness == Brightness.light;
-        final visited = places
+        final visited = data.footprintPlaces
             .where((place) => place.isVisited && place.name.trim().isNotEmpty)
             .toList(growable: false);
         final countryCount = visited
@@ -299,111 +316,18 @@ class _StatsPageState extends State<StatsPage> {
         final chinaCount = provinceNames.isNotEmpty
             ? provinceNames.length
             : chinaPlaces.map((place) => place.name.trim()).toSet().length;
-        final worldProgress = (countryCount / 195).clamp(0.0, 1.0).toDouble();
-        final chinaProgress = (chinaCount / 34).clamp(0.0, 1.0).toDouble();
-        final cardColor = isLight ? colors.cardBlue : colors.surfaceElevated;
-        final worldAccent = colors.lime;
-        final chinaAccent = isLight ? colors.lime : colors.purple;
-        return Semantics(
-          container: true,
-          label: '${s.t('worldExplorer')} · ${s.t('chinaExplorer')}',
-          child: Container(
-            padding: const EdgeInsets.fromLTRB(22, 22, 22, 20),
-            decoration: ShapeDecoration(
-              color: cardColor,
-              shape: RoundedSuperellipseBorder(
-                borderRadius: AppRadii.large,
-                side: BorderSide.none,
-              ),
-              shadows: _statsCardShadow(context),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _progressSection(
-                  title: s.t('worldExplorer'),
-                  count: countryCount,
-                  total: 195,
-                  progress: worldProgress,
-                  color: worldAccent,
-                  detail: s.t('visitedCountriesAndRegions'),
-                ),
-                const SizedBox(height: 20),
-                _progressSection(
-                  title: s.t('chinaExplorer'),
-                  count: chinaCount,
-                  total: 34,
-                  progress: chinaProgress,
-                  color: chinaAccent,
-                  detail: s.t('visitedRegions'),
-                ),
-              ],
-            ),
+        return ExplorationOverviewCard(
+          worldCount: countryCount,
+          chinaCount: chinaCount,
+          boxShadow: _statsCardShadow(context),
+          pageBuilder: (_) => WorldExplorationPage(
+            controller: widget.controller,
+            flights: data.flights,
+            visitedPlaces: widget.controller.visitedPlaces,
+            worldCount: countryCount,
           ),
         );
       },
-    );
-  }
-
-  Widget _progressSection({
-    required String title,
-    required int count,
-    required int total,
-    required double progress,
-    required Color color,
-    required String detail,
-  }) {
-    final colors = context.appColors;
-    final percent =
-        '${(progress * 100).toStringAsFixed(progress * 100 < 10 ? 1 : 0)}%';
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            Expanded(
-              child: Text(
-                title,
-                style: AppTextStyles.sectionTitle.copyWith(
-                  color: colors.textPrimary,
-                ),
-              ),
-            ),
-            Text(
-              percent,
-              style: TextStyle(
-                color: color,
-                fontSize: 30,
-                fontWeight: FontWeight.w700,
-                letterSpacing: -1,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 12),
-        ClipRRect(
-          borderRadius: AppRadii.pill,
-          child: SizedBox(
-            height: 10,
-            child: LinearProgressIndicator(
-              value: progress,
-              borderRadius: AppRadii.pill,
-              backgroundColor: colors.background.withValues(alpha: .72),
-              valueColor: AlwaysStoppedAnimation<Color>(color),
-            ),
-          ),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          '$count / $total · $detail',
-          style: AppTextStyles.bodySecondary.copyWith(
-            color: Theme.of(context).brightness == Brightness.light
-                ? colors.textPrimary
-                : colors.textSecondary,
-          ),
-        ),
-      ],
     );
   }
 
@@ -421,58 +345,55 @@ class _StatsPageState extends State<StatsPage> {
         ),
       );
 
-  Widget _countryRankingCard(
-    List<(String, int)> items, {
-    required Map<String, String> countryCodes,
-  }) => RankingExpansionCard(
-    title: context.strings.t('countries'),
-    subtitle: context.strings.isZh
-        ? '已记录 ${items.length} 个国家/地区'
-        : '${items.length} countries / regions recorded',
-    icon: Icons.public_rounded,
-    keyPrefix: 'country-stats',
-    pageBuilder: (_) => CountryStatsPage(
-      items: items,
-      countryCodes: countryCodes,
-      onCountrySelected: _openCountryFlights,
-    ),
-  );
+  Widget _countryRankingCard(List<CountryRankingEntry> items) =>
+      RankingExpansionCard(
+        title: context.strings.t('countries'),
+        subtitle: context.strings.isZh
+            ? '到访 ${items.length} 个国家／地区'
+            : '${items.length} countries / regions visited',
+        icon: Icons.public_rounded,
+        keyPrefix: 'country-stats',
+        flipOnOpen: true,
+        pageBuilder: (_) => CountryStatsPage(
+          items: [for (final country in items) (country.name, country.count)],
+          countryCodes: {
+            for (final country in items) country.name: country.countryCode,
+          },
+          onCountrySelected: (name) {
+            final entry = items.firstWhere((entry) => entry.name == name);
+            _openStatsFlights(
+              title: entry.name,
+              flights: entry.flights,
+              visitedPlaces: entry.visitedPlaces,
+            );
+          },
+        ),
+      );
 
   Widget _cityRankingCard(List<CityRankingEntry> items) => RankingExpansionCard(
     title: context.strings.t('cities'),
-    subtitle: context.strings.isZh
-        ? '涉及 ${items.length} 个城市'
-        : '${items.length} ${items.length == 1 ? 'city' : 'cities'} in your flights',
+    subtitle: cityVisitSummary(items.length, isZh: context.strings.isZh),
     icon: Icons.location_city_rounded,
     keyPrefix: 'city-ranking',
+    flipOnOpen: true,
     pageBuilder: (_) => CityRankingPage(
       items: items,
       animateEntrance: true,
-      onCitySelected: (entry) =>
-          _openStatsFlights(title: entry.name, flights: entry.flights),
+      onCitySelected: (entry) => _openStatsFlights(
+        title: entry.name,
+        flights: entry.flights,
+        visitedPlaces: entry.visitedPlaces,
+      ),
     ),
   );
 
   Future<void> _openAirlineFlights(AirlineRankingEntry entry) =>
       _openStatsFlights(title: entry.name, flights: entry.flights);
 
-  Future<void> _openCountryFlights(String country) {
-    final flights =
-        widget.controller.flights
-            .where(
-              (flight) =>
-                  flight.isCompleted &&
-                  (_countryName(flight.departureIata) == country ||
-                      _countryName(flight.arrivalIata) == country),
-            )
-            .toList()
-          ..sort((a, b) => b.departedAt.compareTo(a.departedAt));
-    return _openStatsFlights(title: country, flights: flights);
-  }
-
   Future<void> _openStatsFlights({
     required String title,
     required List<Flight> flights,
+    List<VisitedPlace> visitedPlaces = const [],
   }) => Navigator.of(context).push<void>(
     MaterialPageRoute<void>(
       builder: (context) => Scaffold(
@@ -486,7 +407,11 @@ class _StatsPageState extends State<StatsPage> {
             child: Padding(
               padding: const EdgeInsets.only(bottom: 12),
               child: Text(
-                '${_airlineCountLabel(flights.length)} · ${context.strings.t('completed')}',
+                visitedPlaces.isEmpty
+                    ? '${_airlineCountLabel(flights.length)} · ${context.strings.t('completed')}'
+                    : context.strings.isZh
+                    ? '${flights.length} 次飞行 · ${visitedPlaces.length} 条足迹'
+                    : '${flights.length} flights · ${visitedPlaces.length} footprints',
                 style: TextStyle(color: context.appColors.textSecondary),
               ),
             ),
@@ -499,13 +424,15 @@ class _StatsPageState extends State<StatsPage> {
               constraints: const BoxConstraints(maxWidth: 620),
               child: ListView.separated(
                 padding: const EdgeInsets.all(AppSpacing.page),
-                itemCount: flights.length,
+                itemCount: flights.length + visitedPlaces.length,
                 separatorBuilder: (_, _) =>
                     const SizedBox(height: AppSpacing.cardGap),
-                itemBuilder: (context, index) => FlightCard(
-                  flight: flights[index],
-                  controller: widget.controller,
-                ),
+                itemBuilder: (context, index) => index < flights.length
+                    ? FlightCard(
+                        flight: flights[index],
+                        controller: widget.controller,
+                      )
+                    : _footprintRecord(visitedPlaces[index - flights.length]),
               ),
             ),
           ),
@@ -517,15 +444,45 @@ class _StatsPageState extends State<StatsPage> {
   List<BoxShadow> _statsCardShadow(BuildContext context) =>
       AppShadows.card(context);
 
-  List<(String, int)> _counts(Iterable<String?> values) {
-    final counts = <String, int>{};
-    for (final value in values) {
-      if (value == null || value.trim().isEmpty) continue;
-      counts.update(value.trim(), (count) => count + 1, ifAbsent: () => 1);
-    }
-    return counts.entries.map((e) => (e.key, e.value)).toList()
-      ..sort((a, b) => b.$2.compareTo(a.$2));
-  }
+  Widget _footprintRecord(VisitedPlace place) => SurfaceCard(
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(Icons.place_rounded, color: context.appColors.lime),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                place.name,
+                style: AppTextStyles.body.copyWith(
+                  color: context.appColors.textPrimary,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                '${context.strings.isZh ? '足迹' : 'Footprint'} · ${MaterialLocalizations.of(context).formatMediumDate(place.visitedAt.toLocal())}',
+                style: AppTextStyles.bodySecondary.copyWith(
+                  color: context.appColors.textSecondary,
+                ),
+              ),
+              if (place.note?.trim().isNotEmpty ?? false) ...[
+                const SizedBox(height: 8),
+                Text(
+                  place.note!,
+                  style: AppTextStyles.bodySecondary.copyWith(
+                    color: context.appColors.textSecondary,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ],
+    ),
+  );
 
   List<MapPlace> _footprintPlaces(List<Flight> flights) {
     final places = <String, MapPlace>{};
@@ -555,13 +512,6 @@ class _StatsPageState extends State<StatsPage> {
       );
     }
     return places.values.toList(growable: false);
-  }
-
-  String? _countryName(String code) {
-    final airport = widget.controller.airportFor(code);
-    if (airport == null) return null;
-    final country = localizedCountryName(airport.countryCode);
-    return country.isEmpty ? null : country;
   }
 
   List<MapAirport> _passportAirports(List<Flight> flights) {
@@ -667,7 +617,7 @@ class _StatsViewData {
     required this.selectedPassportYear,
     required this.passportFlights,
     required this.passportTotal,
-    required this.countryFlags,
+    required this.countrySummaries,
     required this.passportAirports,
     required this.passportRoutes,
     required this.passportFlags,
@@ -684,7 +634,7 @@ class _StatsViewData {
   final int? selectedPassportYear;
   final List<Flight> passportFlights;
   final double passportTotal;
-  final Map<String, String> countryFlags;
+  final List<CountryRankingEntry> countrySummaries;
   final List<MapAirport> passportAirports;
   final List<MapRoute> passportRoutes;
   final List<String> passportFlags;

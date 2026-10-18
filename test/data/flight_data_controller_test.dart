@@ -11,16 +11,29 @@ void main() {
         id: 'overdue',
         status: FlightStatus.upcoming,
         departedAt: DateTime(2026, 9, 12, 8),
+        arrivedAt: DateTime(2026, 9, 12, 10),
       ),
       _flight(
         id: 'future',
         status: FlightStatus.upcoming,
         departedAt: DateTime(2026, 9, 14, 8),
+        durationMinutes: 120,
       ),
       _flight(
         id: 'completed',
         status: FlightStatus.completed,
         departedAt: DateTime(2026, 9, 10, 8),
+      ),
+      _flight(
+        id: 'in-flight',
+        status: FlightStatus.upcoming,
+        departedAt: DateTime(2026, 9, 13, 11),
+        arrivedAt: DateTime(2026, 9, 13, 13),
+      ),
+      _flight(
+        id: 'unknown-arrival',
+        status: FlightStatus.upcoming,
+        departedAt: DateTime(2026, 9, 12, 8),
       ),
     ]);
     final controller = FlightDataController(repository);
@@ -31,6 +44,8 @@ void main() {
     expect(controller.flights[0].status, FlightStatus.completed);
     expect(controller.flights[1].status, FlightStatus.upcoming);
     expect(controller.flights[2].status, FlightStatus.completed);
+    expect(controller.flights[3].status, FlightStatus.upcoming);
+    expect(controller.flights[4].status, FlightStatus.upcoming);
     expect(repository.saved.map((flight) => flight.id), ['overdue']);
   });
 
@@ -40,6 +55,7 @@ void main() {
         id: 'overdue',
         status: FlightStatus.upcoming,
         departedAt: DateTime(2026, 9, 12, 8),
+        durationMinutes: 120,
       ),
     ]);
     final controller = FlightDataController(repository);
@@ -50,6 +66,33 @@ void main() {
 
     expect(repository.saved, hasLength(1));
     expect(controller.flights.single.status, FlightStatus.completed);
+  });
+
+  test('overnight flight persists completion only at its arrival', () async {
+    final departure = DateTime.utc(2026, 9, 13, 23);
+    final arrival = DateTime.utc(2026, 9, 14, 2);
+    final repository = _FakeRepository([
+      _flight(
+        id: 'overnight',
+        status: FlightStatus.upcoming,
+        departedAt: departure,
+        arrivedAt: arrival,
+      ),
+    ]);
+    final controller = FlightDataController(repository);
+    addTearDown(controller.dispose);
+
+    await controller.refresh(
+      now: arrival.subtract(const Duration(milliseconds: 1)).toLocal(),
+    );
+    expect(controller.flights.single.status, FlightStatus.upcoming);
+    expect(repository.saved, isEmpty);
+
+    await controller.refresh(now: arrival.toLocal());
+    expect(controller.flights.single.status, FlightStatus.completed);
+    expect(repository.saved, hasLength(1));
+    expect(repository.saved.single.departedAt, departure);
+    expect(repository.saved.single.arrivedAt, arrival);
   });
 }
 
@@ -78,11 +121,15 @@ Flight _flight({
   required String id,
   required FlightStatus status,
   required DateTime departedAt,
+  DateTime? arrivedAt,
+  int? durationMinutes,
 }) => Flight(
   id: id,
   departureIata: 'SZX',
   arrivalIata: 'PEK',
   departedAt: departedAt,
+  arrivedAt: arrivedAt,
+  durationMinutes: durationMinutes,
   createdAt: DateTime.utc(2026, 9, 1),
   updatedAt: DateTime.utc(2026, 9, 1),
   status: status,

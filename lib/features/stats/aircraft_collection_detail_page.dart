@@ -180,6 +180,12 @@ class _DetailSummary extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isZh = context.strings.isZh;
+    final colors = context.appColors;
+    final light = Theme.of(context).brightness == Brightness.light;
+    final countColor = light
+        ? Color.lerp(colors.lime, colors.textPrimary, .24)!
+        : colors.lime;
+    final distanceColor = light ? AppColors.flightArrival : colors.purple;
     return LayoutBuilder(
       key: const ValueKey('aircraft-detail-summary'),
       builder: (context, constraints) {
@@ -196,6 +202,7 @@ class _DetailSummary extends StatelessWidget {
                 key: const ValueKey('aircraft-detail-count'),
                 label: isZh ? '搭乘次数' : 'Flights flown',
                 value: count,
+                valueColor: countColor,
               ),
             ),
             cell(
@@ -203,6 +210,7 @@ class _DetailSummary extends StatelessWidget {
                 key: const ValueKey('aircraft-detail-distance'),
                 label: isZh ? '飞行里程' : 'Flight distance',
                 value: distance,
+                valueColor: distanceColor,
               ),
             ),
             if (first != null && latest != null) ...[
@@ -229,17 +237,23 @@ class _DetailSummary extends StatelessWidget {
 }
 
 class _DetailMetric extends StatelessWidget {
-  const _DetailMetric({super.key, required this.label, required this.value});
+  const _DetailMetric({
+    super.key,
+    required this.label,
+    required this.value,
+    required this.valueColor,
+  });
 
   final String label;
   final String value;
+  final Color valueColor;
 
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
     final number = RegExp(r'\d[\d,]*(?:\.\d+)?').firstMatch(value);
     final style = AppTextStyles.label.copyWith(
-      color: colors.textPrimary,
+      color: colors.textSecondary,
       fontWeight: FontWeight.w500,
       height: 1.35,
       fontFeatures: const [FontFeature.tabularFigures()],
@@ -267,9 +281,10 @@ class _DetailMetric extends StatelessWidget {
                   TextSpan(text: value.substring(0, number.start)),
                   TextSpan(
                     text: number.group(0),
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 26,
                       fontWeight: FontWeight.w600,
+                      color: valueColor,
                     ),
                   ),
                   TextSpan(text: value.substring(number.end)),

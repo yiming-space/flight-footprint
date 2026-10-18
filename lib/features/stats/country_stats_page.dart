@@ -43,7 +43,9 @@ class CountryStatsPage extends StatelessWidget {
                   padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
                   sliver: SliverToBoxAdapter(
                     child: Text(
-                      s.isZh ? '累计 · 起降次数' : 'All time · Takeoffs and landings',
+                      s.isZh
+                          ? '到访 ${items.length} 个国家／地区'
+                          : '${items.length} ${items.length == 1 ? 'country/region' : 'countries/regions'} visited',
                       style: AppTextStyles.bodySecondary.copyWith(
                         color: colors.textSecondary,
                       ),
@@ -131,8 +133,8 @@ class CountryStatsTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = context.appColors;
     final label = context.strings.isZh
-        ? '$name，$count 次起降'
-        : '$name, $count takeoffs and landings';
+        ? '$name，$count 次到访'
+        : '$name, $count ${count == 1 ? 'visit' : 'visits'}';
     return Semantics(
       button: true,
       label: label,

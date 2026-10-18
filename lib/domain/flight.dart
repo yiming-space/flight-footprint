@@ -1,23 +1,40 @@
 enum FlightStatus { upcoming, completed }
 
-/// Derives the automatic two-state lifecycle from the departure's local day.
-///
-/// The app has historically treated a flight as completed from the start of
-/// its departure day. Keep that behavior in one place so manual entry,
-/// imports, and stored-flight reconciliation cannot drift apart.
-FlightStatus flightStatusForDeparture(DateTime departedAt, DateTime now) {
-  final departure = departedAt.toLocal();
-  final reference = now.toLocal();
-  final departureDay = DateTime(departure.year, departure.month, departure.day);
-  final currentDay = DateTime(reference.year, reference.month, reference.day);
-  return departureDay.isAfter(currentDay)
-      ? FlightStatus.upcoming
-      : FlightStatus.completed;
+/// Automatically completes a flight only once its reliable arrival is due.
+/// DateTime comparisons use absolute instants, including UTC/local mixtures
+/// and overnight flights. Without an end time, the flight stays upcoming.
+FlightStatus flightStatusForDeparture(
+  DateTime departedAt,
+  DateTime now, {
+  DateTime? arrivedAt,
+  int? durationMinutes,
+}) {
+  final transition = flightStatusTransitionAt(
+    departedAt,
+    arrivedAt: arrivedAt,
+    durationMinutes: durationMinutes,
+  );
+  return transition != null && !now.isBefore(transition)
+      ? FlightStatus.completed
+      : FlightStatus.upcoming;
 }
 
-DateTime flightStatusTransitionAt(DateTime departedAt) {
-  final departure = departedAt.toLocal();
-  return DateTime(departure.year, departure.month, departure.day);
+/// Prefer the recorded arrival. A missing arrival can use a positive duration
+/// within the same 48-hour range accepted by itinerary imports.
+DateTime? flightStatusTransitionAt(
+  DateTime departedAt, {
+  DateTime? arrivedAt,
+  int? durationMinutes,
+}) {
+  if (arrivedAt != null) {
+    return arrivedAt.isAfter(departedAt) ? arrivedAt : null;
+  }
+  if (durationMinutes == null ||
+      durationMinutes <= 0 ||
+      durationMinutes > 48 * 60) {
+    return null;
+  }
+  return departedAt.add(Duration(minutes: durationMinutes));
 }
 
 FlightStatus flightStatusFromStorage(Object? value) =>
@@ -103,11 +120,16 @@ class Flight {
   );
 
   /// Completed records stay completed; upcoming records automatically mature
-  /// once their local departure day begins.
+  /// at their recorded or duration-derived arrival.
   FlightStatus effectiveStatusAt(DateTime now) =>
       status == FlightStatus.completed
       ? FlightStatus.completed
-      : flightStatusForDeparture(departedAt, now);
+      : flightStatusForDeparture(
+          departedAt,
+          now,
+          arrivedAt: arrivedAt,
+          durationMinutes: durationMinutes,
+        );
 
   bool get isUpcoming => status == FlightStatus.upcoming;
   bool get isCompleted => status == FlightStatus.completed;

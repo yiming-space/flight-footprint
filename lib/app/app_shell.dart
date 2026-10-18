@@ -8,6 +8,7 @@ import 'package:flutter/physics.dart';
 import 'package:flutter/services.dart';
 
 import '../core/localization/app_strings.dart';
+import '../data/app_update_service.dart';
 import '../features/add_flight/add_flight_page.dart';
 import '../features/flights/flights_page.dart';
 import '../features/home/home_page.dart';
@@ -19,8 +20,9 @@ import '../ui/theme/app_theme.dart';
 import 'app_controller.dart';
 
 class AppShell extends StatefulWidget {
-  const AppShell({super.key, required this.controller});
+  const AppShell({super.key, required this.controller, this.updateService});
   final AppController controller;
+  final AppUpdateService? updateService;
   @override
   State<AppShell> createState() => _AppShellState();
 }
@@ -220,7 +222,13 @@ class _AppShellState extends State<AppShell>
       ),
       FlightsPage(controller: widget.controller, onAdd: _openAdd),
       StatsPage(controller: widget.controller),
-      ProfilePage(controller: widget.controller, isActive: _index == 3),
+      ProfilePage(
+        controller: widget.controller,
+        isActive: _index == 3,
+        // Keep one update workflow for the home startup and About controls.
+        isHomeActive: _index == 0,
+        updateService: widget.updateService,
+      ),
     ];
     return PopScope(
       canPop: _index == 0,

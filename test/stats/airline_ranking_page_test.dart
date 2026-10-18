@@ -112,7 +112,7 @@ void main() {
       .opacity;
 
   testWidgets(
-    'card expands once, then fills capsules with stable title and labels',
+    'card flips once, then fills capsules with stable title and labels',
     (tester) async {
       tester.view.devicePixelRatio = 1;
       tester.view.physicalSize = const Size(360, 800);
@@ -140,12 +140,14 @@ void main() {
       await tester.pump();
       expect(sourceOpacity(tester), 0);
       final surface = tester.widget<Positioned>(
-        find.byKey(const ValueKey('ranking-expansion-surface')),
+        find.byKey(const ValueKey('ranking-flip-surface')),
       );
       expect(surface.left, closeTo(original.left, .01));
       expect(surface.top, closeTo(original.top, .01));
-      final width = tester.getSize(find.byType(AirlineRankingTile).first).width;
-      await tester.pump(const Duration(milliseconds: 150));
+      final width = tester
+          .getSize(find.byType(AirlineRankingTile, skipOffstage: false).first)
+          .width;
+      await tester.pump(const Duration(milliseconds: 240));
       expect(
         tester
             .widget<AirlineRankingTile>(find.byType(AirlineRankingTile).first)
@@ -176,7 +178,7 @@ void main() {
         ),
         findsOneWidget,
       );
-      await tester.pump(const Duration(milliseconds: 220));
+      await tester.pump(const Duration(milliseconds: 230));
       await tester.pump(const Duration(milliseconds: 120));
       final first = tester
           .widget<AirlineRankingTile>(find.byType(AirlineRankingTile).first)
@@ -218,7 +220,7 @@ void main() {
       await tester.tap(find.byType(BackButton));
       await tester.pump();
       expect(sourceOpacity(tester), 0);
-      await tester.pump(const Duration(milliseconds: 270));
+      await tester.pump(const Duration(milliseconds: 380));
       expect(sourceOpacity(tester), 1);
       await tester.pumpAndSettle();
       expect(find.byType(AirlineRankingPage), findsNothing);
@@ -232,7 +234,9 @@ void main() {
     await tester.pump();
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
-    Navigator.of(tester.element(find.byType(AirlineRankingPage))).pop();
+    Navigator.of(
+      tester.element(find.byType(AirlineRankingPage, skipOffstage: false)),
+    ).pop();
     await tester.pumpAndSettle();
     expect(sourceOpacity(tester), 1);
     expect(find.byType(AirlineRankingPage), findsNothing);
@@ -249,10 +253,7 @@ void main() {
       await tester.tap(find.byType(AirlineRankingOverviewCard));
       await tester.pump();
       await tester.pumpAndSettle();
-      expect(
-        find.byKey(const ValueKey('ranking-expansion-surface')),
-        findsNothing,
-      );
+      expect(find.byKey(const ValueKey('ranking-flip-surface')), findsNothing);
       expect(
         find.byKey(const ValueKey('airline-ranking-fill-0')),
         findsNothing,

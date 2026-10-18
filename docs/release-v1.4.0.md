@@ -33,3 +33,9 @@ flutter build apk --release --no-pub \
   --dart-define=FLIGHT_FOOTPRINT_ENABLE_ADSB_LOL_ROUTESET=false \
   --dart-define=FLIGHT_FOOTPRINT_FEEDBACK_URL=https://flight-footprint-feedback.hjmingg-gushen.workers.dev/v1/feedback
 ```
+
+## GitHub 发布
+
+- 正式发布页：[Flight Footprint v1.4.0](https://github.com/yiming-space/flight-footprint/releases/tag/v1.4.0)，非草稿、非预发布，标记为最新版。
+- 源码标签 `v1.4.0` 对应提交 `19e106c0c3795195795628c3146c61008332e7f3`。安装包与 SHA256SUMS.txt 均已上传；GitHub 返回的 APK 大小、SHA-256 与本地一致。
+- 安装包公开可用后再更新主分支的 update.json，包含版本、build、下载链接、字节数及校验值；保留旧版客户端的检查协议。

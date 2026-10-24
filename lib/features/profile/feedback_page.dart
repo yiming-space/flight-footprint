@@ -175,7 +175,7 @@ class _FeedbackPageState extends State<FeedbackPage> {
                                           : () => setState(() => _kind = kind),
                                       style: TextButton.styleFrom(
                                         backgroundColor: _kind == kind
-                                            ? colors.lime
+                                            ? colors.actionFill
                                             : Colors.transparent,
                                         foregroundColor: _kind == kind
                                             ? colors.onPrimary

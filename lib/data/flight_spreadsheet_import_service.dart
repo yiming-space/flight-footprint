@@ -12,6 +12,7 @@ import '../domain/airport.dart';
 import '../domain/flight.dart';
 import 'airport_catalog.dart';
 import 'airport_localization.dart';
+import 'flight_time_resolver.dart';
 
 /// A row that can be reviewed before it is written to the local database.
 class SpreadsheetFlightRow {
@@ -283,13 +284,22 @@ class FlightSpreadsheetImportService {
 
     final departureTimeText = _cell(values, header.departureTime);
     final arrivalTimeText = _cell(values, header.arrivalTime);
-    final departedAt = _parseDateTime(
+    final departureParse = _parseAirportTime(
       dateText: dateText,
       timeText: departureTimeText,
+      timeZoneId: departureMatch == null
+          ? null
+          : airports.timeZoneIdForIata(departureMatch.airport.iataCode),
     );
+    final departedAt = departureParse.instant;
     if (departedAt == null && dateText.isNotEmpty) {
+      final detail = switch (departureParse.status) {
+        AirportWallTimeStatus.ambiguous => '当地时间存在夏令时歧义',
+        AirportWallTimeStatus.nonexistent => '当地时间在夏令时切换时不存在',
+        _ => '无法识别起飞日期时间',
+      };
       errors.add(
-        '无法识别起飞日期时间：$dateText${departureTimeText.isEmpty ? '' : ' $departureTimeText'}',
+        '$detail：$dateText${departureTimeText.isEmpty ? '' : ' $departureTimeText'}',
       );
     }
 
@@ -301,19 +311,32 @@ class FlightSpreadsheetImportService {
       _cell(values, header.duration),
     );
     DateTime? arrivedAt;
+    var arrivalHasReliableZone = false;
     if (departedAt != null) {
-      arrivedAt = _parseDateTime(
+      final arrivalParse = _parseAirportArrival(
         dateText: dateText,
         timeText: arrivalTimeText,
-        relativeTo: departedAt,
-        arrival: true,
+        departureInstant: departedAt,
+        departureWallDate: _wallDateFromText(dateText),
+        arrivalTimeZoneId: arrivalMatch == null
+            ? null
+            : airports.timeZoneIdForIata(arrivalMatch.airport.iataCode),
+        declaredDurationMinutes: declaredDurationMinutes,
       );
-      arrivedAt ??= declaredDurationMinutes == null
-          ? null
-          : departedAt.add(Duration(minutes: declaredDurationMinutes));
+      arrivedAt = arrivalParse.instant;
+      arrivalHasReliableZone = arrivalParse.hasReliableZone;
+      if (arrivalParse.status == AirportWallTimeStatus.ambiguous) {
+        errors.add('到达当地时间存在夏令时歧义，请补充明确日期或时区偏移');
+      } else if (arrivalParse.status == AirportWallTimeStatus.nonexistent) {
+        errors.add('到达当地时间在夏令时切换时不存在，请核对原始记录');
+      }
     }
 
-    final calculatedDurationMinutes = arrivedAt == null || departedAt == null
+    final calculatedDurationMinutes =
+        arrivedAt == null ||
+            departedAt == null ||
+            !departureParse.hasReliableZone ||
+            !arrivalHasReliableZone
         ? null
         : arrivedAt.difference(departedAt).inMinutes;
     final durationMinutes =
@@ -324,7 +347,8 @@ class FlightSpreadsheetImportService {
     if (errors.isNotEmpty ||
         departureMatch == null ||
         arrivalMatch == null ||
-        departedAt == null) {
+        departedAt == null ||
+        errors.isNotEmpty) {
       return _ParsedSpreadsheetRow(
         issue: SpreadsheetImportIssue(
           rowNumber: rowNumber,
@@ -1674,46 +1698,195 @@ String _normalizeFlightNumber(String value) => value
     .replaceAll(RegExp(r'\s+'), '')
     .replaceFirst(RegExp(r'^航班号'), '');
 
-DateTime? _parseDateTime({
+_AirportTimeParseResult _parseAirportTime({
   required String dateText,
   required String timeText,
-  DateTime? relativeTo,
-  bool arrival = false,
+  required String? timeZoneId,
 }) {
-  final directDateTime = _tryDateTime(dateText);
-  final directTimeDateTime = _tryDateTime(timeText);
-  if (directTimeDateTime != null && _hasDate(timeText)) {
-    return _adjustArrivalDate(
-      directTimeDateTime,
-      relativeTo,
-      arrival,
-      explicitDate: true,
+  final wallInput = _parseWallInput(dateText, timeText);
+  if (wallInput == null) return const _AirportTimeParseResult();
+  if (wallInput.explicitInstant != null) {
+    return _AirportTimeParseResult(
+      instant: wallInput.explicitInstant,
+      hasReliableZone: true,
     );
   }
-  if (directDateTime != null && _hasTime(dateText) && timeText.isEmpty) {
-    return _adjustArrivalDate(
-      directDateTime,
-      relativeTo,
-      arrival,
-      explicitDate: true,
+  final zoneId = timeZoneId?.trim() ?? '';
+  final resolved = FlightTimeResolver.resolveWallTime(
+    wallInput.wallTime!,
+    zoneId,
+  );
+  if (resolved.isResolved) {
+    return _AirportTimeParseResult(
+      instant: resolved.instant,
+      hasReliableZone: true,
     );
+  }
+  if (resolved.status != AirportWallTimeStatus.unknownTimeZone) {
+    return _AirportTimeParseResult(status: resolved.status);
+  }
+  // Legacy compatibility for airports without a reliable zone mapping:
+  // retain the old device-local interpretation, but mark it unreliable so it
+  // is never used to infer a cross-zone elapsed duration.
+  return _AirportTimeParseResult(
+    instant: _legacyInstant(wallInput.wallTime!),
+    hasReliableZone: false,
+    status: AirportWallTimeStatus.unknownTimeZone,
+  );
+}
+
+_AirportTimeParseResult _parseAirportArrival({
+  required String dateText,
+  required String timeText,
+  required DateTime departureInstant,
+  required DateTime? departureWallDate,
+  required String? arrivalTimeZoneId,
+  required int? declaredDurationMinutes,
+}) {
+  final wallInput = _parseWallInput(dateText, timeText);
+  if (wallInput == null) return const _AirportTimeParseResult();
+  if (wallInput.explicitInstant != null) {
+    final elapsed = wallInput.explicitInstant!.difference(departureInstant);
+    return elapsed > Duration.zero && elapsed <= const Duration(hours: 48)
+        ? _AirportTimeParseResult(
+            instant: wallInput.explicitInstant,
+            hasReliableZone: true,
+          )
+        : const _AirportTimeParseResult();
+  }
+  final zoneId = arrivalTimeZoneId?.trim() ?? '';
+  if (zoneId.isEmpty) {
+    final baseDate = departureWallDate ?? wallInput.wallTime!;
+    final legacy = _legacyInstant(_atDate(baseDate, wallInput.wallTime!));
+    final elapsed = legacy.difference(departureInstant);
+    if (elapsed > Duration.zero && elapsed <= const Duration(hours: 48)) {
+      return _AirportTimeParseResult(
+        instant: legacy,
+        hasReliableZone: false,
+        status: AirportWallTimeStatus.unknownTimeZone,
+      );
+    }
+    if (declaredDurationMinutes != null && declaredDurationMinutes > 0) {
+      return _AirportTimeParseResult(
+        instant: departureInstant.add(
+          Duration(minutes: declaredDurationMinutes),
+        ),
+        hasReliableZone: false,
+        status: AirportWallTimeStatus.unknownTimeZone,
+      );
+    }
+    return const _AirportTimeParseResult(
+      status: AirportWallTimeStatus.unknownTimeZone,
+    );
+  }
+
+  // Start from the destination's local calendar date at the departure
+  // instant. This accounts for date-line offsets before comparing candidate
+  // arrival days; the departure airport's displayed date is not a proxy.
+  final baseDate =
+      FlightTimeResolver.toWallTime(departureInstant, zoneId) ??
+      departureWallDate ??
+      wallInput.wallTime!;
+  var candidateWall = _atDate(baseDate, wallInput.wallTime!);
+  var candidate = FlightTimeResolver.resolveWallTime(candidateWall, zoneId);
+  if (candidate.status == AirportWallTimeStatus.ambiguous ||
+      candidate.status == AirportWallTimeStatus.nonexistent) {
+    return _AirportTimeParseResult(status: candidate.status);
+  }
+  if (candidate.isResolved) {
+    final elapsed = candidate.instant!.difference(departureInstant);
+    if (elapsed > Duration.zero && elapsed <= const Duration(hours: 48)) {
+      return _AirportTimeParseResult(
+        instant: candidate.instant,
+        hasReliableZone: true,
+      );
+    }
+    // Only advance the destination's calendar date after resolving both
+    // airports' zones and finding that the same-date arrival is not after
+    // departure. A wall-clock ordering alone never decides the day offset.
+    if (elapsed > Duration.zero) return const _AirportTimeParseResult();
+  }
+  candidateWall = candidateWall.add(const Duration(days: 1));
+  candidate = FlightTimeResolver.resolveWallTime(candidateWall, zoneId);
+  if (!candidate.isResolved) {
+    return _AirportTimeParseResult(status: candidate.status);
+  }
+  final elapsed = candidate.instant!.difference(departureInstant);
+  return elapsed > Duration.zero && elapsed <= const Duration(hours: 48)
+      ? _AirportTimeParseResult(
+          instant: candidate.instant,
+          hasReliableZone: true,
+        )
+      : const _AirportTimeParseResult();
+}
+
+DateTime? _wallDateFromText(String value) {
+  final parsed = _parseDateOnly(value);
+  return parsed == null
+      ? null
+      : DateTime.utc(parsed.year, parsed.month, parsed.day);
+}
+
+DateTime _atDate(DateTime date, DateTime wallTime) => DateTime.utc(
+  date.year,
+  date.month,
+  date.day,
+  wallTime.hour,
+  wallTime.minute,
+  wallTime.second,
+  wallTime.millisecond,
+  wallTime.microsecond,
+);
+
+DateTime _legacyInstant(DateTime wallTime) => DateTime(
+  wallTime.year,
+  wallTime.month,
+  wallTime.day,
+  wallTime.hour,
+  wallTime.minute,
+  wallTime.second,
+  wallTime.millisecond,
+  wallTime.microsecond,
+).toUtc();
+
+class _AirportTimeParseResult {
+  const _AirportTimeParseResult({
+    this.instant,
+    this.status,
+    this.hasReliableZone = false,
+  });
+
+  final DateTime? instant;
+  final AirportWallTimeStatus? status;
+  final bool hasReliableZone;
+}
+
+class _WallTimeInput {
+  const _WallTimeInput({this.wallTime, this.explicitInstant});
+
+  final DateTime? wallTime;
+  final DateTime? explicitInstant;
+}
+
+_WallTimeInput? _parseWallInput(String dateText, String timeText) {
+  final directDate = _tryDateTime(dateText);
+  final directTime = _tryDateTime(timeText);
+  if (directTime != null && _hasDate(timeText)) {
+    return _hasExplicitOffset(timeText)
+        ? _WallTimeInput(explicitInstant: directTime.toUtc())
+        : _WallTimeInput(wallTime: _wallComponents(directTime));
+  }
+  if (directDate != null && _hasTime(dateText) && timeText.isEmpty) {
+    return _hasExplicitOffset(dateText)
+        ? _WallTimeInput(explicitInstant: directDate.toUtc())
+        : _WallTimeInput(wallTime: _wallComponents(directDate));
   }
   final base =
       _parseDateOnly(dateText) ??
-      (directDateTime != null ? _dateOnly(directDateTime) : null);
+      (directDate != null ? _dateOnly(directDate) : null);
   final clock = _parseClock(timeText) ?? _parseClock(dateText);
-  if (base == null) {
-    if (directTimeDateTime != null) {
-      return _adjustArrivalDate(
-        directTimeDateTime,
-        relativeTo,
-        arrival,
-        explicitDate: _hasDate(timeText),
-      );
-    }
-    return null;
-  }
-  final result = DateTime(
+  if (base == null) return null;
+  final wall = DateTime.utc(
     base.year,
     base.month,
     base.day,
@@ -1721,28 +1894,40 @@ DateTime? _parseDateTime({
     clock?.$2 ?? 0,
     clock?.$3 ?? 0,
   );
-  return _adjustArrivalDate(
-    result,
-    relativeTo,
-    arrival,
-    explicitDate: _hasDate(timeText),
-  );
+  final offset =
+      _explicitOffsetMinutes(timeText) ?? _explicitOffsetMinutes(dateText);
+  if (offset != null) {
+    return _WallTimeInput(
+      explicitInstant: wall.subtract(Duration(minutes: offset)),
+    );
+  }
+  return _WallTimeInput(wallTime: wall);
 }
 
-DateTime _adjustArrivalDate(
-  DateTime value,
-  DateTime? relativeTo,
-  bool arrival, {
-  required bool explicitDate,
-}) {
-  if (arrival &&
-      relativeTo != null &&
-      !explicitDate &&
-      value.isBefore(relativeTo)) {
-    return value.add(const Duration(days: 1));
-  }
-  return value;
+int? _explicitOffsetMinutes(String value) {
+  final raw = value.trim();
+  if (RegExp(r'[zZ]$').hasMatch(raw)) return 0;
+  final match = RegExp(r'([+-])(\d{2}):?(\d{2})$').firstMatch(raw);
+  if (match == null) return null;
+  final hour = int.tryParse(match.group(2)!);
+  final minute = int.tryParse(match.group(3)!);
+  if (hour == null || minute == null || hour > 23 || minute > 59) return null;
+  final absoluteMinutes = hour * 60 + minute;
+  return match.group(1) == '-' ? -absoluteMinutes : absoluteMinutes;
 }
+
+bool _hasExplicitOffset(String value) => _explicitOffsetMinutes(value) != null;
+
+DateTime _wallComponents(DateTime value) => DateTime.utc(
+  value.year,
+  value.month,
+  value.day,
+  value.hour,
+  value.minute,
+  value.second,
+  value.millisecond,
+  value.microsecond,
+);
 
 DateTime? _tryDateTime(String value) {
   final raw = value.trim();

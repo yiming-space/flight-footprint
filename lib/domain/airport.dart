@@ -12,6 +12,7 @@ class Airport {
     this.scheduledService = false,
     this.isoRegion = '',
     this.keywords = const [],
+    this.timeZoneId,
   });
 
   final String iataCode;
@@ -36,4 +37,8 @@ class Airport {
   /// Alternate names, local-language names and legacy identifiers supplied by
   /// the source. These are searchable but do not replace the official name.
   final List<String> keywords;
+
+  /// IANA timezone identifier supplied by the bundled airport-timezone data.
+  /// Null means conversion must use an explicit compatibility path.
+  final String? timeZoneId;
 }

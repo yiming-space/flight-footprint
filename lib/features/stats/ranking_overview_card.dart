@@ -21,8 +21,7 @@ class RankingOverviewCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
-    final isLight = Theme.of(context).brightness == Brightness.light;
-    final accent = isLight ? colors.lime : colors.purple;
+    final accent = colors.purple;
     return Semantics(
       button: true,
       label: '$title, $subtitle',
@@ -30,12 +29,7 @@ class RankingOverviewCard extends StatelessWidget {
       excludeSemantics: true,
       child: SurfaceCard(
         padding: const EdgeInsets.fromLTRB(20, 20, 20, 18),
-        color: isLight
-            ? colors.surface
-            : Color.alphaBlend(
-                colors.purple.withValues(alpha: .055),
-                colors.surfaceElevated,
-              ),
+        color: colors.cardSurface,
         showBorder: false,
         boxShadow: AppShadows.card(context),
         onTap: onTap,

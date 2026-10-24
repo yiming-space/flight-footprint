@@ -11,6 +11,7 @@ import '../../data/airport_catalog.dart';
 import '../../data/airport_localization.dart';
 import '../../data/flight_draft_store.dart';
 import '../../data/flight_enrichment_service.dart';
+import '../../data/flight_time_resolver.dart';
 import '../../domain/airport.dart';
 import '../../domain/flight.dart';
 import '../../ui/theme/app_theme.dart';
@@ -36,7 +37,7 @@ class _AddFlightPageState extends State<AddFlightPage>
   static const _routeGutterWidth = 40.0;
   Airport? _departure;
   Airport? _arrival;
-  DateTime _date = DateTime.now();
+  DateTime _date = _wallComponents(DateTime.now());
   bool _dateTouched = false;
   DateTime? _arrivalAt;
   bool _arrivalTouched = false;
@@ -95,9 +96,17 @@ class _AddFlightPageState extends State<AddFlightPage>
     }
     _departure = widget.controller.airportFor(initial.departureIata);
     _arrival = widget.controller.airportFor(initial.arrivalIata);
-    _date = initial.departedAt.toLocal();
+    _date = _wallTimeForInstant(
+      initial.departedAt,
+      widget.controller.airports.timeZoneIdForIata(initial.departureIata),
+    );
     _dateTouched = true;
-    final storedArrival = initial.arrivedAt?.toLocal();
+    final storedArrival = initial.arrivedAt == null
+        ? null
+        : _wallTimeForInstant(
+            initial.arrivedAt!,
+            widget.controller.airports.timeZoneIdForIata(initial.arrivalIata),
+          );
     _arrivalAt = storedArrival;
     _arrivalTouched = storedArrival != null;
     _airline.text = initial.airline ?? '';
@@ -114,7 +123,7 @@ class _AddFlightPageState extends State<AddFlightPage>
     _durationTouched = initial.durationMinutes != null;
     _distanceTouched = initial.distanceKm != null;
     if (!_durationTouched) {
-      final inferred = _durationFromTimes(_date, _arrivalAt);
+      final inferred = _durationFromAirportTimes(_date, _arrivalAt);
       if (inferred != null) _duration.text = inferred.toString();
     }
     _seat.text = initial.seat ?? '';
@@ -274,9 +283,11 @@ class _AddFlightPageState extends State<AddFlightPage>
       _arrival = draft.arrivalIata == null
           ? null
           : widget.controller.airportFor(draft.arrivalIata!);
-      if (draft.date != null) _date = draft.date!.toLocal();
+      if (draft.date != null) _date = _wallComponents(draft.date!);
       _dateTouched = draft.dateTouched;
-      _arrivalAt = draft.arrivalAt?.toLocal();
+      _arrivalAt = draft.arrivalAt == null
+          ? null
+          : _wallComponents(draft.arrivalAt!);
       _arrivalTouched = draft.arrivalTouched;
       _flightIdentity.text = draft.identity;
       _aircraft.text = draft.aircraft;
@@ -655,6 +666,23 @@ class _AddFlightPageState extends State<AddFlightPage>
                                                           s.t('duration'),
                                                           _duration,
                                                           number: true,
+                                                          hintText:
+                                                              _departure !=
+                                                                      null &&
+                                                                  _arrival !=
+                                                                      null &&
+                                                                  (widget.controller.airports.timeZoneIdForIata(
+                                                                            _departure!.iataCode,
+                                                                          ) ==
+                                                                          null ||
+                                                                      widget.controller.airports.timeZoneIdForIata(
+                                                                            _arrival!.iataCode,
+                                                                          ) ==
+                                                                          null)
+                                                              ? s.t(
+                                                                  'flightTimezoneManualDurationHint',
+                                                                )
+                                                              : null,
                                                           onChanged: (_) =>
                                                               _durationTouched =
                                                                   true,
@@ -769,7 +797,7 @@ class _AddFlightPageState extends State<AddFlightPage>
                   ),
                   style: FilledButton.styleFrom(
                     minimumSize: const Size(48, 56),
-                    backgroundColor: colors.lime,
+                    backgroundColor: colors.actionFill,
                     foregroundColor: colors.onPrimary,
                     disabledBackgroundColor: colors.surfaceElevated,
                     disabledForegroundColor: colors.textTertiary,
@@ -928,11 +956,6 @@ class _AddFlightPageState extends State<AddFlightPage>
           _airline.text = result.airline!;
           filled.add(strings.t('airline'));
         }
-        if (!_dateTouched && result.departedAt != null) {
-          _date = result.departedAt!.toLocal();
-          _dateTouched = true;
-          filled.add(strings.t('date'));
-        }
         if (_departure == null && result.departureIata != null) {
           final airport = widget.controller.airportFor(result.departureIata!);
           if (airport != null) {
@@ -947,8 +970,23 @@ class _AddFlightPageState extends State<AddFlightPage>
             filled.add(strings.t('arrival'));
           }
         }
+        if (!_dateTouched && result.departedAt != null) {
+          _date = _wallTimeForInstant(
+            result.departedAt!,
+            widget.controller.airports.timeZoneIdForIata(
+              _departure?.iataCode ?? result.departureIata ?? '',
+            ),
+          );
+          _dateTouched = true;
+          filled.add(strings.t('date'));
+        }
         if (!_arrivalTouched && result.arrivedAt != null) {
-          _arrivalAt = result.arrivedAt!.toLocal();
+          _arrivalAt = _wallTimeForInstant(
+            result.arrivedAt!,
+            widget.controller.airports.timeZoneIdForIata(
+              _arrival?.iataCode ?? result.arrivalIata ?? '',
+            ),
+          );
           _arrivalTouched = true;
           filled.add(strings.t('landing'));
         }
@@ -965,7 +1003,7 @@ class _AddFlightPageState extends State<AddFlightPage>
         if (!_durationTouched) {
           final duration =
               result.durationMinutes ??
-              _durationFromTimes(_date, _arrivalAt) ??
+              _durationFromAirportTimes(_date, _arrivalAt) ??
               _estimatedDurationForAirports(
                 _departure,
                 _arrival,
@@ -1120,6 +1158,14 @@ class _AddFlightPageState extends State<AddFlightPage>
     setState(() {
       if (departure) {
         _departure = airport;
+        if (!_dateTouched) {
+          _date =
+              FlightTimeResolver.toWallTime(
+                DateTime.now().toUtc(),
+                widget.controller.airports.timeZoneIdForIata(airport.iataCode),
+              ) ??
+              _wallComponents(DateTime.now());
+        }
       } else {
         _arrival = airport;
       }
@@ -1137,7 +1183,7 @@ class _AddFlightPageState extends State<AddFlightPage>
     );
     if (picked != null) {
       setState(() {
-        _date = DateTime(
+        _date = DateTime.utc(
           picked.year,
           picked.month,
           picked.day,
@@ -1158,7 +1204,7 @@ class _AddFlightPageState extends State<AddFlightPage>
     );
     if (picked == null) return;
     setState(() {
-      _date = DateTime(
+      _date = DateTime.utc(
         _date.year,
         _date.month,
         _date.day,
@@ -1182,7 +1228,7 @@ class _AddFlightPageState extends State<AddFlightPage>
     if (picked == null) return;
     final current = _arrivalAt ?? fallback;
     setState(() {
-      _arrivalAt = DateTime(
+      _arrivalAt = DateTime.utc(
         picked.year,
         picked.month,
         picked.day,
@@ -1203,7 +1249,7 @@ class _AddFlightPageState extends State<AddFlightPage>
     );
     if (picked == null) return;
     setState(() {
-      _arrivalAt = DateTime(
+      _arrivalAt = DateTime.utc(
         fallback.year,
         fallback.month,
         fallback.day,
@@ -1227,7 +1273,7 @@ class _AddFlightPageState extends State<AddFlightPage>
 
     if (calculateDuration && !_durationTouched) {
       final duration =
-          _durationFromTimes(_date, _arrivalAt) ??
+          _durationFromAirportTimes(_date, _arrivalAt) ??
           _estimatedDurationForAirports(
             _departure,
             _arrival,
@@ -1254,9 +1300,27 @@ class _AddFlightPageState extends State<AddFlightPage>
     return parsed == null || !parsed.isFinite || parsed <= 0 ? null : parsed;
   }
 
-  static int? _durationFromTimes(DateTime departure, DateTime? arrival) {
-    if (arrival == null) return null;
-    final minutes = arrival.difference(departure).inMinutes;
+  int? _durationFromAirportTimes(DateTime departure, DateTime? arrival) {
+    if (arrival == null || _departure == null || _arrival == null) return null;
+    final departureZone = widget.controller.airports.timeZoneIdForIata(
+      _departure!.iataCode,
+    );
+    final arrivalZone = widget.controller.airports.timeZoneIdForIata(
+      _arrival!.iataCode,
+    );
+    if (departureZone == null || arrivalZone == null) return null;
+    final departureInstant = FlightTimeResolver.resolveWallTime(
+      departure,
+      departureZone,
+    );
+    final arrivalInstant = FlightTimeResolver.resolveWallTime(
+      arrival,
+      arrivalZone,
+    );
+    if (!departureInstant.isResolved || !arrivalInstant.isResolved) return null;
+    final minutes = arrivalInstant.instant!
+        .difference(departureInstant.instant!)
+        .inMinutes;
     return minutes > 0 && minutes <= 48 * 60 ? minutes : null;
   }
 
@@ -1280,7 +1344,58 @@ class _AddFlightPageState extends State<AddFlightPage>
   DateTime? get _estimatedArrival {
     final minutes = int.tryParse(_duration.text);
     if (minutes == null || minutes <= 0) return null;
-    return _date.add(Duration(minutes: minutes));
+    final departureZone = _departure == null
+        ? null
+        : widget.controller.airports.timeZoneIdForIata(_departure!.iataCode);
+    final departureResolution = FlightTimeResolver.resolveWallTime(
+      _date,
+      departureZone,
+    );
+    final departureInstant = departureResolution.isResolved
+        ? departureResolution.instant!
+        : _legacyInstant(_date);
+    final arrivalInstant = departureInstant.add(Duration(minutes: minutes));
+    final arrivalZone = _arrival == null
+        ? null
+        : widget.controller.airports.timeZoneIdForIata(_arrival!.iataCode);
+    return FlightTimeResolver.toWallTime(arrivalInstant, arrivalZone) ??
+        _wallComponents(arrivalInstant.toLocal());
+  }
+
+  static DateTime _wallComponents(DateTime value) => DateTime.utc(
+    value.year,
+    value.month,
+    value.day,
+    value.hour,
+    value.minute,
+    value.second,
+    value.millisecond,
+    value.microsecond,
+  );
+
+  static DateTime _legacyInstant(DateTime wallTime) => DateTime(
+    wallTime.year,
+    wallTime.month,
+    wallTime.day,
+    wallTime.hour,
+    wallTime.minute,
+    wallTime.second,
+    wallTime.millisecond,
+    wallTime.microsecond,
+  ).toUtc();
+
+  static DateTime _wallTimeForInstant(DateTime instant, String? zoneId) =>
+      FlightTimeResolver.toWallTime(instant, zoneId) ??
+      _wallComponents(instant.toLocal());
+
+  String? _wallTimeError(AirportWallTimeStatus status) {
+    if (status == AirportWallTimeStatus.ambiguous) {
+      return context.strings.t('flightTimeAmbiguous');
+    }
+    if (status == AirportWallTimeStatus.nonexistent) {
+      return context.strings.t('flightTimeNonexistent');
+    }
+    return null;
   }
 
   Future<void> _save() async {
@@ -1295,30 +1410,69 @@ class _AddFlightPageState extends State<AddFlightPage>
           .showSnackBar(SnackBar(content: Text(strings.t('missingRequired'))));
       return;
     }
+    final departureZone = widget.controller.airports.timeZoneIdForIata(
+      _departure!.iataCode,
+    );
+    final arrivalZone = widget.controller.airports.timeZoneIdForIata(
+      _arrival!.iataCode,
+    );
+    final departureResolution = FlightTimeResolver.resolveWallTime(
+      _date,
+      departureZone,
+    );
+    if (departureZone != null && !departureResolution.isResolved) {
+      final message = _wallTimeError(departureResolution.status);
+      if (message != null) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(message)));
+        return;
+      }
+    }
+    final departureInstant = departureResolution.isResolved
+        ? departureResolution.instant!
+        : _legacyInstant(_date);
+    DateTime? arrivalInstant;
+    if (_arrivalTouched && _arrivalAt != null) {
+      final arrivalResolution = FlightTimeResolver.resolveWallTime(
+        _arrivalAt!,
+        arrivalZone,
+      );
+      if (arrivalZone != null && !arrivalResolution.isResolved) {
+        final message = _wallTimeError(arrivalResolution.status);
+        if (message != null) {
+          ScaffoldMessenger.of(context)
+              .showSnackBar(SnackBar(content: Text(message)));
+          return;
+        }
+      }
+      arrivalInstant = arrivalResolution.isResolved
+          ? arrivalResolution.instant!
+          : _legacyInstant(_arrivalAt!);
+    } else {
+      final minutes = int.tryParse(_duration.text);
+      if (minutes != null && minutes > 0) {
+        arrivalInstant = departureInstant.add(Duration(minutes: minutes));
+      }
+    }
     setState(() => _saving = true);
     try {
       final initial = widget.initialFlight;
       final durationMinutes = int.tryParse(_duration.text);
       final distanceKm = _parseDistance(_distance.text);
-      final arrivedAt = _arrivalTouched
-          ? _arrivalAt
-          : (durationMinutes != null && durationMinutes > 0
-                ? _date.add(Duration(minutes: durationMinutes))
-                : null);
       final status = initial?.isCompleted == true
           ? FlightStatus.completed
           : flightStatusForDeparture(
-              _date,
+              departureInstant,
               DateTime.now(),
-              arrivedAt: arrivedAt,
+              arrivedAt: arrivalInstant,
               durationMinutes: durationMinutes,
             );
       if (initial == null) {
         await widget.controller.addFlight(
           departure: _departure!,
           arrival: _arrival!,
-          date: _date,
-          arrivedAt: arrivedAt,
+          date: departureInstant,
+          arrivedAt: arrivalInstant,
           distanceKm: distanceKm,
           airline: _airline.text,
           flightNumber: _flightNumber.text,
@@ -1334,8 +1488,8 @@ class _AddFlightPageState extends State<AddFlightPage>
           existing: initial,
           departure: _departure!,
           arrival: _arrival!,
-          date: _date,
-          arrivedAt: arrivedAt,
+          date: departureInstant,
+          arrivedAt: arrivalInstant,
           distanceKm: distanceKm,
           airline: _airline.text,
           flightNumber: _flightNumber.text,
@@ -1778,15 +1932,15 @@ class _AirportPickerState extends State<_AirportPicker> {
         height: 42,
         alignment: Alignment.center,
         decoration: ShapeDecoration(
-          color: colors.lime,
+          color: colors.actionFill,
           shape: RoundedSuperellipseBorder(
             borderRadius: BorderRadius.circular(14),
           ),
         ),
         child: Text(
           airport.iataCode,
-          style: const TextStyle(
-            color: Colors.black,
+          style: TextStyle(
+            color: colors.onPrimary,
             fontWeight: FontWeight.w800,
           ),
         ),

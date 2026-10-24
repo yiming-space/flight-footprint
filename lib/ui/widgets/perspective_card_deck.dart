@@ -28,6 +28,7 @@ class PerspectiveCardDeck extends StatefulWidget {
     this.reduceMotion = false,
     this.loop = false,
     this.animateEntrance = false,
+    this.staggerEntrance = false,
     this.recycleArc = true,
     this.flipInPlace = false,
     this.cycleDepth = false,
@@ -52,6 +53,10 @@ class PerspectiveCardDeck extends StatefulWidget {
 
   /// Open the visible stack once, ending immediately when interaction begins.
   final bool animateEntrance;
+
+  /// Offset each card's entrance progress by its visible depth. Has no effect
+  /// unless [animateEntrance] is enabled.
+  final bool staggerEntrance;
 
   /// Fold looping cards through the back of the stack. Disable for a subtle
   /// perspective slide that leaves larger rotations to the card's tap action.
@@ -505,7 +510,12 @@ class _PerspectiveCardDeckState extends State<PerspectiveCardDeck>
   _pose(double relative, {int bottomPreviews = 0, double previewStride = 76}) {
     final behind = math.max(0.0, relative);
     final outgoing = math.max(0.0, -relative);
-    final entrance = Curves.easeOutCubic.transform(_entrance.value);
+    final depthDelay = widget.staggerEntrance
+        ? math.max(0.0, relative).clamp(0.0, 4.0) * .07
+        : 0.0;
+    final rawEntrance = ((_entrance.value - depthDelay) / (1 - depthDelay))
+        .clamp(0.0, 1.0);
+    final entrance = Curves.easeOutCubic.transform(rawEntrance);
     final opening = 1 - entrance;
     final frontWeight = (1 - behind).clamp(0.0, 1.0);
     var scale =

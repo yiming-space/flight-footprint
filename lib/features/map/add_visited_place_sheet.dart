@@ -67,11 +67,8 @@ class _AddVisitedPlaceSheetState extends State<AddVisitedPlaceSheet> {
     final s = context.strings;
     final colors = context.appColors;
     final isLight = Theme.of(context).brightness == Brightness.light;
-    // Keep controls distinct from the white sheet while staying inside the
-    // Ice White palette. The old card tokens intentionally resolve to white
-    // in this theme, which made both the photo action and search field appear
-    // visually unstyled.
-    final actionInk = isLight ? colors.onPrimary : colors.lime;
+    // Keep the search and photo controls distinct from the sheet surface.
+    final actionInk = colors.lime;
     final actionFill = isLight ? colors.iceTint : colors.surfaceElevated;
     final searchFill = isLight ? colors.surfaceElevated : colors.surface;
     return Material(
@@ -132,7 +129,9 @@ class _AddVisitedPlaceSheetState extends State<AddVisitedPlaceSheet> {
                 decoration: InputDecoration(
                   prefixIcon: Icon(
                     Icons.search_rounded,
-                    color: isLight ? colors.textSecondary : AppColors.routePurple,
+                    color: isLight
+                        ? colors.textSecondary
+                        : AppColors.routePurple,
                   ),
                   hintText: s.t('searchCity'),
                   filled: true,
@@ -277,7 +276,7 @@ class _AddVisitedPlaceSheetState extends State<AddVisitedPlaceSheet> {
                 label: _saving ? '…' : s.t('savePlace'),
                 icon: Icons.add_location_alt_rounded,
                 onPressed: _selected == null || _saving ? null : _save,
-                backgroundColor: isLight ? colors.lime : null,
+                backgroundColor: isLight ? colors.actionFill : null,
                 foregroundColor: isLight ? colors.onPrimary : null,
               ),
             ],

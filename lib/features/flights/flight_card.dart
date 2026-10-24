@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 import '../../app/app_controller.dart';
 import '../../core/localization/app_strings.dart';
 import '../../data/airport_localization.dart';
+import '../../data/flight_time_resolver.dart';
 import '../../domain/flight.dart';
 import '../../ui/theme/app_theme.dart';
 
@@ -33,14 +34,18 @@ class FlightCard extends StatelessWidget {
     final isLight = Theme.of(context).brightness == Brightness.light;
     final from = controller.airportFor(flight.departureIata);
     final to = controller.airportFor(flight.arrivalIata);
-    // Keep the card surface quiet; in the dark theme, a slightly brighter
-    // edge and semantic route colors make each boarding pass easier to scan.
-    final color = colors.surface;
-    final departureAccent = isLight
-        ? Color.lerp(AppColors.mapBlueDeep, colors.textPrimary, .36)!
-        : colors.lime;
+    final departureTimeZoneId = controller.airports.timeZoneIdForIata(
+      flight.departureIata,
+    );
+    final arrivalTimeZoneId = controller.airports.timeZoneIdForIata(
+      flight.arrivalIata,
+    );
+    // Keep the card surface quiet; semantic route colors carry the
+    // visual emphasis without an outer border.
+    final color = isLight ? Colors.white : colors.surface;
+    final departureAccent = colors.displayPrimary;
     final arrivalAccent = isLight
-        ? AppColors.flightArrival
+        ? colors.displaySecondary
         : AppColors.routePurple;
     final cardTint = isLight ? colors.iceTint : colors.surfaceElevated;
     // Keep an overnight arrival on the following calendar day. Imported
@@ -48,16 +53,16 @@ class FlightCard extends StatelessWidget {
     // records whose arrival clock was stored before departure, prefer the
     // known duration and otherwise roll the display date forward by one day.
     final arrivalAt = _arrivalForDisplay(flight);
-    final arrivalDayOffset = _calendarDayOffset(flight.departedAt, arrivalAt);
-    final arrivalDayOffsetLabel = arrivalDayOffset > 0
-        ? context.strings.isZh
-              ? arrivalDayOffset == 1
-                    ? '次日'
-                    : '+$arrivalDayOffset天'
-              : arrivalDayOffset == 1
-              ? '+1 day'
-              : '+$arrivalDayOffset days'
-        : null;
+    final arrivalDayOffset = _calendarDayOffset(
+      flight.departedAt,
+      arrivalAt,
+      departureTimeZoneId: departureTimeZoneId,
+      arrivalTimeZoneId: arrivalTimeZoneId,
+    );
+    final arrivalDayOffsetLabel = _dayOffsetLabel(
+      arrivalDayOffset,
+      isZh: context.strings.isZh,
+    );
     final airline = flight.airline?.trim() ?? '';
     final flightNumber = flight.flightNumber?.trim() ?? '';
     final aircraft = flight.aircraftType?.trim() ?? '';
@@ -74,32 +79,24 @@ class FlightCard extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.fromLTRB(22, 14, 22, 16),
           decoration: ShapeDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              stops: isLight ? const [0, .68, 1] : const [0, .7, 1],
-              colors: [
-                color,
-                Color.lerp(color, cardTint, isLight ? .08 : .16)!,
-                Color.lerp(color, cardTint, isLight ? .18 : .3)!,
-              ],
-            ),
+            color: isLight ? color : null,
+            gradient: isLight
+                ? null
+                : LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    stops: isLight ? const [0, .68, 1] : const [0, .7, 1],
+                    colors: [
+                      color,
+                      Color.lerp(color, cardTint, isLight ? .08 : .16)!,
+                      Color.lerp(color, cardTint, isLight ? .18 : .3)!,
+                    ],
+                  ),
             // A slightly tighter corner keeps the card's generous layout
             // while matching the compact boarding-pass reference.
-            shape:
-                const RoundedSuperellipseBorder(
-                  borderRadius: BorderRadius.all(Radius.circular(32)),
-                ).copyWith(
-                  side: isLight
-                      ? BorderSide(
-                          color: colors.iceTint.withValues(alpha: .68),
-                          width: .8,
-                        )
-                      : BorderSide(
-                          color: colors.border.withValues(alpha: .42),
-                          width: .8,
-                        ),
-                ),
+            shape: const RoundedSuperellipseBorder(
+              borderRadius: BorderRadius.all(Radius.circular(32)),
+            ).copyWith(side: BorderSide.none),
           ),
           child: Stack(
             children: [
@@ -124,6 +121,7 @@ class FlightCard extends StatelessWidget {
                                 ? '机场'
                                 : localizedAirportCardDisplayName(from),
                             value: flight.departedAt,
+                            timeZoneId: departureTimeZoneId,
                             accentColor: departureAccent,
                           ),
                         ),
@@ -135,9 +133,11 @@ class FlightCard extends StatelessWidget {
                                 ? '机场'
                                 : localizedAirportCardDisplayName(to),
                             value: arrivalAt,
+                            timeZoneId: arrivalTimeZoneId,
                             alignEnd: true,
                             accentColor: arrivalAccent,
                             dayOffsetLabel: arrivalDayOffsetLabel,
+                            dayOffsetColor: colors.purple,
                           ),
                         ),
                       ],
@@ -203,10 +203,18 @@ class FlightCard extends StatelessWidget {
     return arrival.add(const Duration(days: 1));
   }
 
-  static int _calendarDayOffset(DateTime departure, DateTime? arrival) {
+  static DateTime _wallOrLocal(DateTime value, String? timeZoneId) =>
+      FlightTimeResolver.toWallTime(value, timeZoneId) ?? value.toLocal();
+
+  static int _calendarDayOffset(
+    DateTime departure,
+    DateTime? arrival, {
+    String? departureTimeZoneId,
+    String? arrivalTimeZoneId,
+  }) {
     if (arrival == null) return 0;
-    final localDeparture = departure.toLocal();
-    final localArrival = arrival.toLocal();
+    final localDeparture = _wallOrLocal(departure, departureTimeZoneId);
+    final localArrival = _wallOrLocal(arrival, arrivalTimeZoneId);
     final departureDate = DateTime.utc(
       localDeparture.year,
       localDeparture.month,
@@ -218,6 +226,16 @@ class FlightCard extends StatelessWidget {
       localArrival.day,
     );
     return arrivalDate.difference(departureDate).inDays;
+  }
+
+  static String? _dayOffsetLabel(int offset, {required bool isZh}) {
+    if (offset == 0) return null;
+    if (offset < 0) {
+      final days = offset.abs();
+      return isZh ? '-$days天' : '-$days ${days == 1 ? 'day' : 'days'}';
+    }
+    if (isZh) return offset == 1 ? '次日' : '+$offset天';
+    return offset == 1 ? '+1 day' : '+$offset days';
   }
 
   static String _formatDuration(int minutes) {
@@ -528,25 +546,32 @@ class _AirportStop extends StatelessWidget {
     required this.value,
     this.alignEnd = false,
     this.accentColor,
+    this.timeZoneId,
     this.dayOffsetLabel,
+    this.dayOffsetColor,
   });
   final String code;
   final String city;
   final DateTime? value;
   final bool alignEnd;
   final Color? accentColor;
+  final String? timeZoneId;
   final String? dayOffsetLabel;
+  final Color? dayOffsetColor;
 
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
     final isLight = Theme.of(context).brightness == Brightness.light;
-    final time = value == null
+    final wallTime = value == null
+        ? null
+        : FlightTimeResolver.toWallTime(value!, timeZoneId) ?? value!.toLocal();
+    final time = wallTime == null
         ? '—:—'
-        : DateFormat('HH:mm').format(value!.toLocal());
-    final date = value == null
+        : DateFormat('HH:mm').format(wallTime);
+    final date = wallTime == null
         ? '—'
-        : DateFormat('yyyy.M.d').format(value!.toLocal());
+        : DateFormat('yyyy.M.d').format(wallTime);
     final textAlign = alignEnd ? TextAlign.end : TextAlign.start;
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -599,7 +624,7 @@ class _AirportStop extends StatelessWidget {
           time,
           textAlign: textAlign,
           style: TextStyle(
-            fontSize: 18,
+            fontSize: 19,
             height: 1,
             fontWeight: FontWeight.w800,
             letterSpacing: -.25,
@@ -616,9 +641,8 @@ class _AirportStop extends StatelessWidget {
             if (dayOffsetLabel != null) ...[
               DecoratedBox(
                 decoration: BoxDecoration(
-                  color: (accentColor ?? colors.textSecondary).withValues(
-                    alpha: isLight ? .13 : .18,
-                  ),
+                  color: (dayOffsetColor ?? accentColor ?? colors.textSecondary)
+                      .withValues(alpha: isLight ? .13 : .18),
                   borderRadius: BorderRadius.circular(5),
                 ),
                 child: Padding(
@@ -629,7 +653,8 @@ class _AirportStop extends StatelessWidget {
                   child: Text(
                     dayOffsetLabel!,
                     style: TextStyle(
-                      color: accentColor ?? colors.textSecondary,
+                      color:
+                          dayOffsetColor ?? accentColor ?? colors.textSecondary,
                       fontSize: 9,
                       height: 1,
                       fontWeight: FontWeight.w700,

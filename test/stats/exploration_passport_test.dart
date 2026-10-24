@@ -4,6 +4,7 @@ import 'package:flight_footprint/features/stats/continent_exploration_card.dart'
 import 'package:flight_footprint/features/stats/exploration_map_artwork.dart';
 import 'package:flight_footprint/features/stats/exploration_passport.dart';
 import 'package:flight_footprint/features/stats/farthest_footprint_card.dart';
+import 'package:flight_footprint/features/stats/personal_travel_summary.dart';
 import 'package:flight_footprint/features/stats/world_exploration.dart';
 import 'package:flight_footprint/ui/theme/app_theme.dart';
 import 'package:flight_footprint/ui/widgets/app_widgets.dart';
@@ -96,14 +97,18 @@ void _surface(WidgetTester tester, Size size) {
   addTearDown(tester.view.resetPhysicalSize);
 }
 
-ExplorationPassport _passport({Airport? home, VoidCallback? choose}) =>
-    ExplorationPassport(
-      places: _places,
-      worldCount: 6,
-      home: home,
-      homeLoaded: true,
-      onChooseHome: choose ?? () {},
-    );
+ExplorationPassport _passport({
+  Airport? home,
+  VoidCallback? choose,
+  PersonalTravelSummary? memorySummary,
+}) => ExplorationPassport(
+  places: _places,
+  worldCount: 6,
+  home: home,
+  homeLoaded: true,
+  onChooseHome: choose ?? () {},
+  memorySummary: memorySummary,
+);
 
 Finder get _mementoMaps => find.descendant(
   of: find.byType(FarthestFootprintCard),
@@ -136,7 +141,7 @@ void main() {
         find.byKey(const ValueKey('exploration-visited-summary')),
         findsNothing,
       );
-      expect(tester.getTopLeft(find.byType(FarthestFootprintCard)).dy, 8);
+      expect(tester.getTopLeft(find.byType(FarthestFootprintCard)).dy, 20);
       expect(find.byType(LinearProgressIndicator), findsNothing);
       expect(
         find.byKey(const ValueKey('exploration-world-percent')),
@@ -169,7 +174,7 @@ void main() {
     expect(surface.showBorder, isFalse);
     expect(
       surface.padding.resolve(TextDirection.ltr),
-      const EdgeInsets.fromLTRB(24, 12, 24, 24),
+      const EdgeInsets.fromLTRB(16, 12, 16, 20),
     );
     final edit = find.descendant(of: card, matching: find.byType(IconButton));
     final info = find.descendant(
@@ -187,7 +192,7 @@ void main() {
     final heading = find.byKey(const ValueKey('farthest-footprint-heading'));
     expect(tester.getRect(info).left - tester.getRect(heading).right, 8);
     expect(tester.getCenter(heading).dy, tester.getCenter(info).dy);
-    expect(tester.getRect(edit).right, tester.getRect(card).right - 24);
+    expect(tester.getRect(edit).right, tester.getRect(card).right - 16);
     expect(tester.getRect(info).right, lessThan(tester.getRect(edit).left));
     final editIcon = tester.widget<IconButton>(edit).icon;
     expect(editIcon, isA<Icon>());
@@ -196,12 +201,12 @@ void main() {
       tester.widget<Icon>(find.byIcon(Icons.info_outline_rounded)).size,
       18,
     );
-    final destination = find.byKey(
-      const ValueKey('farthest-footprint-destination'),
+    final distance = find.byKey(
+      const ValueKey('farthest-footprint-distance-value'),
     );
     expect(
-      tester.getRect(destination).top - tester.getRect(edit).bottom,
-      closeTo(4, .1),
+      tester.getRect(distance).top,
+      greaterThan(tester.getRect(edit).bottom),
     );
     expect(tester.takeException(), isNull);
   });
@@ -268,27 +273,27 @@ void main() {
       const ValueKey('farthest-footprint-distance-value'),
     );
     final date = find.byKey(const ValueKey('farthest-footprint-date'));
+    expect(tester.getRect(distance).top, lessThan(tester.getRect(home).top));
     expect(
-      tester.getCenter(home).dx,
-      greaterThan(tester.getCenter(destination).dx),
-    );
-    expect(
-      tester.getRect(connection).top,
-      greaterThan(tester.getRect(destination).bottom),
+      tester.getRect(connection).left,
+      greaterThan(tester.getRect(home).right),
     );
     expect(
       tester.getRect(connection).right,
-      lessThan(tester.getRect(home).left),
+      lessThan(tester.getRect(destination).left),
     );
-    expect(tester.getRect(home).overlaps(tester.getRect(distance)), isFalse);
     expect(
       tester.getRect(destination).bottom,
-      lessThan(tester.getRect(distance).top),
+      lessThan(tester.getRect(date).top),
     );
-    expect(tester.getRect(distance).bottom, lessThan(tester.getRect(date).top));
-    expect(tester.getSize(connection).width, greaterThan(100));
-    expect(tester.getTopLeft(distance).dx, tester.getTopLeft(destination).dx);
-    expect(tester.widget<Text>(distance).textAlign, TextAlign.start);
+    expect(tester.getRect(home).overlaps(tester.getRect(distance)), isFalse);
+    expect(tester.getSize(connection).width, greaterThan(40));
+    expect(tester.getTopLeft(distance).dx, tester.getTopLeft(home).dx);
+    expect(tester.widget<Text>(distance).textAlign, TextAlign.center);
+    expect(
+      tester.widget<Text>(distance).textSpan!.style!.fontSize,
+      greaterThanOrEqualTo(40),
+    );
     final flag = find.descendant(
       of: find.byType(FarthestFootprintCard),
       matching: find.byWidgetPredicate(
@@ -314,6 +319,60 @@ void main() {
       findsOneWidget,
     );
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('farthest card returns after a cut without losing its date', (
+    tester,
+  ) async {
+    _surface(tester, const Size(411, 900));
+    final summary = PersonalTravelSummary(
+      year: 2026,
+      newCities: const [],
+      newAircraft: const [],
+      frequentRoute: null,
+    );
+    for (final light in [false, true]) {
+      await tester.pumpWidget(
+        _host(
+          _passport(home: _home, memorySummary: summary),
+          locale: const Locale('zh'),
+          light: light,
+        ),
+      );
+      await tester.pumpAndSettle();
+      final deck = find.byKey(const ValueKey('exploration-memory-deck'));
+      await tester.drag(deck, const Offset(-180, 0));
+      await tester.pumpAndSettle();
+      await tester.drag(deck, const Offset(180, 0));
+      await tester.pumpAndSettle();
+
+      final farthest = find.byType(FarthestFootprintCard);
+      final date = find.byKey(const ValueKey('farthest-footprint-date'));
+      final surface = tester.widget<SurfaceCard>(
+        find.descendant(of: farthest, matching: find.byType(SurfaceCard)),
+      );
+      expect(
+        tester
+            .widget<Semantics>(
+              find.byKey(const ValueKey('exploration-memory-deck-semantics')),
+            )
+            .properties
+            .value,
+        '1 / 4',
+      );
+      expect(
+        Theme.of(tester.element(farthest)).brightness,
+        light ? Brightness.light : Brightness.dark,
+      );
+      expect(surface.color, Colors.transparent);
+      expect(date.hitTestable(), findsOneWidget);
+      expect(
+        tester.getRect(date).bottom,
+        lessThanOrEqualTo(tester.getRect(farthest).bottom),
+      );
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+    }
   });
 
   testWidgets(
@@ -599,17 +658,15 @@ void main() {
       final distance = find.byKey(
         const ValueKey('farthest-footprint-distance-value'),
       );
-      expect(
-        tester.getRect(home).top,
-        greaterThan(tester.getRect(destination).bottom),
-      );
+      final date = find.byKey(const ValueKey('farthest-footprint-date'));
+      expect(tester.getRect(distance).top, lessThan(tester.getRect(home).top));
       expect(
         tester.getRect(home).bottom,
-        lessThan(tester.getRect(distance).top),
+        lessThan(tester.getRect(destination).top),
       );
       expect(
         tester.getRect(destination).bottom,
-        lessThan(tester.getRect(distance).top),
+        lessThan(tester.getRect(date).top),
       );
       final text = tester.widget<Text>(distance);
       final foreground = text.textSpan!.style!.color!;
@@ -628,7 +685,7 @@ void main() {
     }
   });
 
-  testWidgets('diagonal composition adapts across widths, locales and themes', (
+  testWidgets('full-width distance and route adapt across widths and locales', (
     tester,
   ) async {
     _surface(tester, const Size(430, 1500));
@@ -653,19 +710,42 @@ void main() {
             const ValueKey('farthest-footprint-distance-value'),
           );
           final date = find.byKey(const ValueKey('farthest-footprint-date'));
+          final connection = find.byKey(
+            const ValueKey('farthest-footprint-connection'),
+          );
           expect(
-            tester.getRect(destination).top,
+            tester.getRect(distance).top,
             lessThan(tester.getRect(home).top),
+          );
+          if (width < 400) {
+            expect(
+              tester.getRect(home).bottom,
+              lessThan(tester.getRect(connection).top),
+            );
+            expect(
+              tester.getRect(connection).bottom,
+              lessThan(tester.getRect(destination).top),
+            );
+          } else {
+            expect(
+              tester.getRect(connection).left,
+              greaterThan(tester.getRect(home).right),
+            );
+            expect(
+              tester.getRect(connection).right,
+              lessThan(tester.getRect(destination).left),
+            );
+          }
+          expect(
+            tester.getRect(destination).bottom,
+            lessThan(tester.getRect(date).top),
           );
           expect(
             tester.getRect(home).overlaps(tester.getRect(distance)),
             isFalse,
           );
           expect(tester.getRect(home).overlaps(tester.getRect(date)), isFalse);
-          expect(
-            tester.getTopLeft(distance).dx,
-            tester.getTopLeft(destination).dx,
-          );
+          expect(tester.getSize(connection).width, greaterThan(40));
           expect(
             tester.widget<Text>(destination).overflow,
             isNot(TextOverflow.ellipsis),

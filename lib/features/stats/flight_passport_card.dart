@@ -12,6 +12,8 @@ import 'package:share_plus/share_plus.dart';
 import '../../core/localization/app_strings.dart';
 import '../../ui/theme/app_theme.dart';
 import '../../ui/widgets/country_flag.dart';
+import '../../ui/widgets/app_page_background.dart';
+import '../../ui/widgets/frosted_glass_surface.dart';
 import '../map/map_models.dart';
 import '../map/offline_map.dart';
 import 'route_viewport_policy.dart';
@@ -61,9 +63,25 @@ enum _PassportAction { save, share }
 class _FlightPassportCardState extends State<FlightPassportCard> {
   final _captureKey = GlobalKey();
   bool _busy = false;
+  ({Offset origin, Size viewport})? _exportBackdrop;
 
   @override
   Widget build(BuildContext context) {
+    final artwork = _PassportArtwork(
+      year: widget.year,
+      yearLabel: widget.yearLabel,
+      travellerName: widget.travellerName,
+      distanceKm: widget.distanceKm,
+      flightCount: widget.flightCount,
+      flightTimeMinutes: widget.flightTimeMinutes,
+      airportCount: widget.airportCount,
+      routeCount: widget.routeCount,
+      countryCodes: widget.countryCodes,
+      airports: widget.airports,
+      routes: widget.routes,
+      translucent: true,
+    );
+    final exportBackdrop = _exportBackdrop;
     final hint = context.strings.isZh
         ? '长按保存或分享'
         : 'Long press to save or share';
@@ -77,18 +95,52 @@ class _FlightPassportCardState extends State<FlightPassportCard> {
           key: _captureKey,
           child: ClipPath(
             clipper: ShapeBorderClipper(shape: AppShapes.large),
-            child: _PassportArtwork(
-              year: widget.year,
-              yearLabel: widget.yearLabel,
-              travellerName: widget.travellerName,
-              distanceKm: widget.distanceKm,
-              flightCount: widget.flightCount,
-              flightTimeMinutes: widget.flightTimeMinutes,
-              airportCount: widget.airportCount,
-              routeCount: widget.routeCount,
-              countryCodes: widget.countryCodes,
-              airports: widget.airports,
-              routes: widget.routes,
+            child: AspectRatio(
+              aspectRatio: 3 / 4,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  // A boundary export cannot sample layers outside itself.
+                  // Repaint the same page canvas at its original screen origin
+                  // only during capture, so the glass PNG stays self-contained.
+                  if (exportBackdrop != null)
+                    Positioned.fill(
+                      child: ClipRect(
+                        child: OverflowBox(
+                          alignment: Alignment.topLeft,
+                          minWidth: exportBackdrop.viewport.width,
+                          maxWidth: exportBackdrop.viewport.width,
+                          minHeight: exportBackdrop.viewport.height,
+                          maxHeight: exportBackdrop.viewport.height,
+                          child: Transform.translate(
+                            offset: -exportBackdrop.origin,
+                            child: const AppPageBackground(),
+                          ),
+                        ),
+                      ),
+                    ),
+                  FrostedGlassSurface(
+                    key: const ValueKey('passport-frosted-glass'),
+                    shape: AppShapes.large,
+                    refractionRadius: AppRadii.large.topLeft.x,
+                    edgeThickness: 2,
+                    useLocalRefraction: true,
+                    adaptiveContrast: true,
+                    showRim: false,
+                    highlightStrength:
+                        Theme.of(context).brightness == Brightness.dark
+                        ? 1.45
+                        : 1.3,
+                    tintColor: Theme.of(context).brightness == Brightness.dark
+                        ? const Color(0xFF9AB8C9)
+                        : const Color(0xFFE6F3FC),
+                    tintOpacity: Theme.of(context).brightness == Brightness.dark
+                        ? .055
+                        : .12,
+                    child: artwork,
+                  ),
+                ],
+              ),
             ),
           ),
         ),
@@ -169,6 +221,26 @@ class _FlightPassportCardState extends State<FlightPassportCard> {
   }
 
   Future<Uint8List> _capturePng() async {
+    final box = _captureKey.currentContext?.findRenderObject();
+    if (box is! RenderRepaintBoundary || !box.hasSize) {
+      throw StateError('Passport card is not ready');
+    }
+    setState(() {
+      _exportBackdrop = (
+        origin: box.localToGlobal(Offset.zero),
+        viewport: MediaQuery.sizeOf(context),
+      );
+    });
+    try {
+      return await _captureReadyPng();
+    } finally {
+      if (mounted && _exportBackdrop != null) {
+        setState(() => _exportBackdrop = null);
+      }
+    }
+  }
+
+  Future<Uint8List> _captureReadyPng() async {
     await WidgetsBinding.instance.endOfFrame;
     final renderObject = _captureKey.currentContext?.findRenderObject();
     final boundary = renderObject is RenderRepaintBoundary
@@ -239,6 +311,7 @@ class _PassportArtwork extends StatelessWidget {
     required this.countryCodes,
     required this.airports,
     required this.routes,
+    this.translucent = false,
   });
 
   final int year;
@@ -252,6 +325,7 @@ class _PassportArtwork extends StatelessWidget {
   final List<String> countryCodes;
   final List<MapAirport> airports;
   final List<MapRoute> routes;
+  final bool translucent;
 
   @override
   Widget build(BuildContext context) {
@@ -268,7 +342,7 @@ class _PassportArtwork extends StatelessWidget {
           child: Stack(
             fit: StackFit.expand,
             children: [
-              ColoredBox(color: colors.surface),
+              if (!translucent) ColoredBox(color: colors.cardSurface),
               Positioned.fill(
                 child: IgnorePointer(
                   child: ClipRect(
@@ -299,7 +373,7 @@ class _PassportArtwork extends StatelessWidget {
                         // Keep route endpoints in the upper artwork area; the
                         // lower area is reserved for the distance and metrics.
                         fitDataHeightFactor: .5,
-                        fitDataCenterY: routeViewport.usesWorldView ? .31 : .34,
+                        fitDataCenterY: routeViewport.usesWorldView ? .33 : .36,
                         fitZoomMultiplier: routeViewport.fitZoomMultiplier,
                       ),
                     ),
@@ -308,7 +382,19 @@ class _PassportArtwork extends StatelessWidget {
               ),
               _PassportDataFadeOverlay(
                 isWorldView: routeViewport.usesWorldView,
+                translucent: translucent,
               ),
+              if (translucent && !MediaQuery.highContrastOf(context))
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: CustomPaint(
+                      key: const ValueKey('passport-glass-finish'),
+                      painter: _PassportGlassFinishPainter(
+                        light: Theme.of(context).brightness == Brightness.light,
+                      ),
+                    ),
+                  ),
+                ),
               Padding(
                 padding: EdgeInsets.fromLTRB(horizontal, 16, horizontal, 24),
                 child: Column(
@@ -343,18 +429,70 @@ class _PassportArtwork extends StatelessWidget {
   }
 }
 
+class _PassportGlassFinishPainter extends CustomPainter {
+  const _PassportGlassFinishPainter({required this.light});
+  final bool light;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (size.isEmpty) return;
+    final rect = Offset.zero & size;
+    final path = AppShapes.large.getOuterPath(rect);
+    canvas.save();
+    canvas.clipPath(path);
+    // Broad, off-center reflected light reads as a curved surface rather than
+    // an animated sheen or a white stripe across the printed map.
+    canvas.drawPath(
+      path,
+      Paint()
+        ..shader = ui.Gradient.radial(
+          Offset(size.width * .10, -size.height * .12),
+          size.longestSide * .92,
+          [
+            Colors.white.withValues(alpha: light ? .17 : .105),
+            const Color(0xFFD9EAF6).withValues(alpha: light ? .055 : .026),
+            Colors.transparent,
+          ],
+          const [0, .42, 1],
+        ),
+    );
+    // One continuous rounded bevel above the map. The shared surface omits
+    // its own painted rim on this card, so there is no second edge.
+    paintFrostedGlassRim(
+      canvas,
+      size,
+      shape: AppShapes.large,
+      light: light,
+      highlightStrength: light ? 1.15 : .95,
+      edgeThickness: 2,
+    );
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(covariant _PassportGlassFinishPainter oldDelegate) =>
+      oldDelegate.light != light;
+}
+
 /// A card-fixed lower fade that restores the quiet depth behind the data
 /// block. It stays transparent through the route area, then settles into the
 /// card surface underneath the metrics and flags.
 class _PassportDataFadeOverlay extends StatelessWidget {
-  const _PassportDataFadeOverlay({required this.isWorldView});
+  const _PassportDataFadeOverlay({
+    required this.isWorldView,
+    this.translucent = false,
+  });
 
   final bool isWorldView;
+  final bool translucent;
 
   @override
   Widget build(BuildContext context) {
     final themeColors = context.appColors;
     final lightTheme = Theme.of(context).brightness == Brightness.light;
+    final fadeBase = translucent && !lightTheme
+        ? themeColors.surfaceDeep
+        : themeColors.cardSurface;
     // Match the earlier passport treatment: a restrained top vignette, a
     // clear middle map window, and a longer, denser fade behind the data.
     final stops = isWorldView
@@ -365,44 +503,44 @@ class _PassportDataFadeOverlay extends StatelessWidget {
     final colors = lightTheme
         ? isWorldView
               ? [
-                  themeColors.surface.withValues(alpha: 0),
-                  themeColors.surface.withValues(alpha: 0),
-                  themeColors.surface.withValues(alpha: .04),
-                  themeColors.surface.withValues(alpha: .28),
-                  themeColors.surface.withValues(alpha: .84),
-                  themeColors.surface.withValues(alpha: .98),
-                  themeColors.surface,
+                  fadeBase.withValues(alpha: 0),
+                  fadeBase.withValues(alpha: 0),
+                  fadeBase.withValues(alpha: .04),
+                  fadeBase.withValues(alpha: .28),
+                  fadeBase.withValues(alpha: .84),
+                  fadeBase.withValues(alpha: .98),
+                  fadeBase,
                 ]
               : [
-                  themeColors.surface.withValues(alpha: .72),
-                  themeColors.surface.withValues(alpha: .20),
-                  themeColors.surface.withValues(alpha: 0),
-                  themeColors.surface.withValues(alpha: .05),
-                  themeColors.surface.withValues(alpha: .24),
-                  themeColors.surface.withValues(alpha: .40),
-                  themeColors.surface.withValues(alpha: .78),
-                  themeColors.surface.withValues(alpha: .96),
-                  themeColors.surface,
+                  fadeBase.withValues(alpha: .72),
+                  fadeBase.withValues(alpha: .20),
+                  fadeBase.withValues(alpha: 0),
+                  fadeBase.withValues(alpha: .05),
+                  fadeBase.withValues(alpha: .24),
+                  fadeBase.withValues(alpha: .40),
+                  fadeBase.withValues(alpha: .78),
+                  fadeBase.withValues(alpha: .96),
+                  fadeBase,
                 ]
         : isWorldView
         ? [
-            themeColors.surface.withValues(alpha: 0),
-            themeColors.surface.withValues(alpha: 0),
-            themeColors.surface.withValues(alpha: .04),
-            themeColors.surface.withValues(alpha: .28),
-            themeColors.surface.withValues(alpha: .84),
-            themeColors.surface.withValues(alpha: .98),
-            themeColors.surface,
+            fadeBase.withValues(alpha: 0),
+            fadeBase.withValues(alpha: 0),
+            fadeBase.withValues(alpha: .04),
+            fadeBase.withValues(alpha: .28),
+            fadeBase.withValues(alpha: .84),
+            fadeBase.withValues(alpha: .98),
+            fadeBase,
           ]
         : [
-            themeColors.surface.withValues(alpha: .72),
-            themeColors.surface.withValues(alpha: .10),
-            themeColors.surface.withValues(alpha: 0),
-            themeColors.surface.withValues(alpha: .06),
-            themeColors.surface.withValues(alpha: .32),
-            themeColors.surface.withValues(alpha: .72),
-            themeColors.surface.withValues(alpha: .96),
-            themeColors.surface,
+            fadeBase.withValues(alpha: .72),
+            fadeBase.withValues(alpha: .10),
+            fadeBase.withValues(alpha: 0),
+            fadeBase.withValues(alpha: .06),
+            fadeBase.withValues(alpha: .32),
+            fadeBase.withValues(alpha: .72),
+            fadeBase.withValues(alpha: .96),
+            fadeBase,
           ];
     return Positioned.fill(
       child: IgnorePointer(
@@ -411,7 +549,11 @@ class _PassportDataFadeOverlay extends StatelessWidget {
             gradient: LinearGradient(
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
-              colors: colors,
+              colors: translucent
+                  ? colors
+                        .map((color) => color.withValues(alpha: color.a * .55))
+                        .toList(growable: false)
+                  : colors,
               stops: stops,
             ),
           ),
@@ -489,7 +631,6 @@ class _PassportMetricRows extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
-    final isLight = Theme.of(context).brightness == Brightness.light;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -515,9 +656,7 @@ class _PassportMetricRows extends StatelessWidget {
                   TextSpan(
                     text: '  KM',
                     style: TextStyle(
-                      color: isLight
-                          ? AppColors.routePurpleDeep
-                          : colors.purple,
+                      color: colors.purple,
                       fontSize: 17,
                       fontWeight: FontWeight.w600,
                       letterSpacing: 0,
@@ -527,7 +666,7 @@ class _PassportMetricRows extends StatelessWidget {
               ),
               maxLines: 1,
               style: TextStyle(
-                color: colors.lime,
+                color: colors.displayPrimary,
                 fontSize: (cardWidth * .145).clamp(44.0, 60.0),
                 height: .95,
                 fontWeight: FontWeight.w700,
@@ -604,10 +743,7 @@ class _CompactPassportMetric extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
-    final lightTheme = Theme.of(context).brightness == Brightness.light;
-    final unitColor = unit == 'h'
-        ? (lightTheme ? AppColors.routePurpleDeep : colors.purple)
-        : colors.textPrimary;
+    final unitColor = unit == 'h' ? colors.purple : colors.textPrimary;
     return Column(
       crossAxisAlignment: alignment,
       children: [
@@ -634,7 +770,7 @@ class _CompactPassportMetric extends StatelessWidget {
               value,
               textAlign: textAlign,
               style: TextStyle(
-                color: colors.lime,
+                color: colors.displayPrimary,
                 fontSize: 20,
                 height: .98,
                 fontWeight: FontWeight.w600,

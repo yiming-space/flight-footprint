@@ -62,21 +62,21 @@ void main() {
 
   test('known passenger variants fall back only within their family', () {
     const families = {
-      'A318': 'a320-200-side-right-v2.png',
-      'A319-115': 'a320-200-side-right-v2.png',
-      'A320-214': 'a320-200-side-right-v2.png',
-      'A321-231': 'a320-200-side-right-v2.png',
+      'A318': 'a320-family-side-right-v1.png',
+      'A319-115': 'a320-family-side-right-v1.png',
+      'A320-214': 'a320-family-side-right-v1.png',
+      'A321-231': 'a321-family-side-right-v1.png',
       'A319NEO': 'a320neo-family-side-right-v2.png',
       'A320-251N': 'a320neo-family-side-right-v2.png',
       'A321XLR': 'a321neo-side-right-v2.png',
       'A321-271NX': 'a321neo-side-right-v2.png',
-      'A330-200': 'a330-300-side-right-v1.png',
+      'A330-200': 'a330-family-side-right-v1.png',
       'A330-800': 'a330-900neo-side-right-v2.png',
       'A350-900 ULR': 'a350-900-side-right-v3.png',
       'A350系列': 'a350-900-side-right-v3.png',
       'A380': 'a380-800-side-right-v1.png',
-      '737 NG': 'b737-800-side-right-v2.png',
-      'B737-900ER': 'b737-800-side-right-v2.png',
+      '737 NG': 'b737-family-side-right-v1.png',
+      'B737-900ER': 'b737-family-side-right-v1.png',
       '737 MAX 10': 'b737-max-8-side-right-v2.png',
       'B737 MAX 8-200': 'b737-max-8-side-right-v2.png',
       'B777-200LR': 'b777-300er-side-right-v1.png',
@@ -122,6 +122,33 @@ void main() {
     },
   );
 
+  test('core family labels have four independent representatives', () {
+    const families = {
+      'A330': 'a330-family-side-right-v1.png',
+      'A321': 'a321-family-side-right-v1.png',
+      'A320': 'a320-family-side-right-v1.png',
+      'B737': 'b737-family-side-right-v1.png',
+    };
+    for (final entry in families.entries) {
+      final expected = 'assets/images/aircraft/${entry.value}';
+      for (final label in [
+        entry.key,
+        '${entry.key} FAMILY',
+        '${entry.key}系列',
+      ]) {
+        expect(aircraftArtworkAssetFor(label), expected, reason: label);
+      }
+      final brand = entry.key.startsWith('A') ? '空客' : '波音';
+      expect(aircraftArtworkAssetFor('$brand${entry.key}'), expected);
+    }
+    expect(families.values.toSet(), hasLength(4));
+    expect(aircraftArtworkAssetFor('737'), aircraftArtworkAssetFor('B737'));
+    expect(
+      aircraftArtworkAssetFor('A321'),
+      isNot(aircraftArtworkAssetFor('A320')),
+    );
+  });
+
   test(
     'provider designators respect specific priority and family boundaries',
     () {
@@ -164,6 +191,7 @@ void main() {
   test('engine generations do not borrow each other\'s representatives', () {
     for (final pair in [
       ('A320', 'A320neo'),
+      ('A321', 'A321neo'),
       ('A330-200', 'A330-800'),
       ('B737-900ER', 'B737 MAX 10'),
       ('E190', 'E190-E2'),

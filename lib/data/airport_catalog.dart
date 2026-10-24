@@ -24,14 +24,21 @@ class AirportCountry {
 }
 
 class AirportCatalog {
-  AirportCatalog(this._airports)
+  AirportCatalog(this._airports, {Map<String, String> timeZoneIds = const {}})
     : _airportsByCountry = _buildCountryIndex(_airports),
-      _searchIndex = _buildSearchIndex(_airports.values);
+      _searchIndex = _buildSearchIndex(_airports.values),
+      _timeZoneIds = Map.unmodifiable({
+        for (final entry in timeZoneIds.entries)
+          if (entry.key.trim().isNotEmpty && entry.value.trim().isNotEmpty)
+            entry.key.trim().toUpperCase(): entry.value.trim(),
+      });
 
   static const assetPath = 'assets/data/airport-coordinates.json';
+  static const timeZoneAssetPath = 'assets/data/airport-timezones.json';
   final Map<String, Airport> _airports;
   final Map<String, List<Airport>> _airportsByCountry;
   final List<_AirportSearchEntry> _searchIndex;
+  final Map<String, String> _timeZoneIds;
 
   late final List<AirportCountry> _countries =
       [
@@ -48,7 +55,10 @@ class AirportCatalog {
         return left.code.compareTo(right.code);
       });
 
-  factory AirportCatalog.fromJsonString(String source) {
+  factory AirportCatalog.fromJsonString(
+    String source, {
+    Map<String, String> timeZoneIds = const {},
+  }) {
     final raw = jsonDecode(source) as Map<String, dynamic>;
     final airports = <String, Airport>{};
     for (final entry in raw.entries) {
@@ -70,14 +80,28 @@ class AirportCatalog {
         scheduledService: value.length > 7 && _isTrue(value[7]),
         isoRegion: value.length > 8 ? value[8]?.toString() ?? '' : '',
         keywords: value.length > 9 ? _keywords(value[9]) : const [],
+        timeZoneId: _timeZoneFor(entry.key, timeZoneIds),
       );
     }
-    return AirportCatalog(Map.unmodifiable(airports));
+    return AirportCatalog(Map.unmodifiable(airports), timeZoneIds: timeZoneIds);
   }
 
   static Future<AirportCatalog> load({AssetBundle? bundle}) async {
-    final source = await (bundle ?? rootBundle).loadString(assetPath);
-    return AirportCatalog.fromJsonString(source);
+    final assets = bundle ?? rootBundle;
+    final values = await Future.wait([
+      assets.loadString(assetPath),
+      assets.loadString(timeZoneAssetPath),
+    ]);
+    final decodedZones = jsonDecode(values[1]);
+    final zones = <String, String>{};
+    if (decodedZones is Map) {
+      for (final entry in decodedZones.entries) {
+        final code = entry.key.toString().trim().toUpperCase();
+        final zoneId = entry.value?.toString().trim() ?? '';
+        if (code.isNotEmpty && zoneId.isNotEmpty) zones[code] = zoneId;
+      }
+    }
+    return AirportCatalog.fromJsonString(values[0], timeZoneIds: zones);
   }
 
   Iterable<Airport> get values => _airports.values;
@@ -88,6 +112,15 @@ class AirportCatalog {
   List<AirportCountry> get countries => List.unmodifiable(_countries);
 
   Airport? findByIata(String code) => _airports[code.trim().toUpperCase()];
+
+  /// Timezone lookup also works for airports outside the searchable catalog,
+  /// as long as the bundled IATA mapping contains them.
+  String? timeZoneIdForIata(String code) =>
+      _timeZoneIds[code.trim().toUpperCase()] ??
+      _airports[code.trim().toUpperCase()]?.timeZoneId;
+
+  static String? _timeZoneFor(String code, Map<String, String> timeZoneIds) =>
+      timeZoneIds[code.trim().toUpperCase()];
 
   AirportCountry? findCountry(String query) {
     final normalized = _normalizeSearchText(query);

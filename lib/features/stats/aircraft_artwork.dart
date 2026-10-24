@@ -115,8 +115,13 @@ final _artworkFamilies = [
   ),
   (
     brand: 'airbus',
-    pattern: RegExp(r'^A(?:318|319|320|321)(?:[12]\d{2}|CEO)?$'),
-    asset: 'assets/images/aircraft/a320-200-side-right-v2.png',
+    pattern: RegExp(r'^A321(?:[12]\d{2}|CEO)?$'),
+    asset: 'assets/images/aircraft/a321-family-side-right-v1.png',
+  ),
+  (
+    brand: 'airbus',
+    pattern: RegExp(r'^A(?:318|319|320)(?:[12]\d{2}|CEO)?$'),
+    asset: 'assets/images/aircraft/a320-family-side-right-v1.png',
   ),
   (
     brand: 'airbus',
@@ -126,7 +131,7 @@ final _artworkFamilies = [
   (
     brand: 'airbus',
     pattern: RegExp(r'^A330(?:(?:200|300)(?:CEO)?|CEO)?$'),
-    asset: 'assets/images/aircraft/a330-300-side-right-v1.png',
+    asset: 'assets/images/aircraft/a330-family-side-right-v1.png',
   ),
   (
     brand: 'airbus',
@@ -146,7 +151,7 @@ final _artworkFamilies = [
   (
     brand: 'boeing',
     pattern: RegExp(r'^B737(?:NG|[678]00|900(?:ER)?)?$'),
-    asset: 'assets/images/aircraft/b737-800-side-right-v2.png',
+    asset: 'assets/images/aircraft/b737-family-side-right-v1.png',
   ),
   (
     brand: 'boeing',

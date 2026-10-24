@@ -28,6 +28,43 @@ const _bundle = GeoJsonMapBundle(
 );
 
 void main() {
+  testWidgets('glass passport silhouettes omit country and internal strokes', (
+    tester,
+  ) async {
+    await tester.runAsync(() async {
+      for (final light in [true, false]) {
+        Future<List<int>> render(bool boundaries) async {
+          final painter = FlatMapPainter(
+            data: GeoJsonMapBundle(
+              land: _bundle.land,
+              countries: boundaries ? _bundle.land : _empty,
+              provinces: _empty,
+              nationalBoundary: boundaries ? _bundle.land : _empty,
+              internalBoundaries: boundaries ? _bundle.land : _empty,
+              maritimeMarks: _empty,
+            ),
+            lightPalette: light,
+            transparentBackground: true,
+            compactWorldViewport: true,
+            showGrid: false,
+          );
+          final recorder = ui.PictureRecorder();
+          painter.paint(Canvas(recorder), const Size(400, 240));
+          final picture = recorder.endRecording();
+          final image = await picture.toImage(400, 240);
+          try {
+            return (await image.toByteData())!.buffer.asUint8List().toList();
+          } finally {
+            image.dispose();
+            picture.dispose();
+          }
+        }
+
+        expect(await render(true), await render(false));
+      }
+    });
+  });
+
   testWidgets('offline light and dark land and sea share detailed-map colors', (
     tester,
   ) async {
@@ -61,7 +98,7 @@ void main() {
         );
         expect(
           colorAt(100),
-          light ? AppThemeColors.light.iceTint : AppColors.detailMapNightWater,
+          light ? AppColors.detailMapLightWater : AppColors.detailMapNightWater,
         );
         image.dispose();
         picture.dispose();
@@ -153,8 +190,8 @@ void main() {
               ? AppThemeColors.light.surface
               : AppColors.detailMapNightLand;
           final region = light
-              ? const Color(0xFFCDD3F0)
-              : const Color(0xFF65734F);
+              ? AppColors.footprintRegionLight
+              : const Color(0xFF756A92);
           final expected = mode == MapMode.travelFootprint ? region : land;
           expect(colorAt(10, -70), expected);
           expect(colorAt(10, 90), expected);
@@ -166,8 +203,8 @@ void main() {
           if (mode == MapMode.travelFootprint) {
             expect(
               colorAt(0, -60),
-              light ? const Color(0xFF78A2D2) : AppColors.lime,
-              reason: 'Keep the existing city marker color.',
+              light ? AppColors.mapMarkerLight : AppColors.lime,
+              reason: 'City markers follow the readable primary accent.',
             );
           }
           image.dispose();

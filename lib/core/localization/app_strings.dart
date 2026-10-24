@@ -15,6 +15,15 @@ class AppStrings {
 
   static const _values = <String, Map<String, String>>{
     'zh': {
+      'entryManual': '手动添加一段航程',
+      'entrySpreadsheet': '从表格导入',
+      'entrySpreadsheetHint': '批量导入已有记录 · XLSX / XLS / CSV',
+      'entryCalendar': '从系统日历导入',
+      'entryCalendarHint': '读取日历中的航班，确认后再导入 · Android',
+      'entryFirstTitle': '把第一段航程留在地图上',
+      'entryFirstHint': '添加一条飞行记录，地图与统计会随之生成。',
+      'entryChooseHint': '记录一段新航程，或导入已有的飞行记录。',
+      'entryImportInProgress': '正在准备导入，请稍候',
       'home': '首页',
       'flights': '航迹',
       'stats': '统计',
@@ -148,6 +157,9 @@ class AppStrings {
       'landing': '降落',
       'date': '日期',
       'flightDate': '航班日期',
+      'flightTimeAmbiguous': '该机场当地时间重复出现，无法确定时区偏移，请调整时间后重试。',
+      'flightTimeNonexistent': '该机场当地时间因夏令时不存在，请调整时间后重试。',
+      'flightTimezoneManualDurationHint': '机场时区资料不全，跨时区时长请手动填写。',
       'requiredInfo': '航空公司与航班号必填',
       'requiredHint': '填写航司与航班号，机场等信息优先自动补全，也可手动修改。',
       'moreDetails': '更多信息',
@@ -404,6 +416,17 @@ class AppStrings {
       'localFirst': '独立、本地优先的飞行日记。',
     },
     'en': {
+      'entryManual': 'Add a flight manually',
+      'entrySpreadsheet': 'Import from spreadsheet',
+      'entrySpreadsheetHint': 'Bring in existing records · XLSX / XLS / CSV',
+      'entryCalendar': 'Import from calendar',
+      'entryCalendarHint': 'Review calendar flights before importing · Android',
+      'entryFirstTitle': 'Put your first flight on the map',
+      'entryFirstHint':
+          'Add a flight to start building your map and statistics.',
+      'entryChooseHint':
+          'Record a new flight or bring in your existing records.',
+      'entryImportInProgress': 'Preparing your import. Please wait.',
       'home': 'Home',
       'flights': 'Flights',
       'stats': 'Stats',
@@ -546,6 +569,9 @@ class AppStrings {
       'landing': 'Landing',
       'date': 'Date',
       'flightDate': 'Flight date',
+      'flightTimeAmbiguous': 'This airport clock time occurs twice due to daylight saving. Adjust it and try again.',
+      'flightTimeNonexistent': 'This airport clock time does not exist due to daylight saving. Adjust it and try again.',
+      'flightTimezoneManualDurationHint': 'Airport timezone data is unavailable; enter the duration manually for cross-zone flights.',
       'requiredInfo': 'Airline and flight number required',
       'requiredHint': 'Enter the airline and flight number. Airports and other details can be auto-filled or edited.',
       'moreDetails': 'More details',

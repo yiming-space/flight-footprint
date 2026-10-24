@@ -1,9 +1,12 @@
 import 'package:flight_footprint/data/airport_catalog.dart';
 import 'package:flight_footprint/data/airport_localization.dart';
+import 'package:flight_footprint/data/flight_time_resolver.dart';
 import 'package:flight_footprint/domain/airport.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   test('world country statistics roll up special China regions', () {
     expect(canonicalWorldCountryCode('HK'), 'CN');
     expect(canonicalWorldCountryCode('mo'), 'CN');
@@ -67,6 +70,40 @@ void main() {
     expect(localizedAirportName(airport!), '厦门高崎国际机场');
     expect(localizedAirportDisplayName(airport), '厦门机场');
     expect(localizedAirportCardName(airport), '厦门高崎');
+  });
+
+  test('catalog joins IANA zones and supports timezone-only IATA entries', () {
+    final catalog = AirportCatalog.fromJsonString(
+      '{"LHR":[-0.4543,51.47,"Heathrow","London","GB"],'
+      '"AKL":[174.785,-37.0082,"Auckland","Auckland","NZ"]}',
+      timeZoneIds: const {
+        'LHR': 'Europe/London',
+        'AKL': 'Pacific/Auckland',
+        'XYZ': 'Etc/UTC',
+      },
+    );
+
+    expect(catalog.findByIata('LHR')?.timeZoneId, 'Europe/London');
+    expect(catalog.timeZoneIdForIata('AKL'), 'Pacific/Auckland');
+    expect(catalog.timeZoneIdForIata(' xyz '), 'Etc/UTC');
+    expect(catalog.timeZoneIdForIata('unknown'), isNull);
+  });
+
+  test('loads the bundled IATA timezone mapping with airport data', () async {
+    final catalog = await AirportCatalog.load();
+
+    expect(catalog.findByIata('LHR')?.timeZoneId, 'Europe/London');
+    expect(catalog.timeZoneIdForIata('JFK'), 'America/New_York');
+    expect(catalog.timeZoneIdForIata('LHR'), 'Europe/London');
+    expect(catalog.timeZoneIdForIata('SYD'), 'Australia/Sydney');
+    expect(catalog.timeZoneIdForIata('SZX'), 'Asia/Shanghai');
+    for (final code in ['JFK', 'LHR', 'SYD', 'SZX']) {
+      final result = FlightTimeResolver.resolveWallTime(
+        DateTime.utc(2026, 1, 2, 12, 34),
+        catalog.timeZoneIdForIata(code),
+      );
+      expect(result.isResolved, isTrue, reason: 'unresolvable zone for $code');
+    }
   });
 
   test('compact airport display stays Chinese when the city is unmapped', () {

@@ -17,6 +17,7 @@ class AppThemeColors extends ThemeExtension<AppThemeColors> {
     required this.textSecondary,
     required this.textTertiary,
     required this.lime,
+    required this.actionFill,
     required this.onPrimary,
     required this.purple,
     required this.danger,
@@ -37,7 +38,12 @@ class AppThemeColors extends ThemeExtension<AppThemeColors> {
   final Color textPrimary;
   final Color textSecondary;
   final Color textTertiary;
+
+  /// Readable primary accent ink; the historical name is kept for feature UI.
   final Color lime;
+
+  /// Bright control fill, separate from readable accent text on light surfaces.
+  final Color actionFill;
   final Color onPrimary;
   final Color purple;
   final Color danger;
@@ -47,6 +53,21 @@ class AppThemeColors extends ThemeExtension<AppThemeColors> {
   final Color cardCoral;
   final Color cardYellow;
   final Color cardText;
+
+  bool get isLightPalette => background == AppThemeColors.light.background;
+
+  /// Default surface for raised content cards, distinct from map/page surfaces.
+  Color get cardSurface => isLightPalette ? Colors.white : surface;
+
+  /// Brighter inks for large display numerals on pale surfaces.
+  Color get displayPrimary => isLightPalette ? const Color(0xFF5D83A6) : lime;
+  Color get displaySecondary =>
+      isLightPalette ? const Color(0xFF8B78A3) : purple;
+
+  /// Selected navigation shares the same accent as feature UI.
+  Color get navigationSelected => displayPrimary;
+  Color get navigationUnselected =>
+      isLightPalette ? const Color(0xFF7C8791) : textSecondary;
 
   static const dark = AppThemeColors(
     // 暗夜绿：以中性近黑承载大面积内容，只让绿和紫承担语义强调。
@@ -60,6 +81,7 @@ class AppThemeColors extends ThemeExtension<AppThemeColors> {
     textSecondary: Color(0xFFA6ADB5),
     textTertiary: Color(0xFF737C86),
     lime: Color(0xFFA8E85C),
+    actionFill: Color(0xFFA8E85C),
     onPrimary: Color(0xFF0B0E12),
     purple: Color(0xFF9274FF),
     danger: Color(0xFFFF7A7A),
@@ -74,29 +96,28 @@ class AppThemeColors extends ThemeExtension<AppThemeColors> {
   );
 
   static const light = AppThemeColors(
-    // Ice White uses a quiet warm page, crisp white cards, and a cool gray
-    // navigation layer. Accent color is reserved for interaction states.
-    background: Color(0xFFF4F4F0),
-    surface: Color(0xFFFFFFFF),
-    surfaceElevated: Color(0xFFE5EDF8),
-    surfaceDeep: Color(0xFFE3E8EE),
-    iceTint: Color(0xFFDCE8F7),
-    border: Color(0xFFD5DDE6),
-    textPrimary: Color(0xFF24324F),
-    textSecondary: Color(0xFF596579),
-    textTertiary: Color(0xFF687487),
-    // The supplied palette replaces the former deep indigo action color.
-    // Dark ink remains the foreground so the lighter blue stays readable.
-    lime: Color(0xFF78A2D2),
-    onPrimary: Color(0xFF24324F),
-    purple: Color(0xFF78A2D2),
-    danger: Color(0xFFC47F88),
-    cardLavender: Color(0xFFFFFFFF),
-    cardBlue: Color(0xFFFFFFFF),
-    cardMint: Color(0xFFFFFFFF),
-    cardCoral: Color(0xFFFFFFFF),
-    cardYellow: Color(0xFFFFFFFF),
-    cardText: Color(0xFF24324F),
+    // Glacier-blue controls pair with desaturated blue and mauve ink for a
+    // softer light palette while keeping small accent labels readable.
+    background: Color(0xFFFFFFFF),
+    surface: Color(0xFFF3F8FC),
+    surfaceElevated: Color(0xFFFFFFFF),
+    surfaceDeep: Color(0xFFECF4F9),
+    iceTint: Color(0xFFE1EEF8),
+    border: Color(0xFFCCDDEA),
+    textPrimary: Color(0xFF1B3346),
+    textSecondary: Color(0xFF506474),
+    textTertiary: Color(0xFF5A6B7B),
+    lime: Color(0xFF4F6C8A),
+    actionFill: Color(0xFFA9CFE8),
+    onPrimary: Color(0xFF173950),
+    purple: Color(0xFF73628C),
+    danger: Color(0xFFB84257),
+    cardLavender: Color(0xFFEFE9FA),
+    cardBlue: Color(0xFFE5F0FA),
+    cardMint: Color(0xFFEDF6F1),
+    cardCoral: Color(0xFFF8EDF0),
+    cardYellow: Color(0xFFF5F3E6),
+    cardText: Color(0xFF1B3346),
   );
 
   @override
@@ -111,6 +132,7 @@ class AppThemeColors extends ThemeExtension<AppThemeColors> {
     Color? textSecondary,
     Color? textTertiary,
     Color? lime,
+    Color? actionFill,
     Color? onPrimary,
     Color? purple,
     Color? danger,
@@ -131,6 +153,7 @@ class AppThemeColors extends ThemeExtension<AppThemeColors> {
     textSecondary: textSecondary ?? this.textSecondary,
     textTertiary: textTertiary ?? this.textTertiary,
     lime: lime ?? this.lime,
+    actionFill: actionFill ?? this.actionFill,
     onPrimary: onPrimary ?? this.onPrimary,
     purple: purple ?? this.purple,
     danger: danger ?? this.danger,
@@ -156,6 +179,7 @@ class AppThemeColors extends ThemeExtension<AppThemeColors> {
       textSecondary: Color.lerp(textSecondary, other.textSecondary, t)!,
       textTertiary: Color.lerp(textTertiary, other.textTertiary, t)!,
       lime: Color.lerp(lime, other.lime, t)!,
+      actionFill: Color.lerp(actionFill, other.actionFill, t)!,
       onPrimary: Color.lerp(onPrimary, other.onPrimary, t)!,
       purple: Color.lerp(purple, other.purple, t)!,
       danger: Color.lerp(danger, other.danger, t)!,
@@ -191,12 +215,16 @@ abstract final class AppColors {
   static const flightArrival = Color(0xFF7B66B5);
   static const mapBlueDeep = Color(0xFF6F8FB5);
   static const mapLavender = Color(0xFF8E82B9);
-  // Visited regions stay quiet beneath the brighter city markers.
-  static const footprintRegionDark = Color(0xFF65734F);
-  static const footprintRegionLight = Color(0xFFCDD3F0);
-  // Online footprint tint: cool green / clear blue, beneath labels and roads.
-  static const detailFootprintDark = Color(0xFF4E8A75);
-  static const detailFootprintLight = Color(0xFF83B5EB);
+  // Mist purple separates visited land from the night basemap while staying
+  // quieter than the route lines and city markers.
+  static const footprintRegionDark = Color(0xFF756A92);
+  static const footprintRegionLight = Color(0xFFA2C8E3);
+  // Native fills blend over land: purple at .72 in dark mode, glacier blue
+  // at .5 in light mode, matching the opaque offline footprint colors.
+  static const detailFootprintDark = Color(0xFF8A79B0);
+  static const detailFootprintLight = Color(0xFF5198CA);
+  static Color get mapMarkerLight => AppThemeColors.light.displayPrimary;
+  static const detailMapLightWater = Color(0xFFC5DBEB);
   // Shared detailed/offline night basemap: a slight cool bias keeps the gray
   // geography aligned with the app's surfaces without reading as blue land.
   static const detailMapNightLand = Color(0xFF404345);
@@ -238,7 +266,7 @@ abstract final class AppSpacing {
     final safeBottom = systemBottom > bottomBarBottomMinimum
         ? systemBottom
         : bottomBarBottomMinimum;
-    return bottomBarHeight + sm + safeBottom + md;
+    return bottomBarHeight + safeBottom + sm;
   }
 }
 
@@ -316,18 +344,19 @@ abstract final class AppTheme {
   static ThemeData light() => _build(AppThemeColors.light, Brightness.light);
 
   static ThemeData _build(AppThemeColors colors, Brightness brightness) {
+    final light = brightness == Brightness.light;
     final scheme =
         ColorScheme.fromSeed(
-          seedColor: colors.lime,
+          seedColor: light ? colors.actionFill : colors.lime,
           brightness: brightness,
           surface: colors.surface,
         ).copyWith(
           primary: colors.lime,
-          onPrimary: colors.onPrimary,
+          onPrimary: light ? Colors.white : colors.onPrimary,
+          primaryContainer: light ? colors.actionFill : null,
+          onPrimaryContainer: light ? colors.onPrimary : null,
           secondary: colors.purple,
-          onSecondary: brightness == Brightness.dark
-              ? Colors.white
-              : colors.cardText,
+          onSecondary: Colors.white,
           surface: colors.surface,
           surfaceContainerHighest: colors.surfaceElevated,
           onSurface: colors.textPrimary,

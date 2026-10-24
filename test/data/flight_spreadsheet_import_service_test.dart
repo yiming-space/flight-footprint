@@ -12,6 +12,7 @@ void main() {
     '"Shenzhen","CN","ZGSZ","large_airport",true,"CN-44",[]],'
     '"XMN":[118.1,24.5,"Xiamen Gaoqi International Airport",'
     '"Xiamen","CN","ZSAM","large_airport",true,"CN-35",[]]}',
+    timeZoneIds: const {'SZX': 'Asia/Shanghai', 'XMN': 'Asia/Shanghai'},
   );
 
   test('parses the Umetrip CSV headers and infers an overnight arrival', () {
@@ -23,7 +24,7 @@ void main() {
     final result = service.parse(
       bytes: utf8.encode(source),
       fileName: '行程记录.csv',
-      now: DateTime(2026, 8, 29, 0, 30),
+      now: DateTime.utc(2026, 8, 28, 17, 0),
     );
 
     expect(result.sheetName, 'CSV');
@@ -32,8 +33,8 @@ void main() {
     final flight = result.rows.single.flight;
     expect(flight.departureIata, 'SZX');
     expect(flight.arrivalIata, 'XMN');
-    expect(flight.departedAt, DateTime(2026, 8, 28, 23, 40));
-    expect(flight.arrivedAt, DateTime(2026, 8, 29, 1, 20));
+    expect(flight.departedAt, DateTime.utc(2026, 8, 28, 15, 40));
+    expect(flight.arrivedAt, DateTime.utc(2026, 8, 28, 17, 20));
     expect(flight.durationMinutes, 100);
     expect(flight.distanceKm, 520);
     expect(flight.note, isNull);
@@ -103,7 +104,10 @@ void main() {
 
     expect(result.sheetName, '行程');
     expect(result.rows, hasLength(1));
-    expect(result.rows.single.flight.arrivedAt, DateTime(2026, 8, 29, 1, 20));
+    expect(
+      result.rows.single.flight.arrivedAt,
+      DateTime.utc(2026, 8, 28, 17, 20),
+    );
     expect(result.rows.single.flight.durationMinutes, 100);
   });
 
@@ -133,10 +137,51 @@ void main() {
     );
     expect(result.rows, hasLength(1));
     final flight = result.rows.single.flight;
-    expect(flight.departedAt, DateTime(2026, 7, 5, 22, 5));
-    expect(flight.arrivedAt, DateTime(2026, 7, 6, 2, 15));
+    expect(flight.departedAt, DateTime.utc(2026, 7, 5, 14, 5));
+    expect(flight.arrivedAt, DateTime.utc(2026, 7, 5, 18, 15));
     expect(flight.durationMinutes, 250);
     expect(flight.note, isNull);
+  });
+
+  test('resolves date-line arrivals from the destination local calendar', () {
+    final catalog = AirportCatalog.fromJsonString(
+      '{"LAX":[-118.4,33.9,"Los Angeles International Airport",'
+      '"Los Angeles","US","KLAX","large_airport",true,"US-CA",[]],'
+      '"AKL":[174.8,-37.0,"Auckland Airport","Auckland","NZ",'
+      '"NZAA","large_airport",true,"NZ-AUK",[]]}',
+      timeZoneIds: const {
+        'LAX': 'America/Los_Angeles',
+        'AKL': 'Pacific/Auckland',
+      },
+    );
+    final source = [
+      '日期,航空公司,航班号,出发城市,出发时间,到达城市,到达时间',
+      '2026-01-01,示例航空,EX101,LAX,22:00,AKL,06:00',
+    ].join('\n');
+
+    final result = FlightSpreadsheetImportService(airports: catalog)
+        .parse(bytes: utf8.encode(source), fileName: '跨日期变更线.csv');
+
+    expect(result.issues, isEmpty);
+    expect(result.rows.single.flight.departedAt, DateTime.utc(2026, 1, 2, 6));
+    expect(result.rows.single.flight.arrivedAt, DateTime.utc(2026, 1, 2, 17));
+    expect(result.rows.single.flight.durationMinutes, 660);
+  });
+
+  test('explicit ISO offsets take precedence over airport local zones', () {
+    final source = [
+      '日期,航空公司,航班号,出发城市,出发时间,到达城市,到达时间',
+      '2026-08-28,示例航空,EX102,SZX,2026-08-28T10:00:00-08:00,'
+          'XMN,2026-08-29T08:00:00+12:00',
+    ].join('\n');
+
+    final result = FlightSpreadsheetImportService(airports: airports)
+        .parse(bytes: utf8.encode(source), fileName: 'offsets.csv');
+
+    expect(result.issues, isEmpty);
+    expect(result.rows.single.flight.departedAt, DateTime.utc(2026, 8, 28, 18));
+    expect(result.rows.single.flight.arrivedAt, DateTime.utc(2026, 8, 28, 20));
+    expect(result.rows.single.flight.durationMinutes, 120);
   });
 
   test(

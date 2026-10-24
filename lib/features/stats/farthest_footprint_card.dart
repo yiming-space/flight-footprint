@@ -1,5 +1,3 @@
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
@@ -10,6 +8,8 @@ import '../../ui/theme/app_theme.dart';
 import '../../ui/widgets/country_flag.dart';
 import '../../ui/widgets/widgets.dart';
 import 'world_exploration.dart';
+import 'exploration_memory_layout.dart';
+import '../../ui/widgets/frosted_glass_surface.dart';
 
 /// A memento of the farthest recorded place from the selected home city.
 class FarthestFootprintCard extends StatefulWidget {
@@ -103,85 +103,96 @@ class _FarthestFootprintCardState extends State<FarthestFootprintCard>
     final home = widget.homeLoaded ? widget.home : null;
     final farthest = _usableFarthest;
 
-    return SurfaceCard(
-      padding: const EdgeInsets.fromLTRB(
-        AppSpacing.lg,
-        12,
-        AppSpacing.lg,
-        AppSpacing.lg,
-      ),
-      color: Theme.of(context).brightness == Brightness.light
-          ? colors.surface
-          : colors.surfaceElevated,
-      borderRadius: AppRadii.medium,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _CardHeading(
-            showEdit: home != null,
-            onChooseHome: widget.onChooseHome,
-            coordinateNote: home == null
-                ? null
-                : '${strings.t('homeDistanceNote')}\n${_coordinateNote(home, strings.isZh, strings.t('homeAirportCoordinate'))}',
-          ),
-          if (home != null && farthest != null) ...[
-            const SizedBox(height: AppSpacing.xs),
-            _PlaceConnection(
-              home: home,
-              destination: farthest.place,
-              metric: AnimatedBuilder(
-                animation: _routeController,
-                builder: (context, _) => _DistanceMetric(
-                  distanceKm: farthest.distanceKm,
-                  progress: Curves.easeOutCubic.transform(
-                    _routeController.value,
-                  ),
-                ),
-              ),
+    return LayoutBuilder(
+      builder: (context, constraints) => FrostedGlassSurface(
+        shape: RoundedSuperellipseBorder(borderRadius: AppRadii.medium),
+        refractionRadius: AppRadii.medium.topLeft.x,
+        edgeThickness: 2,
+        useLocalRefraction: true,
+        adaptiveContrast: true,
+        highlightStrength: Theme.of(context).brightness == Brightness.light
+            ? 1.5
+            : 1.35,
+        tintOpacity: Theme.of(context).brightness == Brightness.light
+            ? .055
+            : .035,
+        child: SurfaceCard(
+          padding: ExplorationMemoryLayout.padding,
+          color: Colors.transparent,
+          borderRadius: AppRadii.medium,
+          child: ExplorationMemoryLayout(
+            minHeight: constraints.minHeight,
+            heading: _CardHeading(
+              showEdit: home != null,
+              onChooseHome: widget.onChooseHome,
+              coordinateNote: home == null
+                  ? null
+                  : '${strings.t('homeDistanceNote')}\n${_coordinateNote(home, strings.isZh, strings.t('homeAirportCoordinate'))}',
             ),
-          ] else ...[
-            const SizedBox(height: 8),
-            if (!widget.homeLoaded)
-              Text(
-                strings.t('homeCityLoading'),
-                style: AppTextStyles.bodySecondary.copyWith(
-                  color: colors.textSecondary,
-                ),
-              )
-            else if (home == null) ...[
-              Text(
-                strings.t('homeCityHint'),
-                style: AppTextStyles.bodySecondary.copyWith(
-                  color: colors.textSecondary,
-                ),
-              ),
-              const SizedBox(height: 14),
-              FilledButton.tonalIcon(
-                onPressed: widget.onChooseHome,
-                icon: const Icon(Icons.home_outlined, size: 20),
-                label: Text(strings.t('setHomeCity')),
-                style: FilledButton.styleFrom(
-                  minimumSize: const Size(0, 48),
-                  foregroundColor: colors.textPrimary,
-                  backgroundColor: colors.lime.withValues(alpha: .13),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 12,
+            body: home != null && farthest != null
+                ? _PlaceConnection(
+                    home: home,
+                    destination: farthest.place,
+                    metric: AnimatedBuilder(
+                      animation: _routeController,
+                      builder: (context, _) => _DistanceMetric(
+                        distanceKm: farthest.distanceKm,
+                        progress: Curves.easeOutCubic.transform(
+                          _routeController.value,
+                        ),
+                      ),
+                    ),
+                  )
+                : Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (!widget.homeLoaded)
+                        Text(
+                          strings.t('homeCityLoading'),
+                          style: AppTextStyles.bodySecondary.copyWith(
+                            color: colors.textSecondary,
+                          ),
+                        )
+                      else if (home == null) ...[
+                        Text(
+                          strings.t('homeCityHint'),
+                          style: AppTextStyles.bodySecondary.copyWith(
+                            color: colors.textSecondary,
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        FilledButton.tonalIcon(
+                          onPressed: widget.onChooseHome,
+                          icon: const Icon(Icons.home_outlined, size: 20),
+                          label: Text(strings.t('setHomeCity')),
+                          style: FilledButton.styleFrom(
+                            minimumSize: const Size(0, 48),
+                            foregroundColor: colors.textPrimary,
+                            backgroundColor: colors.lime.withValues(alpha: .13),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 12,
+                            ),
+                          ),
+                        ),
+                      ] else ...[
+                        Text(
+                          strings.t('noExplorationPlaces'),
+                          style: AppTextStyles.bodySecondary.copyWith(
+                            color: colors.textSecondary,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        _CoordinateNote(home: home),
+                      ],
+                    ],
                   ),
-                ),
-              ),
-            ] else ...[
-              Text(
-                strings.t('noExplorationPlaces'),
-                style: AppTextStyles.bodySecondary.copyWith(
-                  color: colors.textSecondary,
-                ),
-              ),
-              const SizedBox(height: 12),
-              _CoordinateNote(home: home),
-            ],
-          ],
-        ],
+            footer: home != null && farthest != null
+                ? _VisitDate(destination: farthest.place)
+                : null,
+          ),
+        ),
       ),
     );
   }
@@ -204,9 +215,11 @@ class _CardHeading extends StatelessWidget {
     final title = Text(
       context.strings.t('farthestFootprint'),
       key: const ValueKey('farthest-footprint-heading'),
-      style: AppTextStyles.sectionTitle.copyWith(
-        color: colors.textPrimary,
-        fontSize: 18,
+      style: AppTextStyles.label.copyWith(
+        color: colors.textSecondary,
+        fontSize: 14,
+        fontWeight: FontWeight.w600,
+        letterSpacing: .15,
       ),
     );
     if (!showEdit) return title;
@@ -299,16 +312,16 @@ class _DistanceMetric extends StatelessWidget {
     TextSpan metric(String value, double scale) => TextSpan(
       style: AppTextStyles.metric.copyWith(
         color: accent,
-        fontSize: 28 * scale,
-        fontWeight: FontWeight.w600,
-        letterSpacing: -.6 * scale,
+        fontSize: 60 * scale,
+        fontWeight: FontWeight.w700,
+        letterSpacing: -1.2 * scale,
         fontFeatures: const [FontFeature.tabularFigures()],
       ),
       children: [
         TextSpan(
           text: '≈ ',
           style: TextStyle(
-            fontSize: 16 * scale,
+            fontSize: 18 * scale,
             fontWeight: FontWeight.w400,
             color: colors.textSecondary,
             letterSpacing: 0,
@@ -318,7 +331,8 @@ class _DistanceMetric extends StatelessWidget {
         TextSpan(
           text: ' km',
           style: AppTextStyles.label.copyWith(
-            fontSize: 14 * scale,
+            fontSize: 18 * scale,
+            fontWeight: FontWeight.w500,
             color: colors.textSecondary,
             letterSpacing: 0,
           ),
@@ -349,7 +363,7 @@ class _DistanceMetric extends StatelessWidget {
                 metric(_formatKilometers(distance), scale),
                 key: const ValueKey('farthest-footprint-distance-value'),
                 textScaler: textScaler,
-                textAlign: TextAlign.start,
+                textAlign: TextAlign.center,
                 softWrap: false,
                 maxLines: 1,
               ),
@@ -379,90 +393,50 @@ class _PlaceConnection extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _DestinationSummary(destination: destination),
-        const SizedBox(height: AppSpacing.sm),
+        metric,
+        const SizedBox(height: 28),
         LayoutBuilder(
           builder: (context, constraints) {
-            final scale = MediaQuery.textScalerOf(context).scale(16) / 16;
-            final homeSummary = _HomeSummary(home: home);
-            final date = _VisitDate(destination: destination);
-            if (scale > 1.35 || constraints.maxWidth < 230) {
-              // Large type keeps full-width readable content rather than
-              // squeezing the accepted diagonal composition into tiny text.
+            final largeText =
+                MediaQuery.textScalerOf(context).scale(16) / 16 > 1.2;
+            final vertical = largeText || constraints.maxWidth < 300;
+            if (vertical) {
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  _HomeSummary(home: home),
+                  const SizedBox(height: AppSpacing.xs),
                   _ConnectionArtwork(
                     width: constraints.maxWidth,
-                    height: 32,
+                    height: 34,
                     color: lineColor,
+                    vertical: true,
                   ),
-                  const SizedBox(height: AppSpacing.sm),
-                  Align(alignment: Alignment.centerRight, child: homeSummary),
-                  const SizedBox(height: AppSpacing.md),
-                  metric,
-                  const SizedBox(height: AppSpacing.sm),
-                  date,
+                  const SizedBox(height: AppSpacing.xs),
+                  _DestinationSummary(destination: destination),
                 ],
               );
             }
-            final homeSize = _measureText(
-              context,
-              _cityName(home, context.strings.isZh),
-              _HomeSummary.titleStyle(context),
-              constraints.maxWidth * .36,
-            );
-            final labelLeadingWidth = _HomeSummary.labelLeadingWidth(home);
-            final labelSize = _measureText(
-              context,
-              context.strings.t('homeCity'),
-              _HomeSummary.labelStyle(context),
-              constraints.maxWidth * .36 - labelLeadingWidth,
-            );
-            final homeWidth = math.max(
-              homeSize.width,
-              labelSize.width + labelLeadingWidth,
-            );
-            const homeTop = AppSpacing.lg;
-            final endY = homeTop + homeSize.height / 2;
-            final clearance = math.max(48.0, endY + 12);
-            final lineWidth = constraints.maxWidth - homeWidth - AppSpacing.sm;
-            // Measured home content determines the line endpoint and free
-            // metric width, including the flag beside the label.
-            return Stack(
+            return Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Positioned(
-                  left: 0,
-                  top: 0,
-                  child: _ConnectionArtwork(
-                    width: lineWidth,
-                    height: endY + 4,
-                    color: lineColor,
+                Expanded(flex: 4, child: _HomeSummary(home: home)),
+                Expanded(
+                  flex: 3,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 6),
+                    child: LayoutBuilder(
+                      builder: (context, middle) => _ConnectionArtwork(
+                        width: middle.maxWidth,
+                        height: 40,
+                        color: lineColor,
+                      ),
+                    ),
                   ),
                 ),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          SizedBox(height: clearance),
-                          metric,
-                          const SizedBox(height: AppSpacing.sm),
-                          date,
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: AppSpacing.md),
-                    SizedBox(
-                      width: homeWidth,
-                      child: Padding(
-                        padding: const EdgeInsets.only(top: homeTop),
-                        child: homeSummary,
-                      ),
-                    ),
-                  ],
+                Expanded(
+                  flex: 5,
+                  child: _DestinationSummary(destination: destination),
                 ),
               ],
             );
@@ -486,24 +460,26 @@ class _DestinationSummary extends StatelessWidget {
         ? localizedCountryName(destination.countryCode)
         : localizedCountryEnglishName(destination.countryCode);
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Text(
           destination.name.trim().isEmpty
               ? strings.t('unknown')
               : destination.name,
           key: const ValueKey('farthest-footprint-destination'),
+          textAlign: TextAlign.right,
           style: AppTextStyles.sectionTitle.copyWith(
             color: colors.textPrimary,
-            fontSize: 34,
+            fontSize: 28,
             height: 1.12,
             fontWeight: FontWeight.w700,
-            letterSpacing: -.7,
+            letterSpacing: -.45,
           ),
         ),
+        const SizedBox(height: AppSpacing.sm),
         if (country.isNotEmpty) ...[
-          const SizedBox(height: AppSpacing.sm),
           Wrap(
+            alignment: WrapAlignment.end,
             spacing: AppSpacing.sm,
             runSpacing: AppSpacing.xs,
             crossAxisAlignment: WrapCrossAlignment.center,
@@ -518,6 +494,7 @@ class _DestinationSummary extends StatelessWidget {
               Text(
                 country,
                 key: const ValueKey('farthest-footprint-country'),
+                textAlign: TextAlign.right,
                 style: AppTextStyles.label.copyWith(
                   color: colors.textSecondary,
                   fontSize: 14,
@@ -540,13 +517,13 @@ class _HomeSummary extends StatelessWidget {
   static bool hasFlag(Airport home) =>
       RegExp(r'^[a-zA-Z]{2}$').hasMatch(home.countryCode.trim());
 
-  static double labelLeadingWidth(Airport home) => hasFlag(home) ? 22 : 0;
-
   static TextStyle titleStyle(BuildContext context) =>
       AppTextStyles.sectionTitle.copyWith(
         color: context.appColors.textPrimary,
         fontSize: 22,
-        fontWeight: FontWeight.w600,
+        height: 1.2,
+        letterSpacing: -.45,
+        fontWeight: FontWeight.w500,
       );
 
   static TextStyle labelStyle(BuildContext context) =>
@@ -597,11 +574,13 @@ class _ConnectionArtwork extends StatelessWidget {
     required this.width,
     required this.height,
     required this.color,
+    this.vertical = false,
   });
 
   final double width;
   final double height;
   final Color color;
+  final bool vertical;
 
   @override
   Widget build(BuildContext context) => ExcludeSemantics(
@@ -612,7 +591,7 @@ class _ConnectionArtwork extends StatelessWidget {
           height: height,
           child: CustomPaint(
             key: const ValueKey('farthest-footprint-connection'),
-            painter: _PlaceConnectionPainter(color: color),
+            painter: _PlaceConnectionPainter(color: color, vertical: vertical),
           ),
         ),
       ),
@@ -621,41 +600,46 @@ class _ConnectionArtwork extends StatelessWidget {
 }
 
 class _PlaceConnectionPainter extends CustomPainter {
-  const _PlaceConnectionPainter({required this.color});
+  const _PlaceConnectionPainter({required this.color, required this.vertical});
 
   final Color color;
+  final bool vertical;
 
   @override
   void paint(Canvas canvas, Size size) {
     if (size.width < 16 || size.height < 16) return;
-    final start = const Offset(12, 4);
-    final end = Offset(size.width - 4, size.height - 4);
-    final path = Path()
-      ..moveTo(start.dx, start.dy)
-      ..cubicTo(
-        size.width * .36,
-        end.dy,
-        size.width * .72,
-        end.dy,
-        end.dx,
-        end.dy,
-      );
+    final path = Path();
+    late final Offset start;
+    late final Offset end;
+    if (vertical) {
+      start = Offset(10, 2);
+      end = Offset(10, size.height - 2);
+      path
+        ..moveTo(start.dx, start.dy)
+        ..quadraticBezierTo(30, size.height / 2, end.dx, end.dy);
+    } else {
+      start = Offset(3, size.height * .6);
+      end = Offset(size.width - 3, size.height * .6);
+      path
+        ..moveTo(start.dx, start.dy)
+        ..quadraticBezierTo(size.width / 2, size.height * .05, end.dx, end.dy);
+    }
     canvas.drawPath(
       path,
       Paint()
-        ..color = color.withValues(alpha: .8)
-        ..strokeWidth = 1.25
+        ..color = color.withValues(alpha: .72)
+        ..strokeWidth = 1.2
         ..strokeCap = StrokeCap.round
         ..style = PaintingStyle.stroke,
     );
-    final dotPaint = Paint()..color = color;
-    canvas.drawCircle(start, 2.5, dotPaint);
-    canvas.drawCircle(end, 2.5, dotPaint);
+    final endpointPaint = Paint()..color = color;
+    canvas.drawCircle(start, 2.2, endpointPaint);
+    canvas.drawCircle(end, 2.2, endpointPaint);
   }
 
   @override
   bool shouldRepaint(_PlaceConnectionPainter oldDelegate) =>
-      oldDelegate.color != color;
+      oldDelegate.color != color || oldDelegate.vertical != vertical;
 }
 
 class _VisitDate extends StatelessWidget {
@@ -668,49 +652,48 @@ class _VisitDate extends StatelessWidget {
     final strings = context.strings;
     final colors = context.appColors;
     final visitedAt = destination.visitedAt;
-    return SizedBox(
-      width: double.infinity,
+    final date = Text(
+      visitedAt == null
+          ? strings.t('photoFootprintDateUnknown')
+          : DateFormat.yMMMd(strings.isZh ? 'zh' : 'en')
+                .format(visitedAt.toLocal()),
+      key: const ValueKey('farthest-footprint-date'),
+      textAlign: TextAlign.right,
+      style: AppTextStyles.label.copyWith(
+        color: colors.textPrimary,
+        fontSize: 14,
+        fontWeight: FontWeight.w500,
+        height: 1.35,
+      ),
+    );
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.baseline,
+        textBaseline: TextBaseline.alphabetic,
         children: [
-          ExcludeSemantics(
-            child: Icon(
-              Icons.calendar_today_outlined,
-              size: 14,
-              color: colors.textSecondary,
+          if (visitedAt != null) ...[
+            ExcludeSemantics(
+              child: Icon(
+                Icons.calendar_today_outlined,
+                size: 14,
+                color: colors.textSecondary,
+              ),
             ),
-          ),
-          const SizedBox(width: 6),
-          Expanded(
-            child: Wrap(
-              spacing: AppSpacing.xs,
-              runSpacing: AppSpacing.xs,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              children: [
-                if (visitedAt != null)
-                  Text(
-                    strings.t('visitedOn'),
-                    style: AppTextStyles.label.copyWith(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w400,
-                      color: colors.textSecondary,
-                    ),
-                  ),
-                Text(
-                  visitedAt == null
-                      ? strings.t('photoFootprintDateUnknown')
-                      : DateFormat.yMMMd(strings.isZh ? 'zh' : 'en')
-                            .format(visitedAt.toLocal()),
-                  key: const ValueKey('farthest-footprint-date'),
-                  style: AppTextStyles.label.copyWith(
-                    color: colors.textSecondary,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w400,
-                  ),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                strings.t('visitedOn'),
+                style: AppTextStyles.label.copyWith(
+                  fontSize: 12,
+                  color: colors.textSecondary,
+                  height: 1.5,
                 ),
-              ],
+              ),
             ),
-          ),
+            const SizedBox(width: 16),
+          ],
+          Expanded(flex: 2, child: date),
         ],
       ),
     );
@@ -739,25 +722,6 @@ class _CoordinateNote extends StatelessWidget {
       ),
     );
   }
-}
-
-Size _measureText(
-  BuildContext context,
-  String text,
-  TextStyle style,
-  double width,
-) {
-  final painter = TextPainter(
-    text: TextSpan(
-      text: text,
-      style: DefaultTextStyle.of(context).style.merge(style),
-    ),
-    textDirection: Directionality.of(context),
-    textScaler: MediaQuery.textScalerOf(context),
-  )..layout(maxWidth: width);
-  final size = painter.size;
-  painter.dispose();
-  return size;
 }
 
 bool _validCoordinate(double latitude, double longitude) =>

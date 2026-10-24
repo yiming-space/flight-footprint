@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/localization/app_strings.dart';
+import '../map/passport_map_palette.dart';
 import '../../ui/theme/app_theme.dart';
 import '../../ui/widgets/surface_card.dart';
 import 'exploration_map_artwork.dart';
@@ -40,6 +41,14 @@ class _ContinentExplorationCardState extends State<ContinentExplorationCard>
     value: 1,
   );
   ScrollPosition? _scrollPosition;
+  ModalRoute<dynamic>? _route;
+  Animation<double>? _routeAnimation;
+
+  bool get _routeReady =>
+      _route == null ||
+      (!_route!.offstage &&
+          (_routeAnimation == null ||
+              _routeAnimation!.status == AnimationStatus.completed));
   bool _entranceStarted = false;
   bool _visible = false;
   bool _visibilityScheduled = false;
@@ -56,6 +65,13 @@ class _ContinentExplorationCardState extends State<ContinentExplorationCard>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    _route = ModalRoute.of(context);
+    final routeAnimation = _route?.animation;
+    if (routeAnimation != _routeAnimation) {
+      _routeAnimation?.removeStatusListener(_routeStatusChanged);
+      _routeAnimation = routeAnimation;
+      routeAnimation?.addStatusListener(_routeStatusChanged);
+    }
     final media = MediaQuery.maybeOf(context);
     _motionEnabled =
         !(media?.disableAnimations ?? false) &&
@@ -92,6 +108,9 @@ class _ContinentExplorationCardState extends State<ContinentExplorationCard>
     if (!_appActive) _settleAnimations();
   }
 
+  void _routeStatusChanged(AnimationStatus status) =>
+      _scheduleVisibilityCheck();
+
   void _scheduleVisibilityCheck() {
     if (_visibilityScheduled) return;
     _visibilityScheduled = true;
@@ -113,6 +132,10 @@ class _ContinentExplorationCardState extends State<ContinentExplorationCard>
       if (_visible != visible) setState(() => _visible = visible);
       if (!visible || !_motionEnabled || !_appActive) {
         if (_entranceStarted || !_motionEnabled) _settleAnimations();
+      } else if (!_routeReady) {
+        // Offstage route measurement and the card flip are not page entry.
+        // Keep the first illumination pending until the real route completes.
+        if (_entranceStarted) _settleAnimations();
       } else if (!_entranceStarted) {
         _entranceStarted = true;
         if (widget.visits.isUnlocked) {
@@ -140,6 +163,7 @@ class _ContinentExplorationCardState extends State<ContinentExplorationCard>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _scrollPosition?.removeListener(_scheduleVisibilityCheck);
+    _routeAnimation?.removeStatusListener(_routeStatusChanged);
     _entrance.dispose();
     _stamp.dispose();
     super.dispose();
@@ -161,7 +185,7 @@ class _ContinentExplorationCardState extends State<ContinentExplorationCard>
         : strings.t('noContinentLocations');
     final isLight = Theme.of(context).brightness == Brightness.light;
     final motion = _motionEnabled && _visible && _appActive;
-    final baseColor = isLight ? colors.surface : colors.surfaceElevated;
+    final baseColor = isLight ? colors.cardSurface : colors.surfaceElevated;
     const shape = RoundedSuperellipseBorder(borderRadius: AppRadii.small);
 
     return Semantics(
@@ -180,7 +204,11 @@ class _ContinentExplorationCardState extends State<ContinentExplorationCard>
             padding: EdgeInsets.zero,
             borderRadius: AppRadii.small,
             color: widget.selected
-                ? Color.lerp(baseColor, colors.lime, isLight ? .10 : .08)
+                ? Color.lerp(
+                    baseColor,
+                    colors.displayPrimary,
+                    isLight ? .10 : .08,
+                  )
                 : Colors.transparent,
             child: Material(
               color: Colors.transparent,
@@ -262,15 +290,9 @@ class _ContinentExplorationCardState extends State<ContinentExplorationCard>
                           final muted = colors.textTertiary.withValues(
                             alpha: isLight ? .35 : .32,
                           );
-                          final lit =
-                              (isLight
-                                      ? Color.lerp(
-                                          colors.lime,
-                                          colors.textPrimary,
-                                          .16,
-                                        )!
-                                      : colors.lime)
-                                  .withValues(alpha: .76);
+                          final lit = isLight
+                              ? passportMapLandFill(light: true)
+                              : colors.lime;
                           final stamp = _stamp.value < .65
                               ? .9 +
                                     .135 *

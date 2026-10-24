@@ -8,7 +8,13 @@ void main() {
     '{"KUL":[101.7093,2.7456,"Kuala Lumpur International Airport",'
     '"Kuala Lumpur","MY","WMKK","large_airport",true,"MY-14",[]],'
     '"SZX":[113.8107,22.6393,"Shenzhen Baoan International Airport",'
-    '"Shenzhen","CN","ZGSZ","large_airport",true,"CN-44",[]]}',
+    '"Shenzhen","CN","ZGSZ","large_airport",true,"CN-44",[]],'
+    '"LHR":[-0.4543,51.47,"Heathrow Airport","London","GB",'
+    '"EGLL","large_airport",true,"GB-ENG",[]],'
+    '"JFK":[-73.7781,40.6413,"John F. Kennedy International Airport",'
+    '"New York","US","KJFK","large_airport",true,"US-NY",[]],'
+    '"AKL":[174.785, -37.0082,"Auckland Airport","Auckland","NZ",'
+    '"NZAA","large_airport",true,"NZ-AUK",[]]}',
   );
 
   test('parses a Umetrip calendar title and infers an overnight arrival', () {
@@ -38,6 +44,57 @@ void main() {
       service.parseEvent(event, now: result.arrivedAt)?.status,
       FlightStatus.completed,
     );
+  });
+
+  test('keeps absolute calendar instants across zones and the date line', () {
+    final service = CalendarImportService(airports: airports);
+    final departure = DateTime.utc(2026, 1, 1, 20);
+    final arrival = DateTime.utc(2026, 1, 2, 4);
+    final result = service.parseEvent({
+      'id': 'date-line-flight',
+      // Auckland-local arrival time is later on the clock despite the route
+      // crossing the date line. Calendar epochs are the reliable instants.
+      'title': 'NZ1 SZX-AKL local time 12:00-17:00',
+      'startMillis': departure.millisecondsSinceEpoch,
+      'endMillis': arrival.millisecondsSinceEpoch,
+    });
+
+    expect(result, isNotNull);
+    expect(result!.departedAt.toUtc(), departure);
+    expect(result.arrivedAt.toUtc(), arrival);
+    expect(result.durationMinutes, 480);
+  });
+
+  test('keeps elapsed time across a daylight-saving transition', () {
+    final service = CalendarImportService(airports: airports);
+    // London is still on GMT while New York has just moved to EDT. The local
+    // clock difference is two hours; the actual flight duration is six.
+    final departure = DateTime.utc(2026, 3, 8, 1, 30);
+    final arrival = DateTime.utc(2026, 3, 8, 7, 30);
+    final result = service.parseEvent({
+      'id': 'dst-flight',
+      'title': 'BA1 LHR-JFK local time 01:30-03:30',
+      'startMillis': departure.millisecondsSinceEpoch,
+      'endMillis': arrival.millisecondsSinceEpoch,
+    });
+
+    expect(result, isNotNull);
+    expect(result!.departedAt.toUtc(), departure);
+    expect(result.arrivedAt.toUtc(), arrival);
+    expect(result.durationMinutes, 360);
+  });
+
+  test('does not infer an arrival day from an unzoned earlier clock', () {
+    final service = CalendarImportService(airports: airports);
+    final result = service.parseEvent({
+      'title': 'AK128 KUL-SZX local time 22:05-02:15',
+      'startMillis': DateTime.utc(2026, 7, 4, 14, 5).millisecondsSinceEpoch,
+      // With no provider end, airport zones or explicit arrival date, this
+      // clock pair is insufficient to distinguish overnight from date-line
+      // and timezone crossings.
+    });
+
+    expect(result, isNull);
   });
 
   test('ignores an event without a route or flight number', () {

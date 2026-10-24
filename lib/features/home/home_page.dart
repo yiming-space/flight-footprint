@@ -14,6 +14,7 @@ import '../../domain/flight.dart';
 import '../../domain/visited_place.dart';
 import '../../features/map/map.dart';
 import '../map/map_records_sheet.dart';
+import '../add_flight/flight_entry_sheet.dart';
 import '../../ui/theme/app_theme.dart';
 import '../../ui/widgets/widgets.dart';
 
@@ -23,10 +24,12 @@ class HomePage extends StatefulWidget {
     required this.controller,
     this.onMapModeChanged,
     this.isActive = true,
+    this.onRecord,
   });
   final AppController controller;
   final ValueChanged<MapMode>? onMapModeChanged;
   final bool isActive;
+  final ValueChanged<FlightEntryMethod>? onRecord;
   @override
   State<HomePage> createState() => _HomePageState();
 }
@@ -48,6 +51,7 @@ class _HomePageState extends State<HomePage> {
   final _mapPreviewKey = GlobalKey();
   bool _openingHorizontalMap = false;
   MapCoordinate? _userLocation;
+  int _focusSignal = 0;
   bool _locating = false;
 
   @override
@@ -99,6 +103,53 @@ class _HomePageState extends State<HomePage> {
             fitPoints: mapFitPoints,
             userLocation: _userLocation,
           ),
+          if (widget.onRecord != null &&
+              _mode == MapMode.flight &&
+              widget.controller.flights.isEmpty &&
+              !widget.controller.isLoading)
+            Positioned.fill(
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final size = MediaQuery.sizeOf(context);
+                  final desktopLayout =
+                      size.width >= 840 &&
+                      (Platform.isMacOS ||
+                          Platform.isWindows ||
+                          Platform.isLinux ||
+                          (Platform.isAndroid && size.width > size.height));
+                  final bottom = desktopLayout
+                      ? 16.0
+                      : AppSpacing.bottomBarClearance(context);
+                  final availableHeight = (constraints.maxHeight - bottom - 16)
+                      .clamp(0.0, constraints.maxHeight);
+                  return Align(
+                    alignment: Alignment.bottomCenter,
+                    child: Padding(
+                      padding: EdgeInsets.fromLTRB(20, 0, 20, bottom),
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(
+                          maxWidth: 440,
+                          maxHeight: availableHeight,
+                        ),
+                        child: Material(
+                          color: context.appColors.surface,
+                          shape: AppShapes.large,
+                          elevation: 4,
+                          shadowColor: Colors.black.withValues(alpha: .16),
+                          clipBehavior: Clip.antiAlias,
+                          child: SingleChildScrollView(
+                            padding: const EdgeInsets.all(24),
+                            child: FlightFirstRecord(
+                              onSelected: widget.onRecord!,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
           Positioned(
             top: 0,
             right: 0,
@@ -164,10 +215,16 @@ class _HomePageState extends State<HomePage> {
                         !_openingHorizontalMap
                     ? DetailMap(
                         mode: _mode,
+                        showRouteArrows: true,
+                        attributionAlignment: Alignment.bottomCenter,
+                        attributionBottomOffset: 86,
+                        attributionOpacity: .72,
                         airports: airports,
                         routes: mapRoutes,
                         places: places,
                         userLocation: userLocation,
+                        focusCoordinate: userLocation,
+                        focusSignal: _focusSignal,
                         initialCamera: _detailCamera,
                         onCameraChanged: (camera) => _detailCamera = camera,
                         fallback: _offlineHomeMap(
@@ -203,12 +260,15 @@ class _HomePageState extends State<HomePage> {
                 ignoring: !_globeMode,
                 child: GlobeMap(
                   key: const ValueKey('home-globe'),
+                  showRouteArrows: true,
                   active: _globeMode,
                   mode: _mode,
                   routes: mapRoutes,
                   airports: airports,
                   places: places,
                   userLocation: userLocation,
+                  focusCoordinate: userLocation,
+                  focusSignal: _focusSignal,
                   onSelection: _handleMapSelection,
                 ),
               ),
@@ -227,6 +287,7 @@ class _HomePageState extends State<HomePage> {
     MapCoordinate? userLocation,
   ) => OfflineMap(
     key: const ValueKey('home-flat-map'),
+    showRouteArrows: true,
     mode: _mode,
     airports: airports,
     routes: mapRoutes,
@@ -240,6 +301,8 @@ class _HomePageState extends State<HomePage> {
     horizontalPadding: 0,
     verticalPadding: 0,
     userLocation: userLocation,
+    focusCoordinate: userLocation,
+    focusSignal: _focusSignal,
     initialCamera: _detailCamera,
     onCameraChanged: (camera) {
       if ((!_detailedMap || _detailFallback) &&
@@ -366,6 +429,7 @@ class _HomePageState extends State<HomePage> {
           coordinate.latitude,
           coordinate.longitude,
         );
+        _focusSignal++;
       });
     } on DeviceLocationException catch (error) {
       if (!mounted) return;
@@ -406,6 +470,7 @@ class _HomePageState extends State<HomePage> {
           builder: (_) => MapFullscreenPage(
             mode: mode,
             initialGlobeMode: globeMode,
+            showRouteArrows: true,
             initialDetailCamera: _detailCamera,
             onDetailCameraChanged: (camera) => _detailCamera = camera,
             userLocation: _userLocation,
@@ -627,17 +692,8 @@ class _HomeMapControls extends StatelessWidget {
   Widget build(BuildContext context) {
     final strings = context.strings;
     final colors = context.appColors;
-    final lightTheme = Theme.of(context).brightness == Brightness.light;
     final modeIsFlight = mode == MapMode.flight;
-    final controlTint = lightTheme ? colors.surface : colors.surfaceElevated;
-    // Keep the control surface visually stable while the map moves. A
-    // translucent tint plus a live BackdropFilter made the circles change
-    // brightness whenever land/routes passed underneath them.
-    final controlTintOpacity = 1.0;
     final controlForeground = colors.textPrimary;
-    final controlBorder = lightTheme
-        ? colors.border.withValues(alpha: .88)
-        : Colors.transparent;
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -655,11 +711,7 @@ class _HomeMapControls extends StatelessWidget {
                 : Icons.directions_walk_rounded,
             size: 48,
             iconSize: 22,
-            blurEnabled: false,
-            tintColor: controlTint,
-            tintOpacity: controlTintOpacity,
             foregroundColor: controlForeground,
-            borderColor: controlBorder,
             onPressed: onToggleMode,
           ),
         ),
@@ -674,11 +726,7 @@ class _HomeMapControls extends StatelessWidget {
             icon: globeMode ? Icons.public_rounded : Icons.map_outlined,
             size: 48,
             iconSize: 22,
-            blurEnabled: false,
-            tintColor: controlTint,
-            tintOpacity: controlTintOpacity,
             foregroundColor: controlForeground,
-            borderColor: controlBorder,
             onPressed: onToggleProjection,
           ),
         ),
@@ -693,11 +741,7 @@ class _HomeMapControls extends StatelessWidget {
                 : Icons.my_location_rounded,
             size: 48,
             iconSize: 22,
-            blurEnabled: false,
-            tintColor: controlTint,
-            tintOpacity: controlTintOpacity,
             foregroundColor: controlForeground,
-            borderColor: controlBorder,
             onPressed: locating ? null : onLocate,
           ),
         ),
@@ -710,11 +754,7 @@ class _HomeMapControls extends StatelessWidget {
             icon: Icons.screen_rotation_alt_rounded,
             size: 48,
             iconSize: 22,
-            blurEnabled: false,
-            tintColor: controlTint,
-            tintOpacity: controlTintOpacity,
             foregroundColor: controlForeground,
-            borderColor: controlBorder,
             onPressed: onFullscreen,
           ),
         ),

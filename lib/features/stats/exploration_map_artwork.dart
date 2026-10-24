@@ -10,7 +10,7 @@ import '../../domain/airport.dart';
 import '../../ui/theme/app_theme.dart';
 import 'world_exploration.dart';
 
-/// Offline cartographic artwork, sharing one simplified Natural Earth cache.
+/// Offline cartographic artwork, sharing one pre-clipped Natural Earth cache.
 ///
 /// The parent supplies the size. A null [continent] shows the complete world;
 /// continent silhouettes retain the source coastline rather than icon shapes.
@@ -161,47 +161,34 @@ class _MapOutlines {
 
   static Future<_MapOutlines> _load() async {
     final source = await rootBundle.loadString(
-      'assets/data/world-land-50m.geo.json',
+      'assets/data/exploration-outlines.json',
     );
-    final rings = await compute(
-      _simplifiedLandRings,
+    final outlines = await compute(
+      _decodeOutlineRings,
       source,
-      debugLabel: 'exploration coastline',
+      debugLabel: 'exploration outlines',
     );
-    final worldPath = Path()..fillType = PathFillType.evenOdd;
-    for (final ring in rings) {
-      worldPath.moveTo(ring[0], -ring[1]);
-      for (var index = 2; index < ring.length; index += 2) {
-        worldPath.lineTo(ring[index], -ring[index + 1]);
-      }
-      worldPath.close();
-    }
-    // Repeated copies keep Fiji, eastern Siberia and the Aleutians adjacent
-    // to their mainland when fitting an individual continent across ±180°.
-    final repeated = Path()
-      ..fillType = PathFillType.evenOdd
-      ..addPath(worldPath, Offset.zero)
-      ..addPath(worldPath, const Offset(-360, 0))
-      ..addPath(worldPath, const Offset(360, 0));
-    final continents = <TravelContinent, _MapOutline>{};
-    for (final entry in _continentWindows.entries) {
-      final mask = Path();
-      for (var index = 0; index < entry.value.length; index++) {
-        final point = entry.value[index];
-        if (index == 0) {
-          mask.moveTo(point.dx, -point.dy);
-        } else {
-          mask.lineTo(point.dx, -point.dy);
+    Path pathFor(String name) {
+      final path = Path()..fillType = PathFillType.evenOdd;
+      for (final ring in outlines[name]!) {
+        path.moveTo(ring[0], -ring[1]);
+        for (var index = 2; index < ring.length; index += 2) {
+          path.lineTo(ring[index], -ring[index + 1]);
         }
+        path.close();
       }
-      mask.close();
-      continents[entry.key] = _MapOutline(
-        Path.combine(PathOperation.intersect, repeated, mask),
-      );
+      return path;
     }
+
     return _MapOutlines(
-      _MapOutline(worldPath, bounds: const Rect.fromLTWH(-180, -90, 360, 180)),
-      continents,
+      _MapOutline(
+        pathFor('world'),
+        bounds: const Rect.fromLTWH(-180, -90, 360, 180),
+      ),
+      {
+        for (final continent in TravelContinent.values)
+          continent: _MapOutline(pathFor(continent.name)),
+      },
     );
   }
 
@@ -209,171 +196,23 @@ class _MapOutlines {
       continent == null ? world : continents[continent]!;
 }
 
-// These are geographic partition windows, not substitute coastlines. Every
-// visible coast comes from world-land-50m. The Mediterranean, Suez, Urals,
-// Panama and Bering Strait divide connected land or adjacent island groups.
-const _continentWindows = <TravelContinent, List<Offset>>{
-  TravelContinent.europe: [
-    Offset(-25, 35.5),
-    Offset(-25, 66),
-    Offset(-12, 75),
-    Offset(-10, 90),
-    Offset(60, 90),
-    Offset(60, 55),
-    Offset(52, 45),
-    Offset(40, 42),
-    Offset(28, 41),
-    Offset(26, 38),
-    Offset(25, 34),
-    Offset(10, 38),
-    Offset(6, 38),
-    Offset(-6, 35.95),
-  ],
-  TravelContinent.asia: [
-    Offset(60, 90),
-    Offset(191.5, 90),
-    Offset(191.5, 60),
-    Offset(180, 56),
-    Offset(180, 5),
-    Offset(153, 5),
-    Offset(141, 0),
-    Offset(141, -10),
-    Offset(130, -10),
-    Offset(130, -12),
-    Offset(60, -12),
-    Offset(43, 12),
-    Offset(35, 29),
-    Offset(32.3, 31.2),
-    Offset(25, 34),
-    Offset(26, 38),
-    Offset(28, 41),
-    Offset(40, 42),
-    Offset(52, 45),
-    Offset(60, 55),
-  ],
-  TravelContinent.africa: [
-    Offset(-25, 35.5),
-    Offset(-6, 35.95),
-    Offset(6, 38),
-    Offset(10, 38),
-    Offset(25, 34),
-    Offset(32.3, 31.2),
-    Offset(35, 29),
-    Offset(43, 12),
-    Offset(60, -12),
-    Offset(60, -48),
-    Offset(-25, -48),
-  ],
-  TravelContinent.northAmerica: [
-    Offset(-168.5, 90),
-    Offset(-10, 90),
-    Offset(-10, 16),
-    Offset(-60, 16),
-    Offset(-77.2, 9),
-    Offset(-77.4, 7.2),
-    Offset(-83, 7.2),
-    Offset(-170, 7.2),
-    Offset(-195, 50),
-    Offset(-195, 56),
-    Offset(-180, 56),
-    Offset(-168.5, 60),
-  ],
-  TravelContinent.southAmerica: [
-    Offset(-83, 7.2),
-    Offset(-77.4, 7.2),
-    Offset(-77.2, 9),
-    Offset(-60, 16),
-    Offset(-25, 16),
-    Offset(-25, -60),
-    Offset(-83, -60),
-  ],
-  TravelContinent.oceania: [
-    Offset(110, -12),
-    Offset(130, -12),
-    Offset(130, -10),
-    Offset(141, -10),
-    Offset(141, 0),
-    Offset(153, 5),
-    Offset(220, 5),
-    Offset(220, -55),
-    Offset(110, -55),
-  ],
-  TravelContinent.antarctica: [
-    Offset(-180, -60),
-    Offset(180, -60),
-    Offset(180, -90),
-    Offset(-180, -90),
-  ],
-};
-
-/// Decode and simplify once off the UI isolate. The original 60k vertices
-/// become a lightweight path; paint never walks that source coordinate graph.
-List<Float64List> _simplifiedLandRings(String source) {
+/// Decode the small, pre-clipped asset off the UI isolate. Coastline
+/// simplification and polygon intersections belong to the build-time generator.
+Map<String, List<Float64List>> _decodeOutlineRings(String source) {
   final document = jsonDecode(source) as Map<String, dynamic>;
-  final result = <Float64List>[];
-  for (final feature in document['features'] as List<dynamic>) {
-    final geometry = (feature as Map<String, dynamic>)['geometry'] as Map;
-    final coordinates = geometry['coordinates'] as List;
-    final polygons = geometry['type'] == 'Polygon'
-        ? [coordinates]
-        : coordinates;
-    for (final polygon in polygons) {
-      for (final rawRing in polygon as List) {
-        final points = <Offset>[
-          for (final point in rawRing as List)
-            Offset((point[0] as num).toDouble(), (point[1] as num).toDouble()),
-        ];
-        if (points.length < 4) continue;
-        final middle = points.length ~/ 2;
-        final simplified = [
-          ..._simplifyLine(points.sublist(0, middle + 1)),
-          ..._simplifyLine(points.sublist(middle)).skip(1),
-        ];
-        final kept = simplified.length >= 4 ? simplified : points;
-        result.add(
+  if (document['version'] != 1) {
+    throw const FormatException('Unsupported exploration outline version');
+  }
+  final outlines = document['outlines'] as Map<String, dynamic>;
+  return {
+    for (final entry in outlines.entries)
+      entry.key: [
+        for (final ring in entry.value as List)
           Float64List.fromList([
-            for (final point in kept) ...[point.dx, point.dy],
+            for (final value in ring as List) (value as num).toDouble(),
           ]),
-        );
-      }
-    }
-  }
-  return result;
-}
-
-List<Offset> _simplifyLine(List<Offset> points) {
-  if (points.length <= 2) return points;
-  const toleranceSquared = .13 * .13;
-  final kept = <int>{0, points.length - 1};
-  final pending = <(int, int)>[(0, points.length - 1)];
-  while (pending.isNotEmpty) {
-    final (start, end) = pending.removeLast();
-    final a = points[start];
-    final delta = points[end] - a;
-    final lengthSquared = delta.distanceSquared;
-    var farthest = -1;
-    var greatestDistance = toleranceSquared;
-    for (var index = start + 1; index < end; index++) {
-      final point = points[index];
-      final t = lengthSquared == 0
-          ? 0.0
-          : (((point.dx - a.dx) * delta.dx + (point.dy - a.dy) * delta.dy) /
-                    lengthSquared)
-                .clamp(0.0, 1.0);
-      final distance = (point - (a + delta * t)).distanceSquared;
-      if (distance > greatestDistance) {
-        greatestDistance = distance;
-        farthest = index;
-      }
-    }
-    if (farthest != -1) {
-      kept.add(farthest);
-      pending.add((start, farthest));
-      pending.add((farthest, end));
-    }
-  }
-  final indices = kept.toList()..sort();
-  return [for (final index in indices) points[index]];
+      ],
+  };
 }
 
 class _RouteTrace {

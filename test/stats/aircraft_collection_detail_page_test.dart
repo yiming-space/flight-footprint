@@ -158,6 +158,16 @@ void main() {
         find.byKey(const ValueKey('aircraft-detail-exhibit')),
       );
       expect(artwork.aspectRatio, 2.6);
+      expect(find.text('A350'), findsOneWidget);
+      expect(
+        tester
+            .widget<Text>(
+              find.byKey(const ValueKey('aircraft-detail-family-label')),
+            )
+            .style
+            ?.color,
+        AppThemeColors.light.displaySecondary.withValues(alpha: .11),
+      );
       expect(tester.widget<Image>(_art('A350-900')).fit, BoxFit.contain);
       final image = tester.getRect(_art('A350-900'));
       expect(image.height, closeTo(image.width / 2.6, .01));
@@ -171,6 +181,34 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  testWidgets('detail aircraft family text uses a restrained dark accent', (
+    tester,
+  ) async {
+    _setSurface(tester, const Size(400, 1000));
+    await tester.pumpWidget(
+      _host(
+        AircraftCollectionDetailPage(
+          entry: _entry(),
+          flightBuilder: _buildFlight,
+        ),
+        isLight: false,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      tester
+          .widget<Text>(
+            find.byKey(const ValueKey('aircraft-detail-family-label')),
+          )
+          .style
+          ?.color,
+      AppThemeColors.dark.lime.withValues(alpha: .09),
+    );
+    expect(tester.widget<Image>(_art('A350-900')).fit, BoxFit.contain);
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets(
     'detail summary stacks at large text without squeezing dates or values',
@@ -199,7 +237,7 @@ void main() {
       expect(distance.top, greaterThan(count.bottom));
       expect(first.top, greaterThan(distance.bottom));
       expect(find.text('1 flight'), findsOneWidget);
-      expect(find.text('1,200 km total'), findsOneWidget);
+      expect(find.text('1,200 km'), findsOneWidget);
       expect(tester.takeException(), isNull);
     },
   );
@@ -332,7 +370,7 @@ void main() {
     _expectDate('aircraft-detail-first-flight', oldest.departedAt, 'en');
     _expectDate('aircraft-detail-latest-flight', latest.departedAt, 'en');
     expect(find.text('3 flights'), findsOneWidget);
-    expect(find.text('3,600 km total'), findsOneWidget);
+    expect(find.text('3,600 km'), findsOneWidget);
     for (final flight in [oldest, middle, latest]) {
       expect(_flightRow(flight.id), findsOneWidget);
       expect(
@@ -418,7 +456,8 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.text('1,800 km recorded'), findsOneWidget);
+    expect(find.text('1,800 km'), findsOneWidget);
+    expect(find.text('Recorded distance'), findsOneWidget);
     expect(find.text('1,800 km total'), findsNothing);
     await tester.pumpWidget(
       _host(

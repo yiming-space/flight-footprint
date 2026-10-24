@@ -1,7 +1,7 @@
 name: flight_footprint
 description: "A local-first, offline flight and travel footprint journal."
 publish_to: 'none'
-version: 1.4.0+17
+version: 1.5.0+18
 
 environment:
   sdk: ^3.13.1
@@ -29,6 +29,7 @@ dependencies:
   uuid: ^4.6.0
   url_launcher: ^6.3.2
   xml: ^7.0.1
+  timezone: ^0.11.2
 
 dev_dependencies:
   flutter_test:
@@ -39,6 +40,7 @@ flutter:
   uses-material-design: true
   shaders:
     - shaders/globe_surface.frag
+    - shaders/menu_glass.frag
   assets:
     - assets/images/aircraft/a320-200-side-right-v2.png
     - assets/images/aircraft/a321lr-side-right-v1.png
@@ -64,13 +66,19 @@ flutter:
     - assets/images/aircraft/c919-family-side-right-v1.png
     - assets/images/aircraft/c909-family-side-right-v1.png
     - assets/images/aircraft/ejet-e1-family-side-right-v1.png
+    - assets/images/aircraft/a330-family-side-right-v1.png
+    - assets/images/aircraft/a321-family-side-right-v1.png
+    - assets/images/aircraft/a320-family-side-right-v1.png
+    - assets/images/aircraft/b737-family-side-right-v1.png
     - assets/images/aircraft/aircraft-generic-side-right-v4.png
     - assets/data/airport-coordinates.json
+    - assets/data/airport-timezones.json
     - assets/data/natural-earth-ii.jpg
     - assets/data/earth-night.jpg
     - assets/data/china-city-centers.json
     - assets/data/world-countries-50m.geo.json
     - assets/data/world-land-50m.geo.json
+    - assets/data/exploration-outlines.json
     - assets/data/china-provinces.geo.json
     - assets/data/china-national-boundary.geo.json
     - assets/data/china-internal-boundaries.geo.json

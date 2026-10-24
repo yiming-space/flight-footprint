@@ -7,6 +7,9 @@ import '../../ui/theme/app_theme.dart';
 import '../../ui/widgets/country_flag.dart';
 import 'continent_exploration_card.dart';
 import 'farthest_footprint_card.dart';
+import 'exploration_memory_carousel.dart';
+import 'personal_travel_card.dart';
+import 'personal_travel_summary.dart';
 import 'world_exploration.dart';
 
 /// Read-only passport presentation; its host owns the saved home-city setting.
@@ -18,6 +21,8 @@ class ExplorationPassport extends StatefulWidget {
     required this.home,
     required this.homeLoaded,
     required this.onChooseHome,
+    this.memorySummary,
+    this.onMemorySelected,
   });
 
   final List<ExplorationPlace> places;
@@ -25,6 +30,8 @@ class ExplorationPassport extends StatefulWidget {
   final Airport? home;
   final bool homeLoaded;
   final VoidCallback onChooseHome;
+  final PersonalTravelSummary? memorySummary;
+  final ValueChanged<PersonalTravelKind>? onMemorySelected;
 
   @override
   State<ExplorationPassport> createState() => _ExplorationPassportState();
@@ -55,17 +62,41 @@ class _ExplorationPassportState extends State<ExplorationPassport> {
       key: const PageStorageKey('exploration-passport-scroll'),
       padding: const EdgeInsets.fromLTRB(
         AppSpacing.page,
-        8,
+        20,
         AppSpacing.page,
         AppSpacing.lg,
       ),
       children: [
-        FarthestFootprintCard(
-          home: home,
-          farthest: farthest,
-          homeLoaded: widget.homeLoaded,
-          onChooseHome: widget.onChooseHome,
-        ),
+        if (widget.memorySummary case final summary?)
+          ExplorationMemoryCarousel(
+            cards: [
+              FarthestFootprintCard(
+                home: home,
+                farthest: farthest,
+                homeLoaded: widget.homeLoaded,
+                onChooseHome: widget.onChooseHome,
+              ),
+              for (final kind in PersonalTravelKind.values)
+                PersonalTravelMomentCard(
+                  summary: summary,
+                  kind: kind,
+                  onOpen: () => widget.onMemorySelected?.call(kind),
+                ),
+            ],
+            labels: [
+              strings.t('farthestFootprint'),
+              strings.isZh ? '新抵达城市' : 'New cities',
+              strings.isZh ? '最常飞航线' : 'Most-flown route',
+              strings.isZh ? '首次记录机型' : 'New aircraft types',
+            ],
+          )
+        else
+          FarthestFootprintCard(
+            home: home,
+            farthest: farthest,
+            homeLoaded: widget.homeLoaded,
+            onChooseHome: widget.onChooseHome,
+          ),
         const SizedBox(height: AppSpacing.lg),
         Wrap(
           alignment: WrapAlignment.spaceBetween,
@@ -193,7 +224,7 @@ class _ContinentDetail extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(AppSpacing.md),
       decoration: BoxDecoration(
-        color: colors.surface,
+        color: colors.cardSurface,
         borderRadius: AppRadii.small,
       ),
       child: Column(

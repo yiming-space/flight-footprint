@@ -1,21 +1,28 @@
-import 'dart:ui' as ui;
-
 import 'package:flutter/material.dart';
 
 import '../../app/app_controller.dart';
 import '../../core/localization/app_strings.dart';
 import '../../data/airport_localization.dart';
+import '../../data/flight_time_resolver.dart';
 import '../../domain/flight.dart';
 import '../../domain/flight_query.dart';
 import '../../ui/theme/app_theme.dart';
+import '../../ui/widgets/frosted_glass_surface.dart';
 import '../../ui/widgets/widgets.dart';
 import '../add_flight/add_flight_page.dart';
+import '../add_flight/flight_entry_sheet.dart';
 import 'flight_card.dart';
 
 class FlightsPage extends StatefulWidget {
-  const FlightsPage({super.key, required this.controller, required this.onAdd});
+  const FlightsPage({
+    super.key,
+    required this.controller,
+    required this.onAdd,
+    this.onRecord,
+  });
   final AppController controller;
   final VoidCallback onAdd;
+  final ValueChanged<FlightEntryMethod>? onRecord;
 
   @override
   State<FlightsPage> createState() => _FlightsPageState();
@@ -27,6 +34,7 @@ class _FlightsPageState extends State<FlightsPage> {
   late final TextEditingController _searchController;
   ScrollController? _scrollController;
   int _filter = 0;
+  bool _hadFlights = false;
   int? _selectedYear;
   FlightQuery _query = const FlightQuery();
   bool _showBackToTop = false;
@@ -36,6 +44,21 @@ class _FlightsPageState extends State<FlightsPage> {
     super.initState();
     _searchController = TextEditingController();
     _ensureScrollController();
+    _selectInitialStatus();
+  }
+
+  void _selectInitialStatus() {
+    final flights = widget.controller.flights;
+    if (!_hadFlights && flights.isNotEmpty) {
+      _filter = flights.any((flight) => flight.isUpcoming) ? 0 : 1;
+    }
+    _hadFlights = flights.isNotEmpty;
+  }
+
+  @override
+  void didUpdateWidget(covariant FlightsPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _selectInitialStatus();
   }
 
   @override
@@ -95,7 +118,7 @@ class _FlightsPageState extends State<FlightsPage> {
     }).toList();
     final flights = source.where((flight) {
       return (_selectedYear == null ||
-              flight.departedAt.toLocal().year == _selectedYear) &&
+              _departureYear(flight) == _selectedYear) &&
           _query.matches(flight, airportText: _airportSearchText);
     }).toList();
     flights.sort(
@@ -116,11 +139,16 @@ class _FlightsPageState extends State<FlightsPage> {
               ? flight.isUpcoming
               : flight.isCompleted,
         )
-        .map((flight) => flight.departedAt.toLocal().year)
+        .map(_departureYear)
         .toSet()
         .toList()
       ..sort((a, b) => b.compareTo(a));
   }
+
+  int _departureYear(Flight flight) => FlightTimeResolver.calendarYearAtAirport(
+    flight.departedAt,
+    widget.controller.airports.timeZoneIdForIata(flight.departureIata),
+  );
 
   bool get _hasQueryFilters => !_query.isEmpty || _selectedYear != null;
 
@@ -150,6 +178,7 @@ class _FlightsPageState extends State<FlightsPage> {
     final flights = _filteredFlights();
     final years = _availableYears();
     return SafeArea(
+      bottom: false,
       top: false,
       left: false,
       right: false,
@@ -175,7 +204,7 @@ class _FlightsPageState extends State<FlightsPage> {
                     ],
                     selectedIndex: _filter,
                     pill: true,
-                    height: 52,
+                    height: 44,
                     onChanged: (index) => setState(() {
                       _filter = index;
                       _selectedYear = null;
@@ -192,7 +221,27 @@ class _FlightsPageState extends State<FlightsPage> {
                     allLabel: s.t('all'),
                   ),
                 ),
-              if (flights.isEmpty)
+              if (allFlights.isEmpty && !_hasQueryFilters)
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: EdgeInsets.fromLTRB(
+                      24,
+                      32,
+                      24,
+                      AppSpacing.bottomBarClearance(context),
+                    ),
+                    child: Align(
+                      alignment: Alignment.topCenter,
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 440),
+                        child: FlightFirstRecord(
+                          onSelected: widget.onRecord ?? (_) => widget.onAdd(),
+                        ),
+                      ),
+                    ),
+                  ),
+                )
+              else if (flights.isEmpty)
                 SliverFillRemaining(
                   hasScrollBody: false,
                   child: EmptyState(
@@ -374,10 +423,7 @@ class _BackToTopButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.appColors;
-    final isLight = Theme.of(context).brightness == Brightness.light;
     final reduceMotion = MediaQuery.disableAnimationsOf(context);
-    final glassShape = const CircleBorder();
     return IgnorePointer(
       ignoring: !visible,
       child: AnimatedOpacity(
@@ -386,46 +432,27 @@ class _BackToTopButton extends StatelessWidget {
             ? Duration.zero
             : const Duration(milliseconds: 180),
         curve: Curves.easeOutCubic,
-        child: AnimatedScale(
-          scale: visible ? 1 : .82,
-          duration: reduceMotion
-              ? Duration.zero
-              : const Duration(milliseconds: 220),
-          curve: Curves.easeOutBack,
-          child: RepaintBoundary(
-            child: ClipPath(
-              clipper: ShapeBorderClipper(shape: glassShape),
-              child: BackdropFilter(
-                filter: ui.ImageFilter.blur(sigmaX: 14, sigmaY: 14),
-                child: DecoratedBox(
-                  decoration: ShapeDecoration(
-                    color: colors.lime,
-                    shape: glassShape,
-                    shadows: [
-                      BoxShadow(
-                        color: Colors.black.withValues(
-                          alpha: isLight ? .10 : .25,
-                        ),
-                        blurRadius: 18,
-                        offset: const Offset(0, 8),
-                      ),
-                    ],
-                  ),
-                  child: IconButton(
-                    onPressed: onPressed,
-                    tooltip: context.strings.isZh ? '回到顶部' : 'Back to top',
-                    icon: Icon(
-                      Icons.keyboard_arrow_up_rounded,
-                      color: colors.onPrimary,
-                    ),
-                    iconSize: 26,
-                    constraints: const BoxConstraints.tightFor(
-                      width: 48,
-                      height: 48,
-                    ),
-                    padding: EdgeInsets.zero,
-                  ),
+        child: RepaintBoundary(
+          child: SizedBox.square(
+            dimension: 48,
+            child: FrostedGlassSurface(
+              shape: const CircleBorder(),
+              edgeThickness: 2,
+              adaptiveContrast: true,
+              visible: visible,
+              child: IconButton(
+                onPressed: onPressed,
+                tooltip: context.strings.isZh ? '回到顶部' : 'Back to top',
+                icon: Icon(
+                  Icons.keyboard_arrow_up_rounded,
+                  color: context.appColors.textPrimary,
                 ),
+                iconSize: 26,
+                constraints: const BoxConstraints.tightFor(
+                  width: 48,
+                  height: 48,
+                ),
+                padding: EdgeInsets.zero,
               ),
             ),
           ),
@@ -514,7 +541,7 @@ class _YearFilterBar extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(horizontal: 17),
                 alignment: Alignment.center,
                 decoration: ShapeDecoration(
-                  color: selected ? colors.lime : colors.surfaceElevated,
+                  color: selected ? colors.actionFill : colors.surfaceElevated,
                   shape: AppShapes.pill,
                 ),
                 child: Text(

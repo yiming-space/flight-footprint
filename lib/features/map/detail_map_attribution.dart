@@ -6,26 +6,32 @@ import '../../ui/theme/app_theme.dart';
 
 /// Keep the required credit readable without covering the flight artwork.
 class DetailMapAttribution extends StatelessWidget {
-  const DetailMapAttribution({super.key, this.bottomOffset = 8});
+  const DetailMapAttribution({
+    super.key,
+    this.bottomOffset = 8,
+    this.alignment = Alignment.bottomLeft,
+    this.opacity = 1,
+  });
   final double bottomOffset;
+  final Alignment alignment;
+  final double opacity;
 
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
     final light = Theme.of(context).brightness == Brightness.light;
     return Align(
-      alignment: Alignment.bottomLeft,
+      alignment: alignment,
       child: SafeArea(
         top: false,
-        right: false,
         child: Padding(
           padding: EdgeInsets.fromLTRB(8, 0, 8, bottomOffset),
           child: TextButton(
             style: TextButton.styleFrom(
               backgroundColor: Colors.transparent,
-              foregroundColor: light
-                  ? colors.textSecondary
-                  : AppColors.detailMapNightLabel,
+              foregroundColor:
+                  (light ? colors.textSecondary : AppColors.detailMapNightLabel)
+                      .withValues(alpha: opacity),
               minimumSize: const Size(0, 44),
               tapTargetSize: MaterialTapTargetSize.shrinkWrap,
               padding: const EdgeInsets.symmetric(horizontal: 4),
@@ -66,6 +72,7 @@ class DetailMapAttribution extends StatelessWidget {
             ),
             child: Text(
               '© OpenMapTiles · © OpenStreetMap',
+              textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 9,
                 fontWeight: FontWeight.w400,

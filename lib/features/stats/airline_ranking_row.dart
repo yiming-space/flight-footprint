@@ -63,9 +63,9 @@ class AirlineRankingRow extends StatelessWidget {
   final bool followFill;
 
   static const _pastels = [
-    Color(0xFFE7EFF9),
-    Color(0xFFEEE8F8),
-    Color(0xFFE5F1EB),
+    Color(0xFFCBDEEF),
+    Color(0xFFD8CCE9),
+    Color(0xFFCBE2D7),
   ];
 
   static const _darkHues = [
@@ -90,8 +90,8 @@ class AirlineRankingRow extends StatelessWidget {
     final fill = brandHue == null
         ? fallbackFill
         : Color.alphaBlend(
-            brandHue.withValues(alpha: isLight ? .17 : .30),
-            isLight ? colors.surface : colors.surfaceElevated,
+            brandHue.withValues(alpha: .30),
+            isLight ? colors.cardSurface : colors.surfaceElevated,
           );
     final labelStyle =
         (Theme.of(context).textTheme.bodyLarge ?? const TextStyle(fontSize: 16))

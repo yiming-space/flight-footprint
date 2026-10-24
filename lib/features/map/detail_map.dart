@@ -14,6 +14,7 @@ import 'detail_map_routes.dart';
 import 'detail_map_attribution.dart';
 import 'detail_map_style.dart';
 import 'map_models.dart';
+import 'route_arrow.dart';
 import 'map_camera.dart';
 export 'map_camera.dart';
 
@@ -33,8 +34,13 @@ class DetailMap extends StatefulWidget {
     this.loader,
     this.headerTopOffset = 0,
     this.attributionBottomOffset = 92,
+    this.attributionAlignment = Alignment.bottomLeft,
     this.initialCamera,
     this.onCameraChanged,
+    this.showRouteArrows = false,
+    this.attributionOpacity = 1,
+    this.focusCoordinate,
+    this.focusSignal = 0,
   });
 
   static bool get supported =>
@@ -54,8 +60,13 @@ class DetailMap extends StatefulWidget {
   final DetailMapStyleLoader? loader;
   final double headerTopOffset;
   final double attributionBottomOffset;
+  final Alignment attributionAlignment;
   final DetailMapCamera? initialCamera;
   final ValueChanged<DetailMapCamera>? onCameraChanged;
+  final bool showRouteArrows;
+  final double attributionOpacity;
+  final MapCoordinate? focusCoordinate;
+  final int focusSignal;
 
   @override
   State<DetailMap> createState() => _DetailMapState();
@@ -65,6 +76,7 @@ class _DetailMapState extends State<DetailMap> {
   Map<String, dynamic>? _base;
   ml.MapController? _controller;
   ml.StyleController? _activeStyle;
+  ml.StyleController? _arrowImageStyle;
   Timer? _deadline;
   Timer? _readinessCheck;
   Size _viewport = Size.zero;
@@ -81,6 +93,7 @@ class _DetailMapState extends State<DetailMap> {
   final _routeCache = DetailRouteCache();
   final _sourceCache = DetailSourceCache();
   int? _selectedRouteIndex;
+  MapCoordinate? _pendingFocusCoordinate;
 
   @override
   void initState() {
@@ -94,6 +107,7 @@ class _DetailMapState extends State<DetailMap> {
     _readinessCheck?.cancel();
     _controller = null;
     _activeStyle = null;
+    _arrowImageStyle = null;
     _composedStyle = null;
     _palette = null;
     setState(() {
@@ -154,6 +168,35 @@ class _DetailMapState extends State<DetailMap> {
         oldWidget.userLocation != widget.userLocation) {
       unawaited(_updateRecords());
     }
+    if (oldWidget.focusSignal != widget.focusSignal &&
+        widget.focusCoordinate != null) {
+      _pendingFocusCoordinate = widget.focusCoordinate;
+      _focusPendingCoordinate();
+    }
+  }
+
+  void _focusPendingCoordinate() {
+    final controller = _controller;
+    final coordinate = _pendingFocusCoordinate;
+    if (!mounted || !_ready || controller == null || coordinate == null) {
+      return;
+    }
+    _pendingFocusCoordinate = null;
+    final center = ml.Geographic(
+      lon: coordinate.longitude,
+      lat: coordinate.latitude,
+    );
+    if (MediaQuery.disableAnimationsOf(context)) {
+      unawaited(controller.moveCamera(center: center));
+    } else {
+      unawaited(
+        controller.animateCamera(
+          center: center,
+          nativeDuration: const Duration(milliseconds: 700),
+          webMaxDuration: const Duration(milliseconds: 700),
+        ),
+      );
+    }
   }
 
   Map<String, dynamic> get _points => detailFeatureCollection([
@@ -200,6 +243,7 @@ class _DetailMapState extends State<DetailMap> {
       chinese: chinese,
       points: _points,
       routes: _routes,
+      showRouteArrows: widget.showRouteArrows,
       selectedRoute: _selectedRoute,
       location: _location,
       regions:
@@ -408,6 +452,7 @@ class _DetailMapState extends State<DetailMap> {
         _readinessCheck?.cancel();
         setState(() => _ready = true);
         _notifyFallback(false);
+        _focusPendingCoordinate();
       }
     } catch (_) {
       // The bounded deadline falls back if the native surface never loads.
@@ -418,6 +463,7 @@ class _DetailMapState extends State<DetailMap> {
     // Native style-loaded can precede onMapCreated. Use the supplied style
     // directly so first-entry highlighting does not depend on a later toggle.
     _activeStyle = style;
+    if (widget.showRouteArrows) unawaited(_registerArrowImage(style));
     unawaited(_updateRecords());
     _readinessCheck?.cancel();
     if (!_ready && !_failed) {
@@ -428,12 +474,40 @@ class _DetailMapState extends State<DetailMap> {
     }
   }
 
+  Future<void> _registerArrowImage(ml.StyleController style) async {
+    if (_arrowImageStyle == style) return;
+    _arrowImageStyle = style;
+    final light = Theme.of(context).brightness == Brightness.light;
+    final color = light
+        ? context.appColors.displaySecondary
+        : AppColors.routePurple;
+    try {
+      await style.addImageFromCanvas(
+        id: 'ff-route-arrow',
+        width: 32,
+        height: 32,
+        painter: (canvas) {
+          canvas.drawPath(
+            routeArrowPath(
+              center: const Offset(16, 16),
+              direction: const Offset(1, 0),
+              length: 28,
+            ),
+            Paint()..color = color,
+          );
+        },
+      );
+    } catch (_) {
+      if (_arrowImageStyle == style) _arrowImageStyle = null;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final strings = context.strings;
     final colors = context.appColors;
     final light = Theme.of(context).brightness == Brightness.light;
-    final palette = '$light-${strings.isZh}';
+    final palette = '$light-${strings.isZh}-${widget.showRouteArrows}';
     if (_base != null && _palette != palette) {
       _palette = palette;
       final composed = _composedStyle = _style(light, strings.isZh);
@@ -521,6 +595,8 @@ class _DetailMapState extends State<DetailMap> {
                 children: [
                   DetailMapAttribution(
                     bottomOffset: widget.attributionBottomOffset,
+                    alignment: widget.attributionAlignment,
+                    opacity: widget.attributionOpacity,
                   ),
                 ],
               );

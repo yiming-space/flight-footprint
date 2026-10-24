@@ -282,7 +282,7 @@ class MapExplorerButton extends StatelessWidget {
         foregroundColor: emphasized ? colors.onPrimary : colors.textPrimary,
         disabledForegroundColor: colors.textTertiary,
         backgroundColor: emphasized
-            ? colors.lime
+            ? colors.actionFill
             : selected
             ? colors.iceTint
             : lightTheme

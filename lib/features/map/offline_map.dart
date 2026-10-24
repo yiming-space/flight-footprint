@@ -42,6 +42,7 @@ class OfflineMap extends StatefulWidget {
     this.routeRevealProgress = 1,
     this.routeAnimationProgress,
     this.showRouteAnimationPlane = false,
+    this.showRouteArrows = false,
     this.enableInteraction = false,
     this.horizontalWrap = false,
     this.useLightPalette,
@@ -151,6 +152,7 @@ class OfflineMap extends StatefulWidget {
 
   /// Shows a small moving aircraft at the head of the active route.
   final bool showRouteAnimationPlane;
+  final bool showRouteArrows;
 
   /// Embedded maps remain a quiet preview so vertical page scrolling is not
   /// hijacked by a map gesture. The dedicated full-screen map opts in.
@@ -197,6 +199,7 @@ class MapFullscreenPage extends StatefulWidget {
     required this.routes,
     required this.places,
     this.initialGlobeMode = false,
+    this.showRouteArrows = false,
     this.userLocation,
     this.initialDetailCamera,
     this.onDetailCameraChanged,
@@ -213,6 +216,7 @@ class MapFullscreenPage extends StatefulWidget {
   final List<MapRoute> routes;
   final List<MapPlace> places;
   final bool initialGlobeMode;
+  final bool showRouteArrows;
   final MapCoordinate? userLocation;
   final DetailMapCamera? initialDetailCamera;
   final ValueChanged<DetailMapCamera>? onDetailCameraChanged;
@@ -554,6 +558,7 @@ class _MapFullscreenPageState extends State<MapFullscreenPage>
                                   // Native detail aggregates by direction
                                   // without dropping distinct recorded tracks.
                                   routes: widget.routes,
+                                  showRouteArrows: widget.showRouteArrows,
                                   places: _places,
                                   userLocation: widget.userLocation,
                                   fallback: _offlineFlatMap(),
@@ -590,6 +595,7 @@ class _MapFullscreenPageState extends State<MapFullscreenPage>
                             routes: widget.mode == MapMode.flight
                                 ? _animationRoutes
                                 : const [],
+                            showRouteArrows: widget.showRouteArrows,
                             airports: widget.airports,
                             places: _places,
                             userLocation: widget.userLocation,
@@ -685,6 +691,7 @@ class _MapFullscreenPageState extends State<MapFullscreenPage>
     mode: widget.mode,
     airports: widget.airports,
     routes: _animationRoutes,
+    showRouteArrows: widget.showRouteArrows,
     places: _places,
     // Center the first frame on the recorded routes or
     // cities. The complete-world vertical extent
@@ -1347,6 +1354,7 @@ class _OfflineMapState extends State<OfflineMap> with TickerProviderStateMixin {
         widget.routeAnimationProgress ??
         (widget.animateRouteReveal ? _routeRevealProgress : 1),
     showRouteAnimationPlane: widget.showRouteAnimationPlane,
+    showRouteArrows: widget.showRouteArrows,
     compactWorldViewport: widget.compactWorldViewport,
     lightPalette:
         widget.useLightPalette ??

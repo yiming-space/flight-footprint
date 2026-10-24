@@ -4,11 +4,13 @@ import 'package:flutter/material.dart';
 
 import '../../app/app_controller.dart';
 import '../../core/localization/app_strings.dart';
+import '../../data/flight_time_resolver.dart';
 import '../../data/airport_localization.dart';
 import '../../data/city_catalog.dart';
 import '../../domain/flight.dart';
 import '../../domain/visited_place.dart';
 import '../../ui/theme/app_theme.dart';
+import '../../ui/widgets/app_page_background.dart';
 import '../../ui/widgets/widgets.dart';
 import '../flights/flight_card.dart';
 import '../map/map_models.dart';
@@ -74,7 +76,13 @@ class _StatsPageState extends State<StatsPage> {
         : flights
               .where(
                 (flight) =>
-                    flight.departedAt.toLocal().year == selectedPassportYear,
+                    FlightTimeResolver.calendarYearAtAirport(
+                      flight.departedAt,
+                      widget.controller.airports.timeZoneIdForIata(
+                        flight.departureIata,
+                      ),
+                    ) ==
+                    selectedPassportYear,
               )
               .toList();
     final passportTotal = passportFlights.fold<double>(
@@ -122,6 +130,7 @@ class _StatsPageState extends State<StatsPage> {
     );
     return SafeArea(
       top: false,
+      bottom: false,
       left: false,
       right: false,
       child: CustomScrollView(
@@ -325,6 +334,7 @@ class _StatsPageState extends State<StatsPage> {
             flights: data.flights,
             visitedPlaces: widget.controller.visitedPlaces,
             worldCount: countryCount,
+            memoryYear: data.selectedPassportYear,
           ),
         );
       },
@@ -396,43 +406,46 @@ class _StatsPageState extends State<StatsPage> {
     List<VisitedPlace> visitedPlaces = const [],
   }) => Navigator.of(context).push<void>(
     MaterialPageRoute<void>(
-      builder: (context) => Scaffold(
-        appBar: AppBar(
-          title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
-          backgroundColor: context.appColors.background,
-          surfaceTintColor: Colors.transparent,
-          scrolledUnderElevation: 0,
-          bottom: PreferredSize(
-            preferredSize: const Size.fromHeight(32),
-            child: Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: Text(
-                visitedPlaces.isEmpty
-                    ? '${_airlineCountLabel(flights.length)} · ${context.strings.t('completed')}'
-                    : context.strings.isZh
-                    ? '${flights.length} 次飞行 · ${visitedPlaces.length} 条足迹'
-                    : '${flights.length} flights · ${visitedPlaces.length} footprints',
-                style: TextStyle(color: context.appColors.textSecondary),
+      builder: (context) => AppPageBackground(
+        child: Scaffold(
+          backgroundColor: Colors.transparent,
+          appBar: AppBar(
+            title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
+            backgroundColor: Colors.transparent,
+            surfaceTintColor: Colors.transparent,
+            scrolledUnderElevation: 0,
+            bottom: PreferredSize(
+              preferredSize: const Size.fromHeight(32),
+              child: Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: Text(
+                  visitedPlaces.isEmpty
+                      ? '${_airlineCountLabel(flights.length)} · ${context.strings.t('completed')}'
+                      : context.strings.isZh
+                      ? '${flights.length} 次飞行 · ${visitedPlaces.length} 条足迹'
+                      : '${flights.length} flights · ${visitedPlaces.length} footprints',
+                  style: TextStyle(color: context.appColors.textSecondary),
+                ),
               ),
             ),
           ),
-        ),
-        body: SafeArea(
-          child: Align(
-            alignment: Alignment.topCenter,
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 620),
-              child: ListView.separated(
-                padding: const EdgeInsets.all(AppSpacing.page),
-                itemCount: flights.length + visitedPlaces.length,
-                separatorBuilder: (_, _) =>
-                    const SizedBox(height: AppSpacing.cardGap),
-                itemBuilder: (context, index) => index < flights.length
-                    ? FlightCard(
-                        flight: flights[index],
-                        controller: widget.controller,
-                      )
-                    : _footprintRecord(visitedPlaces[index - flights.length]),
+          body: SafeArea(
+            child: Align(
+              alignment: Alignment.topCenter,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 620),
+                child: ListView.separated(
+                  padding: const EdgeInsets.all(AppSpacing.page),
+                  itemCount: flights.length + visitedPlaces.length,
+                  separatorBuilder: (_, _) =>
+                      const SizedBox(height: AppSpacing.cardGap),
+                  itemBuilder: (context, index) => index < flights.length
+                      ? FlightCard(
+                          flight: flights[index],
+                          controller: widget.controller,
+                        )
+                      : _footprintRecord(visitedPlaces[index - flights.length]),
+                ),
               ),
             ),
           ),
@@ -605,7 +618,17 @@ class _StatsPageState extends State<StatsPage> {
   );
 
   List<int> _years(List<Flight> flights) =>
-      flights.map((flight) => flight.departedAt.toLocal().year).toSet().toList()
+      flights
+          .map(
+            (flight) => FlightTimeResolver.calendarYearAtAirport(
+              flight.departedAt,
+              widget.controller.airports.timeZoneIdForIata(
+                flight.departureIata,
+              ),
+            ),
+          )
+          .toSet()
+          .toList()
         ..sort((a, b) => b.compareTo(a));
 }
 
@@ -688,7 +711,7 @@ class _PassportYearFilterBar extends StatelessWidget {
                 alignment: Alignment.center,
                 decoration: ShapeDecoration(
                   color: selected
-                      ? context.appColors.lime
+                      ? context.appColors.actionFill
                       : context.appColors.surfaceElevated,
                   shape: AppShapes.pill,
                 ),

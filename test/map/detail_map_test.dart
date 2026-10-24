@@ -119,6 +119,29 @@ Map<String, dynamic> _layer(Map<String, dynamic> style, String id) =>
     );
 
 void main() {
+  test(
+    'home route arrows stay centered and preserve directed line orientation',
+    () {
+      final style = buildDetailMapStyle(
+        _baseStyle(),
+        light: true,
+        chinese: true,
+        points: {'type': 'FeatureCollection', 'features': []},
+        routes: {'type': 'FeatureCollection', 'features': []},
+        location: {'type': 'FeatureCollection', 'features': []},
+        showRouteArrows: true,
+      );
+      final arrow = _layer(style, 'ff-route-arrows');
+      expect(arrow['layout']['symbol-placement'], 'line-center');
+      expect(arrow['layout']['icon-image'], 'ff-route-arrow');
+      expect(arrow['layout']['icon-rotation-alignment'], 'map');
+      expect(arrow['layout']['icon-keep-upright'], false);
+      expect(arrow['paint']['icon-opacity'], 1);
+      expect(arrow['layout']['icon-size'][1], ['linear']);
+      expect(arrow['source'], 'ff-routes');
+    },
+  );
+
   const strings = AppStrings(Locale('zh'));
 
   testWidgets('loading never flashes the differently projected backup map', (
@@ -208,11 +231,23 @@ void main() {
     expect(_layer(style, 'local-road')['minzoom'], 12);
   });
 
-  test('ice-white overview routes retain lavender with restrained opacity', () {
-    final paint = _layer(_style(light: true), 'ff-routes')['paint'] as Map;
-    expect(paint['line-color'], detailMapColor(AppColors.routePurpleLight));
-    expect(paint['line-opacity'], .9);
-  });
+  test(
+    'glacier-blue overview routes use purple while city markers stay blue',
+    () {
+      final paint = _layer(_style(light: true), 'ff-routes')['paint'] as Map;
+      expect(
+        paint['line-color'],
+        detailMapColor(AppThemeColors.light.displaySecondary),
+      );
+      final pointPaint =
+          _layer(_style(light: true), 'ff-points')['paint'] as Map;
+      expect(
+        pointPaint['circle-color'],
+        detailMapColor(AppColors.mapMarkerLight),
+      );
+      expect(paint['line-opacity'], .9);
+    },
+  );
 
   test('night geography stays subtly cool with readable land and sea', () {
     final style = _style(light: false);
@@ -269,52 +304,56 @@ void main() {
     expect(paintColor('ff-routes', 'line-color'), AppColors.routePurple);
   });
 
-  test('overview markers shrink smoothly while location retains a distinct purple dot', () {
-    for (final light in [false, true]) {
-      final style = _style(light: light);
-      final points = _layer(style, 'ff-points')['paint'] as Map;
-      expect(points['circle-radius'], [
-        'interpolate',
-        ['linear'],
-        ['zoom'],
-        0,
-        3.4,
-        2,
-        3.8,
-        5,
-        4.5,
-      ]);
-      expect(points['circle-stroke-width'], [
-        'interpolate',
-        ['linear'],
-        ['zoom'],
-        0,
-        1.0,
-        5,
-        1.5,
-      ]);
-      expect(
-        (_layer(style, 'ff-location')['paint'] as Map)['circle-radius'],
-        6,
-      );
-      expect(
-        (_layer(style, 'ff-location')['paint'] as Map)['circle-color'],
-        '#B69CFF',
-      );
-      expect(
-        (_layer(style, 'ff-location')['paint'] as Map)['circle-stroke-color'],
-        '#FFFFFF',
-      );
-      expect(
-        (_layer(style, 'ff-location')['paint'] as Map)['circle-opacity'],
-        1,
-      );
-      expect(
-        (_layer(style, 'ff-location')['paint'] as Map)['circle-stroke-opacity'],
-        1,
-      );
-    }
-  });
+  test(
+    'overview markers shrink smoothly while location retains a distinct accent',
+    () {
+      for (final light in [false, true]) {
+        final style = _style(light: light);
+        final points = _layer(style, 'ff-points')['paint'] as Map;
+        expect(points['circle-radius'], [
+          'interpolate',
+          ['linear'],
+          ['zoom'],
+          0,
+          3.4,
+          2,
+          3.8,
+          5,
+          4.5,
+        ]);
+        expect(points['circle-stroke-width'], [
+          'interpolate',
+          ['linear'],
+          ['zoom'],
+          0,
+          1.0,
+          5,
+          1.5,
+        ]);
+        expect(
+          (_layer(style, 'ff-location')['paint'] as Map)['circle-radius'],
+          6,
+        );
+        expect(
+          (_layer(style, 'ff-location')['paint'] as Map)['circle-color'],
+          light ? '#347CA7' : '#B69CFF',
+        );
+        expect(
+          (_layer(style, 'ff-location')['paint'] as Map)['circle-stroke-color'],
+          '#FFFFFF',
+        );
+        expect(
+          (_layer(style, 'ff-location')['paint'] as Map)['circle-opacity'],
+          1,
+        );
+        expect(
+          (_layer(style, 'ff-location')['paint']
+              as Map)['circle-stroke-opacity'],
+          1,
+        );
+      }
+    },
+  );
 
   test('record sources coexist with the attributed basemap source', () {
     final style = _style(light: true);

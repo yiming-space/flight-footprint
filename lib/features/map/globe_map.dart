@@ -8,6 +8,7 @@ import 'geojson_map_data.dart';
 import 'galaxy_background.dart';
 import 'globe_surface.dart';
 import 'map_models.dart';
+import 'route_arrow.dart';
 import '../../ui/theme/app_theme.dart';
 
 /// A lightweight, dependency-free orthographic globe for the fullscreen map.
@@ -26,6 +27,7 @@ class GlobeMap extends StatefulWidget {
     this.places = const [],
     this.routeAnimationProgress = 1,
     this.showRouteAnimationPlane = false,
+    this.showRouteArrows = false,
     this.userLocation,
     this.focusCoordinate,
     this.focusSignal = 0,
@@ -46,6 +48,7 @@ class GlobeMap extends StatefulWidget {
   final List<MapPlace> places;
   final double routeAnimationProgress;
   final bool showRouteAnimationPlane;
+  final bool showRouteArrows;
   final MapCoordinate? userLocation;
   final MapCoordinate? focusCoordinate;
   final int focusSignal;
@@ -682,6 +685,7 @@ class _GlobeMapState extends State<GlobeMap> with TickerProviderStateMixin {
             solarPosition: _solarPosition,
             routeAnimationProgress: widget.routeAnimationProgress,
             showRouteAnimationPlane: widget.showRouteAnimationPlane,
+            showRouteArrows: widget.showRouteArrows,
             drawBackdrop: false,
             lightPalette: lightPalette,
             showLabels: _showLabels,
@@ -755,6 +759,7 @@ class GlobePainter extends CustomPainter {
     this.scale = 1,
     this.routeAnimationProgress = 1,
     this.showRouteAnimationPlane = false,
+    this.showRouteArrows = false,
     this.showLabels = false,
     this.drawBackdrop = true,
     this.lightPalette = false,
@@ -776,6 +781,7 @@ class GlobePainter extends CustomPainter {
   final double scale;
   final double routeAnimationProgress;
   final bool showRouteAnimationPlane;
+  final bool showRouteArrows;
   final bool showLabels;
   final bool drawBackdrop;
   final bool lightPalette;
@@ -809,12 +815,8 @@ class GlobePainter extends CustomPainter {
     _globeRouteColor,
     _globeRouteColor,
   ];
-  static const _lightRouteColors = <Color>[
-    _globeRouteColor,
-    _globeRouteColor,
-    _globeRouteColor,
-    _globeRouteColor,
-    _globeRouteColor,
+  static final _lightRouteColors = <Color>[
+    AppThemeColors.light.displaySecondary,
   ];
   static const _darkPointColor = Color(0xffa8e85c);
   static const _darkTravelColors = <Color>[
@@ -824,12 +826,8 @@ class GlobePainter extends CustomPainter {
     _darkPointColor,
     _darkPointColor,
   ];
-  static const _lightTravelColors = <Color>[
-    Color(0xff78a2d2),
-    Color(0xff78a2d2),
-    Color(0xffeaf3b2),
-    Color(0xff78a2d2),
-    Color(0xffb4cbe7),
+  static final _lightTravelColors = <Color>[
+    AppThemeColors.light.displayPrimary,
   ];
 
   List<Color> get _routeColors =>
@@ -1096,6 +1094,37 @@ class GlobePainter extends CustomPainter {
           ..strokeCap = StrokeCap.round
           ..strokeJoin = StrokeJoin.round,
       );
+      if (showRouteArrows && progress >= .5) {
+        Offset? projectAt(double t) {
+          final coordinate = _coordinateAtRouteProgress(route, t);
+          return projection.projectElevated(
+            coordinate.latitude,
+            coordinate.longitude,
+            _routeLift(t, route),
+          );
+        }
+
+        final point = projectAt(.5);
+        final before = projectAt(.495);
+        final after = projectAt(.505);
+        if (point != null &&
+            before != null &&
+            after != null &&
+            (after - before).distance > .001) {
+          final tangent = (after - before) / (after - before).distance;
+          final screenLength =
+              (5 + 3.0 * ((_scale - .82) / (2.5 - .82))).clamp(5.0, 10.5) *
+              1.15;
+          canvas.drawPath(
+            routeArrowPath(
+              center: point,
+              direction: tangent,
+              length: screenLength,
+            ),
+            Paint()..color = _routeColors[index % _routeColors.length],
+          );
+        }
+      }
     }
   }
 
@@ -1105,7 +1134,9 @@ class GlobePainter extends CustomPainter {
       if (mode == MapMode.flight && !_hasRenderedRoute(airport)) continue;
       final point = projection.project(airport.latitude, airport.longitude);
       if (point == null) continue;
-      const color = _darkPointColor;
+      final color = lightPalette
+          ? AppThemeColors.light.displayPrimary
+          : _darkPointColor;
       if (!_isAirportVisibleForPlayback(airport)) continue;
       _drawGlowingMarker(
         canvas,
@@ -1928,6 +1959,7 @@ class GlobePainter extends CustomPainter {
       old.scale != scale ||
       old.routeAnimationProgress != routeAnimationProgress ||
       old.showRouteAnimationPlane != showRouteAnimationPlane ||
+      old.showRouteArrows != showRouteArrows ||
       old.showLabels != showLabels ||
       old.drawBackdrop != drawBackdrop ||
       old.userLocation != userLocation ||

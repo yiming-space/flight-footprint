@@ -460,7 +460,11 @@ void main() {
     }
     expect(fills.toSet(), hasLength(6));
     for (var index = 0; index < 3; index++) {
-      expect(fills[index].computeLuminance(), greaterThan(.7));
+      // Light fills must remain visible against the white card canvas.
+      expect(
+        1.05 / (fills[index].computeLuminance() + .05),
+        greaterThanOrEqualTo(1.3),
+      );
       expect(fills[index + 3].computeLuminance(), lessThan(.15));
     }
     final darkBlue = HSVColor.fromColor(fills[3]);

@@ -5,6 +5,8 @@ import 'package:flight_footprint/domain/visited_place.dart';
 import 'package:flight_footprint/features/home/home_page.dart';
 import 'package:flight_footprint/features/map/detail_map.dart';
 import 'package:flight_footprint/features/map/map_explorer_controls.dart';
+import 'package:flight_footprint/features/map/globe_map.dart';
+import 'package:flight_footprint/features/map/offline_map.dart';
 import 'package:flight_footprint/ui/theme/app_theme.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -45,6 +47,40 @@ void main() {
     expect(find.byIcon(Icons.layers_rounded), findsNothing);
     expect(find.byIcon(Icons.flight_rounded), findsWidgets);
     expect(find.byIcon(Icons.map_outlined), findsWidgets);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('home fullscreen retains route arrows across map projections', (
+    tester,
+  ) async {
+    final controller = _Controller();
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(_app(HomePage(controller: controller)));
+    await tester.tap(find.byTooltip('横向全屏地图'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 350));
+
+    final fullscreen = find.byType(MapFullscreenPage);
+    expect(fullscreen, findsOneWidget);
+    final detail = tester.widget<DetailMap>(
+      find.descendant(of: fullscreen, matching: find.byType(DetailMap)),
+    );
+    expect(detail.showRouteArrows, isTrue);
+    expect((detail.fallback as OfflineMap).showRouteArrows, isTrue);
+
+    await tester.tap(
+      find.descendant(
+        of: fullscreen,
+        matching: find.byIcon(Icons.public_rounded),
+      ),
+    );
+    await tester.pump();
+    final globe = tester.widget<GlobeMap>(
+      find.descendant(of: fullscreen, matching: find.byType(GlobeMap)),
+    );
+    expect(globe.active, isTrue);
+    expect(globe.showRouteArrows, isTrue);
+    expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
   });
 

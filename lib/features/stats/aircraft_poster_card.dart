@@ -74,9 +74,7 @@ class AircraftPosterCard extends StatelessWidget {
         vertical: compact ? 20 * textScale : 24,
       ),
       borderRadius: compact ? AppRadii.medium : AppRadii.small,
-      color: compact
-          ? Color.lerp(colors.surface, colors.surfaceElevated, rearDepth / 4)
-          : colors.surface,
+      color: colors.cardSurface,
       showBorder: false,
       onTap: onTap,
       child: Column(

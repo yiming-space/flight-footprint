@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 
 import '../../core/localization/app_strings.dart';
 import '../../ui/theme/app_theme.dart';
+import '../../ui/widgets/app_page_background.dart';
 import '../../ui/widgets/perspective_card_deck.dart';
 import 'aircraft_artwork.dart';
 import 'aircraft_artwork_motion.dart';
@@ -160,208 +161,215 @@ class _AircraftCollectionPageState extends State<AircraftCollectionPage> {
       ),
     );
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(context.strings.t('aircraftCollection')),
-        backgroundColor: colors.background,
-        surfaceTintColor: Colors.transparent,
-        scrolledUnderElevation: 0,
-      ),
-      body: SafeArea(
-        top: false,
-        child: Align(
-          alignment: Alignment.topCenter,
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 700),
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final textScale =
-                    MediaQuery.textScalerOf(context).scale(16) / 16;
-                final cardHeight =
-                    (constraints.maxWidth - 80) / 2.35 + 180 * textScale;
-                final simpleList =
-                    _reduceArtworkMotion(context) ||
-                    MediaQuery.textScalerOf(context).scale(16) >= 20.8 ||
-                    constraints.maxHeight < cardHeight + 340;
-                final header = <Widget>[
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
-                    child: Text(
-                      context.strings
-                          .t('aircraftTypesCount')
-                          .replaceAll('{count}', '${widget.items.length}'),
-                      key: const ValueKey('aircraft-collection-summary'),
-                      style: AppTextStyles.bodySecondary.copyWith(
-                        color: colors.textSecondary,
-                      ),
-                    ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
-                    child: SizedBox(
-                      height: 48,
-                      child: SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        child: Row(
-                          children: [
-                            for (final manufacturer in <AircraftManufacturer?>[
-                              null,
-                              ...AircraftManufacturer.values,
-                            ]) ...[
-                              if (manufacturer != null)
-                                const SizedBox(width: AppSpacing.sm),
-                              _ManufacturerFilter(
-                                key: ValueKey(
-                                  'aircraft-filter-${manufacturer?.name ?? 'all'}',
-                                ),
-                                label: manufacturer == null
-                                    ? (isZh ? '全部' : 'All')
-                                    : aircraftManufacturerLabel(
-                                        manufacturer,
-                                        isZh,
-                                      ),
-                                selected: _manufacturer == manufacturer,
-                                onTap: () => setState(
-                                  () => _manufacturer = manufacturer,
-                                ),
-                              ),
-                            ],
-                          ],
+    return AppPageBackground(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: AppBar(
+          title: Text(context.strings.t('aircraftCollection')),
+          backgroundColor: Colors.transparent,
+          surfaceTintColor: Colors.transparent,
+          scrolledUnderElevation: 0,
+        ),
+        body: SafeArea(
+          top: false,
+          child: Align(
+            alignment: Alignment.topCenter,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 700),
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final textScale =
+                      MediaQuery.textScalerOf(context).scale(16) / 16;
+                  final cardHeight =
+                      (constraints.maxWidth - 80) / 2.35 + 180 * textScale;
+                  final simpleList =
+                      _reduceArtworkMotion(context) ||
+                      MediaQuery.textScalerOf(context).scale(16) >= 20.8 ||
+                      constraints.maxHeight < cardHeight + 340;
+                  final header = <Widget>[
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
+                      child: Text(
+                        context.strings
+                            .t('aircraftTypesCount')
+                            .replaceAll('{count}', '${widget.items.length}'),
+                        key: const ValueKey('aircraft-collection-summary'),
+                        style: AppTextStyles.bodySecondary.copyWith(
+                          color: colors.textSecondary,
                         ),
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 24),
-                ];
-                final empty = Padding(
-                  padding: const EdgeInsets.fromLTRB(32, 24, 32, 40),
-                  child: Center(
-                    child: Text(
-                      widget.items.isEmpty
-                          ? context.strings.t('aircraftCollectionEmpty')
-                          : (isZh
-                                ? '还没有解锁这一制造商的机型'
-                                : 'No aircraft from this manufacturer unlocked yet'),
-                      textAlign: TextAlign.center,
-                      style: AppTextStyles.body.copyWith(
-                        color: colors.textSecondary,
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 20),
+                      child: SizedBox(
+                        height: 48,
+                        child: SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: Row(
+                            children: [
+                              for (final manufacturer
+                                  in <AircraftManufacturer?>[
+                                    null,
+                                    ...AircraftManufacturer.values,
+                                  ]) ...[
+                                if (manufacturer != null)
+                                  const SizedBox(width: AppSpacing.sm),
+                                _ManufacturerFilter(
+                                  key: ValueKey(
+                                    'aircraft-filter-${manufacturer?.name ?? 'all'}',
+                                  ),
+                                  label: manufacturer == null
+                                      ? (isZh ? '全部' : 'All')
+                                      : aircraftManufacturerLabel(
+                                          manufacturer,
+                                          isZh,
+                                        ),
+                                  selected: _manufacturer == manufacturer,
+                                  onTap: () => setState(
+                                    () => _manufacturer = manufacturer,
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
                       ),
                     ),
-                  ),
-                );
-                if (!simpleList) {
-                  final animateEntrance = !_entranceShown && items.isNotEmpty;
-                  if (items.isNotEmpty) _entranceShown = true;
-                  final savedIndex = items.indexWhere(
-                    (entry) => entry.key == _selectedKeys[_manufacturer],
-                  );
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      ...header,
-                      Expanded(
-                        child: items.isEmpty
-                            ? empty
-                            : Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 20,
-                                ),
-                                child: PerspectiveCardDeck(
-                                  loop: true,
-                                  recycleArc: false,
-                                  cycleDepth: true,
-                                  showControls: false,
-                                  maxRearCards: 4,
-                                  animateEntrance: animateEntrance,
-                                  key: ValueKey(
-                                    'aircraft-deck-${_manufacturer?.name ?? 'all'}',
-                                  ),
-                                  itemCount: items.length,
-                                  cardHeight: cardHeight,
-                                  initialIndex: savedIndex < 0 ? 0 : savedIndex,
-                                  onIndexChanged: (index) =>
-                                      _selectedKeys[_manufacturer] =
-                                          items[index].key,
-                                  itemBuilder: (context, index, relative, active) {
-                                    final entry = items[index];
-                                    // Rear cards keep a clean model strip. Their plane
-                                    // appears as they approach the front, never as a
-                                    // stretched or rotated replacement asset.
-                                    // Keep the spring above the changing active
-                                    // card keys so passing the half-way point
-                                    // never resets the plane's presentation.
-                                    return AircraftArtworkMotion(
-                                      key: ValueKey(
-                                        'aircraft-motion-${entry.key}',
-                                      ),
-                                      relativePosition: relative,
-                                      child: AircraftExhibitArtwork(
-                                        entry: entry,
-                                        useHero: active,
-                                      ),
-                                      builder: (context, offset, artwork) =>
-                                          _openableCard(
-                                            activeKey: active
-                                                ? ValueKey(
-                                                    'aircraft-active-${entry.key}',
-                                                  )
-                                                : null,
-                                            cardKey: ValueKey(
-                                              active
-                                                  ? 'aircraft-card-${entry.key}'
-                                                  : 'aircraft-rear-${entry.key}',
-                                            ),
-                                            entry: entry,
-                                            compact: true,
-                                            depth: relative.abs().clamp(
-                                              0.0,
-                                              3.0,
-                                            ),
-                                            artwork: Transform.translate(
-                                              key: ValueKey(
-                                                'aircraft-parallax-${entry.key}',
-                                              ),
-                                              offset: offset,
-                                              child: artwork,
-                                            ),
-                                          ),
-                                    );
-                                  },
-                                ),
-                              ),
+                    const SizedBox(height: 24),
+                  ];
+                  final empty = Padding(
+                    padding: const EdgeInsets.fromLTRB(32, 24, 32, 40),
+                    child: Center(
+                      child: Text(
+                        widget.items.isEmpty
+                            ? context.strings.t('aircraftCollectionEmpty')
+                            : (isZh
+                                  ? '还没有解锁这一制造商的机型'
+                                  : 'No aircraft from this manufacturer unlocked yet'),
+                        textAlign: TextAlign.center,
+                        style: AppTextStyles.body.copyWith(
+                          color: colors.textSecondary,
+                        ),
                       ),
+                    ),
+                  );
+                  if (!simpleList) {
+                    final animateEntrance = !_entranceShown && items.isNotEmpty;
+                    if (items.isNotEmpty) _entranceShown = true;
+                    final savedIndex = items.indexWhere(
+                      (entry) => entry.key == _selectedKeys[_manufacturer],
+                    );
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        ...header,
+                        Expanded(
+                          child: items.isEmpty
+                              ? empty
+                              : Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 20,
+                                  ),
+                                  child: PerspectiveCardDeck(
+                                    loop: true,
+                                    recycleArc: false,
+                                    cycleDepth: true,
+                                    showControls: false,
+                                    maxRearCards: 4,
+                                    animateEntrance: animateEntrance,
+                                    staggerEntrance: true,
+                                    key: ValueKey(
+                                      'aircraft-deck-${_manufacturer?.name ?? 'all'}',
+                                    ),
+                                    itemCount: items.length,
+                                    cardHeight: cardHeight,
+                                    initialIndex: savedIndex < 0
+                                        ? 0
+                                        : savedIndex,
+                                    onIndexChanged: (index) =>
+                                        _selectedKeys[_manufacturer] =
+                                            items[index].key,
+                                    itemBuilder: (context, index, relative, active) {
+                                      final entry = items[index];
+                                      // Rear cards keep a clean model strip. Their plane
+                                      // appears as they approach the front, never as a
+                                      // stretched or rotated replacement asset.
+                                      // Keep the spring above the changing active
+                                      // card keys so passing the half-way point
+                                      // never resets the plane's presentation.
+                                      return AircraftArtworkMotion(
+                                        key: ValueKey(
+                                          'aircraft-motion-${entry.key}',
+                                        ),
+                                        relativePosition: relative,
+                                        child: AircraftExhibitArtwork(
+                                          entry: entry,
+                                          useHero: active,
+                                        ),
+                                        builder: (context, offset, artwork) =>
+                                            _openableCard(
+                                              activeKey: active
+                                                  ? ValueKey(
+                                                      'aircraft-active-${entry.key}',
+                                                    )
+                                                  : null,
+                                              cardKey: ValueKey(
+                                                active
+                                                    ? 'aircraft-card-${entry.key}'
+                                                    : 'aircraft-rear-${entry.key}',
+                                              ),
+                                              entry: entry,
+                                              compact: true,
+                                              depth: relative.abs().clamp(
+                                                0.0,
+                                                3.0,
+                                              ),
+                                              artwork: Transform.translate(
+                                                key: ValueKey(
+                                                  'aircraft-parallax-${entry.key}',
+                                                ),
+                                                offset: offset,
+                                                child: artwork,
+                                              ),
+                                            ),
+                                      );
+                                    },
+                                  ),
+                                ),
+                        ),
+                      ],
+                    );
+                  }
+                  if (items.isNotEmpty) _entranceShown = true;
+                  return CustomScrollView(
+                    key: const PageStorageKey('aircraft-collection-list'),
+                    primary: false,
+                    slivers: [
+                      for (final child in header)
+                        SliverToBoxAdapter(child: child),
+                      if (items.isEmpty)
+                        SliverFillRemaining(hasScrollBody: false, child: empty)
+                      else
+                        SliverPadding(
+                          padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+                          sliver: SliverList.separated(
+                            itemCount: items.length,
+                            separatorBuilder: (_, _) =>
+                                const SizedBox(height: AppSpacing.cardGap),
+                            itemBuilder: (context, index) {
+                              final entry = items[index];
+                              return _openableCard(
+                                cardKey: ValueKey('aircraft-card-${entry.key}'),
+                                entry: entry,
+                                artwork: AircraftExhibitArtwork(entry: entry),
+                              );
+                            },
+                          ),
+                        ),
                     ],
                   );
-                }
-                if (items.isNotEmpty) _entranceShown = true;
-                return CustomScrollView(
-                  key: const PageStorageKey('aircraft-collection-list'),
-                  primary: false,
-                  slivers: [
-                    for (final child in header)
-                      SliverToBoxAdapter(child: child),
-                    if (items.isEmpty)
-                      SliverFillRemaining(hasScrollBody: false, child: empty)
-                    else
-                      SliverPadding(
-                        padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
-                        sliver: SliverList.separated(
-                          itemCount: items.length,
-                          separatorBuilder: (_, _) =>
-                              const SizedBox(height: AppSpacing.cardGap),
-                          itemBuilder: (context, index) {
-                            final entry = items[index];
-                            return _openableCard(
-                              cardKey: ValueKey('aircraft-card-${entry.key}'),
-                              entry: entry,
-                              artwork: AircraftExhibitArtwork(entry: entry),
-                            );
-                          },
-                        ),
-                      ),
-                  ],
-                );
-              },
+                },
+              ),
             ),
           ),
         ),
@@ -394,7 +402,7 @@ class _ManufacturerFilter extends StatelessWidget {
       child: SizedBox(
         height: 48,
         child: Material(
-          color: selected ? colors.lime : colors.surface,
+          color: selected ? colors.actionFill : colors.surface,
           shape: AppShapes.pill,
           child: InkWell(
             onTap: onTap,

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/localization/app_strings.dart';
 import '../../ui/theme/app_theme.dart';
+import '../../ui/widgets/app_page_background.dart';
 import 'airline_ranking.dart';
 import 'airline_ranking_tile.dart';
 
@@ -88,86 +89,88 @@ class _AirlineRankingPageState extends State<AirlineRankingPage>
     final s = context.strings;
     final colors = context.appColors;
     final maxCount = widget.items.isEmpty ? 0 : widget.items.first.count;
-    final expanding =
-        widget.animateEntrance &&
-        !_reduced &&
-        ModalRoute.of(context) is PageRouteBuilder<void>;
-    return Scaffold(
-      backgroundColor: expanding ? Colors.transparent : colors.background,
-      appBar: AppBar(
-        title: Text(
-          s.t('airlineRanking'),
-          style: AppTextStyles.sectionTitle.copyWith(color: colors.textPrimary),
+    return AppPageBackground(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: AppBar(
+          title: Text(
+            s.t('airlineRanking'),
+            style: AppTextStyles.sectionTitle.copyWith(
+              color: colors.textPrimary,
+            ),
+          ),
+          backgroundColor: Colors.transparent,
+          surfaceTintColor: Colors.transparent,
+          scrolledUnderElevation: 0,
         ),
-        backgroundColor: expanding ? Colors.transparent : colors.background,
-        surfaceTintColor: Colors.transparent,
-        scrolledUnderElevation: 0,
-      ),
-      body: SafeArea(
-        top: false,
-        child: Align(
-          alignment: Alignment.topCenter,
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 700),
-            child: CustomScrollView(
-              key: const PageStorageKey('airline-ranking-list'),
-              primary: false,
-              slivers: [
-                if (widget.items.isEmpty)
-                  SliverFillRemaining(
-                    hasScrollBody: false,
-                    child: Center(
-                      child: Text(
-                        s.t('rankingEmpty'),
-                        style: TextStyle(color: colors.textSecondary),
+        body: SafeArea(
+          top: false,
+          child: Align(
+            alignment: Alignment.topCenter,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 700),
+              child: CustomScrollView(
+                key: const PageStorageKey('airline-ranking-list'),
+                primary: false,
+                slivers: [
+                  if (widget.items.isEmpty)
+                    SliverFillRemaining(
+                      hasScrollBody: false,
+                      child: Center(
+                        child: Text(
+                          s.t('rankingEmpty'),
+                          style: TextStyle(color: colors.textSecondary),
+                        ),
+                      ),
+                    )
+                  else
+                    SliverPadding(
+                      padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+                      sliver: SliverList.separated(
+                        itemCount: widget.items.length,
+                        separatorBuilder: (_, _) => const SizedBox(height: 12),
+                        itemBuilder: (context, index) {
+                          final entry = widget.items[index];
+                          final count = entry.count;
+                          Widget tile(double reveal) => AirlineRankingTile(
+                            key: ValueKey(entry.iataCode ?? entry.name),
+                            name: entry.name,
+                            iataCode: entry.iataCode,
+                            count: count,
+                            maxCount: maxCount,
+                            rank: index + 1,
+                            countLabel: s.isZh
+                                ? '$count 次'
+                                : '$count ${count == 1 ? 'flight' : 'flights'}',
+                            fillReveal: reveal,
+                            animatedCountLabel:
+                                widget.animateEntrance && !_reduced
+                                ? (value) => s.isZh
+                                      ? '$value 次'
+                                      : '$value ${count == 1 ? 'flight' : 'flights'}'
+                                : null,
+                            onTap: () => widget.onAirlineSelected(entry),
+                          );
+                          if (!widget.animateEntrance || _reduced) {
+                            return tile(1);
+                          }
+                          final delay = index.clamp(0, 3) * .04;
+                          return AnimatedBuilder(
+                            key: ValueKey('airline-ranking-fill-$index'),
+                            animation: _fill,
+                            builder: (context, _) => tile(
+                              Interval(
+                                delay,
+                                .76 + delay,
+                                curve: Curves.easeOutCubic,
+                              ).transform(_fill.value),
+                            ),
+                          );
+                        },
                       ),
                     ),
-                  )
-                else
-                  SliverPadding(
-                    padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
-                    sliver: SliverList.separated(
-                      itemCount: widget.items.length,
-                      separatorBuilder: (_, _) => const SizedBox(height: 12),
-                      itemBuilder: (context, index) {
-                        final entry = widget.items[index];
-                        final count = entry.count;
-                        Widget tile(double reveal) => AirlineRankingTile(
-                          key: ValueKey(entry.iataCode ?? entry.name),
-                          name: entry.name,
-                          iataCode: entry.iataCode,
-                          count: count,
-                          maxCount: maxCount,
-                          rank: index + 1,
-                          countLabel: s.isZh
-                              ? '$count 次'
-                              : '$count ${count == 1 ? 'flight' : 'flights'}',
-                          fillReveal: reveal,
-                          animatedCountLabel:
-                              widget.animateEntrance && !_reduced
-                              ? (value) => s.isZh
-                                    ? '$value 次'
-                                    : '$value ${count == 1 ? 'flight' : 'flights'}'
-                              : null,
-                          onTap: () => widget.onAirlineSelected(entry),
-                        );
-                        if (!widget.animateEntrance || _reduced) return tile(1);
-                        final delay = index.clamp(0, 3) * .04;
-                        return AnimatedBuilder(
-                          key: ValueKey('airline-ranking-fill-$index'),
-                          animation: _fill,
-                          builder: (context, _) => tile(
-                            Interval(
-                              delay,
-                              .76 + delay,
-                              curve: Curves.easeOutCubic,
-                            ).transform(_fill.value),
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-              ],
+                ],
+              ),
             ),
           ),
         ),

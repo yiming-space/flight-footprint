@@ -297,6 +297,16 @@ class CalendarImportService {
     required RegExpMatch? pair,
     required DateTime now,
   }) {
+    // CalendarContract stores DTSTART/DTEND as absolute epoch milliseconds.
+    // Keep those instants when available: rebuilding them from a title's
+    // airport-local clock times in the device timezone changes both the
+    // elapsed duration and, around DST/date-line crossings, sometimes the day.
+    if (eventStart != null && eventEnd != null) {
+      final duration = eventEnd.difference(eventStart);
+      if (duration > Duration.zero && duration <= const Duration(hours: 48)) {
+        return (eventStart, eventEnd);
+      }
+    }
     if (pair == null) {
       if (eventStart == null ||
           eventEnd == null ||
@@ -334,27 +344,12 @@ class CalendarImportService {
       arrivalHour,
       arrivalMinute,
     );
-    if (!arrived.isAfter(departed)) {
-      arrived = arrived.add(const Duration(days: 1));
-    }
+    // These are unzoned wall-clock values. Without an explicit arrival date
+    // or absolute provider end, an earlier arrival clock is ambiguous: it can
+    // mean an overnight flight, a date-line crossing, or a timezone change.
+    // Do not manufacture a day offset from the clock comparison.
+    if (!arrived.isAfter(departed)) return null;
 
-    // Prefer the provider's date when it agrees with the title's clock pair.
-    // This handles a calendar event that already stores the next-day arrival,
-    // while still correcting providers that make both ends share one date.
-    if (eventEnd != null) {
-      final providerEnd = eventEnd.toLocal();
-      final candidate = DateTime(
-        providerEnd.year,
-        providerEnd.month,
-        providerEnd.day,
-        arrivalHour,
-        arrivalMinute,
-      );
-      final difference = candidate.difference(departed);
-      if (difference > Duration.zero && difference <= const Duration(days: 2)) {
-        arrived = candidate;
-      }
-    }
     return (departed, arrived);
   }
 

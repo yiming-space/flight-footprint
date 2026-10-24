@@ -26,6 +26,8 @@ class _Cloud extends ChangeNotifier implements CloudSyncService {
 
 class _Controller extends ChangeNotifier implements AppController {
   @override
+  bool get isLoading => false;
+  @override
   final CloudSyncService cloudSync = _Cloud();
   @override
   final AirportCatalog airports = AirportCatalog({});
@@ -67,7 +69,11 @@ final _available = AppUpdateResult.available(
 );
 const _current = AppUpdateResult.upToDate(currentVersion: '1.3.0+16');
 
-Widget _app(Widget child, GlobalKey<NavigatorState> navigator) => MaterialApp(
+Widget _app(
+  Widget child,
+  GlobalKey<NavigatorState> navigator, {
+  bool highContrast = false,
+}) => MaterialApp(
   navigatorKey: navigator,
   theme: AppTheme.dark(),
   locale: const Locale('zh'),
@@ -78,7 +84,12 @@ Widget _app(Widget child, GlobalKey<NavigatorState> navigator) => MaterialApp(
     GlobalWidgetsLocalizations.delegate,
     GlobalCupertinoLocalizations.delegate,
   ],
-  home: child,
+  home: Builder(
+    builder: (context) => MediaQuery(
+      data: MediaQuery.of(context).copyWith(highContrast: highContrast),
+      child: child,
+    ),
+  ),
 );
 
 class _Fixture {
@@ -88,7 +99,11 @@ class _Fixture {
   final tab = ValueNotifier(0);
   final navigator = GlobalKey<NavigatorState>();
 
-  Future<void> mount(WidgetTester tester, {bool realShell = false}) async {
+  Future<void> mount(
+    WidgetTester tester, {
+    bool realShell = false,
+    bool highContrast = false,
+  }) async {
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = const Size(430, 1100);
     addTearDown(tester.view.resetDevicePixelRatio);
@@ -123,6 +138,7 @@ class _Fixture {
                 ),
               ),
         navigator,
+        highContrast: highContrast,
       ),
     );
     await tester.pump();
@@ -161,6 +177,25 @@ void main() {
     expect(profile.isActive, isFalse);
     expect(fixture.updates.calls, 1);
     expect(find.byType(Dialog), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('high contrast removes the bottom bar backdrop filter', (
+    tester,
+  ) async {
+    final fixture = _Fixture(_Updates((_) async => _current));
+    await fixture.mount(tester, realShell: true, highContrast: true);
+    final navFilter = find.ancestor(
+      of: find.text('首页'),
+      matching: find.byType(BackdropFilter),
+    );
+    expect(navFilter, findsOneWidget);
+    final backdrop = tester.widget<BackdropFilter>(navFilter);
+    expect(backdrop.enabled, isFalse);
+    final decoration =
+        (backdrop.child! as DecoratedBox).decoration as ShapeDecoration;
+    expect(decoration.color!.a, greaterThanOrEqualTo(.98));
+    expect(find.text('航迹'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

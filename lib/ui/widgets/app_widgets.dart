@@ -1,8 +1,7 @@
-import 'dart:ui' show ImageFilter;
-
 import 'package:flutter/material.dart';
 
 import '../theme/app_theme.dart';
+import 'frosted_glass_surface.dart';
 
 class PageHeader extends StatelessWidget {
   const PageHeader({
@@ -60,12 +59,7 @@ class PageHeader extends StatelessWidget {
   );
 }
 
-/// A compact translucent control for visual surfaces such as the map.
-///
-/// The blur is clipped before painting the tint and border, so the control
-/// reads as glass without leaking a rectangular blur into the artwork behind
-/// it. Keeping this in the shared widgets file makes the home preview and
-/// full-screen map use exactly the same treatment.
+/// A compact control using the same thick glass as the floating navigation.
 class LiquidGlassIconButton extends StatelessWidget {
   const LiquidGlassIconButton({
     super.key,
@@ -74,11 +68,7 @@ class LiquidGlassIconButton extends StatelessWidget {
     this.tooltip,
     this.size = 48,
     this.iconSize = 22,
-    this.tintColor = Colors.white,
-    this.tintOpacity = .18,
     this.foregroundColor = Colors.white,
-    this.borderColor = const Color(0x4DFFFFFF),
-    this.blurEnabled = true,
   });
 
   final IconData icon;
@@ -86,51 +76,28 @@ class LiquidGlassIconButton extends StatelessWidget {
   final String? tooltip;
   final double size;
   final double iconSize;
-  final Color tintColor;
-  final double tintOpacity;
   final Color foregroundColor;
-  final Color borderColor;
-  final bool blurEnabled;
 
   @override
   Widget build(BuildContext context) {
-    final shape = RoundedSuperellipseBorder(
-      borderRadius: BorderRadius.circular(size / 2),
-      side: BorderSide(color: borderColor, width: 1),
-    );
     return SizedBox.square(
       dimension: size,
-      child: ClipPath(
-        clipper: ShapeBorderClipper(shape: shape),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
-          enabled: blurEnabled,
-          child: DecoratedBox(
-            decoration: ShapeDecoration(
-              color: tintColor.withValues(alpha: tintOpacity),
-              shape: shape,
-              shadows: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: .24),
-                  blurRadius: 16,
-                  offset: const Offset(0, 6),
-                ),
-              ],
-            ),
-            child: IconButton(
-              tooltip: tooltip,
-              onPressed: onPressed,
-              icon: Icon(icon, size: iconSize),
-              style: IconButton.styleFrom(
-                fixedSize: Size.square(size),
-                padding: EdgeInsets.zero,
-                backgroundColor: Colors.transparent,
-                foregroundColor: foregroundColor,
-                overlayColor: foregroundColor.withValues(alpha: .14),
-                side: BorderSide.none,
-                shape: const CircleBorder(),
-              ),
-            ),
+      child: FrostedGlassSurface(
+        shape: const CircleBorder(),
+        edgeThickness: 2,
+        adaptiveContrast: true,
+        child: IconButton(
+          tooltip: tooltip,
+          onPressed: onPressed,
+          icon: Icon(icon, size: iconSize),
+          style: IconButton.styleFrom(
+            fixedSize: Size.square(size),
+            padding: EdgeInsets.zero,
+            backgroundColor: Colors.transparent,
+            foregroundColor: foregroundColor,
+            overlayColor: foregroundColor.withValues(alpha: .14),
+            side: BorderSide.none,
+            shape: const CircleBorder(),
           ),
         ),
       ),
@@ -193,7 +160,9 @@ class AppBottomNav extends StatelessWidget {
                     style: IconButton.styleFrom(
                       minimumSize: const Size(56, 56),
                       backgroundColor: context.appColors.purple,
-                      foregroundColor: context.appColors.cardText,
+                      foregroundColor: Theme.of(context)
+                          .colorScheme
+                          .onSecondary,
                     ),
                     icon: const Icon(Icons.add),
                   ),
@@ -228,8 +197,8 @@ class AppBottomNav extends StatelessWidget {
               Icon(
                 selected ? item.$3 : item.$2,
                 color: selected
-                    ? context.appColors.lime
-                    : context.appColors.textSecondary,
+                    ? context.appColors.navigationSelected
+                    : context.appColors.navigationUnselected,
                 size: 26,
               ),
               const SizedBox(height: AppSpacing.xs),
@@ -238,8 +207,8 @@ class AppBottomNav extends StatelessWidget {
                 style: TextStyle(
                   fontSize: 12,
                   color: selected
-                      ? context.appColors.lime
-                      : context.appColors.textSecondary,
+                      ? context.appColors.navigationSelected
+                      : context.appColors.navigationUnselected,
                 ),
               ),
             ],
@@ -287,7 +256,7 @@ class AppSegmentedControl extends StatelessWidget {
       label: '筛选选项',
       child: Container(
         height: height,
-        padding: const EdgeInsets.all(AppSpacing.xs),
+        padding: pill ? EdgeInsets.zero : const EdgeInsets.all(AppSpacing.xs),
         decoration: ShapeDecoration(
           color: pill ? colors.surfaceElevated : colors.surface,
           shape: controlShape,
@@ -355,7 +324,7 @@ class AppSegmentedControl extends StatelessWidget {
                         child: SizedBox.expand(
                           child: DecoratedBox(
                             decoration: ShapeDecoration(
-                              color: colors.lime,
+                              color: colors.actionFill,
                               shape: itemShape,
                             ),
                           ),
@@ -438,7 +407,7 @@ class SurfaceCard extends StatelessWidget {
     return Container(
       margin: margin,
       decoration: ShapeDecoration(
-        color: color ?? colors.surface,
+        color: color ?? colors.cardSurface,
         shape: cardShape,
         shadows: boxShadow,
       ),
@@ -490,7 +459,7 @@ class MetricText extends StatelessWidget {
               Text(
                 value,
                 style: AppTextStyles.metric.copyWith(
-                  color: color ?? colors.textPrimary,
+                  color: color ?? colors.displayPrimary,
                 ),
               ),
               if (unit != null) ...[
@@ -498,7 +467,7 @@ class MetricText extends StatelessWidget {
                 Text(
                   unit!,
                   style: AppTextStyles.sectionTitle.copyWith(
-                    color: colors.lime,
+                    color: colors.displayPrimary,
                   ),
                 ),
               ],
@@ -666,10 +635,10 @@ class PrimaryButton extends StatelessWidget {
       label: Text(label),
       style: FilledButton.styleFrom(
         minimumSize: const Size(44, 56),
-        backgroundColor: backgroundColor ?? colors.lime,
+        backgroundColor: backgroundColor ?? colors.actionFill,
         foregroundColor:
             foregroundColor ??
-            (backgroundColor == null || backgroundColor == colors.lime
+            (backgroundColor == null || backgroundColor == colors.actionFill
                 ? colors.onPrimary
                 : colors.cardText),
         shape: AppShapes.large,

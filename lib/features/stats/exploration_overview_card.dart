@@ -24,7 +24,6 @@ class ExplorationOverviewCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final strings = context.strings;
     final colors = context.appColors;
-    final light = Theme.of(context).brightness == Brightness.light;
     final worldProgress = (worldCount / 195).clamp(0.0, 1.0).toDouble();
     final chinaProgress = (chinaCount / 34).clamp(0.0, 1.0).toDouble();
     return RankingExpansionCard(
@@ -44,7 +43,7 @@ class ExplorationOverviewCard extends StatelessWidget {
       pageBuilder: pageBuilder,
       overviewBuilder: (context, onTap) => SurfaceCard(
         padding: const EdgeInsets.fromLTRB(22, 20, 22, 12),
-        color: light ? colors.cardBlue : colors.surfaceElevated,
+        color: colors.cardSurface,
         borderRadius: AppRadii.large,
         boxShadow: boxShadow,
         onTap: onTap,
@@ -59,6 +58,7 @@ class ExplorationOverviewCard extends StatelessWidget {
               total: 195,
               progress: worldProgress,
               color: colors.lime,
+              fillColor: colors.actionFill,
               detail: strings.t('visitedCountriesAndRegions'),
             ),
             const SizedBox(height: AppSpacing.lg),
@@ -68,7 +68,7 @@ class ExplorationOverviewCard extends StatelessWidget {
               count: chinaCount,
               total: 34,
               progress: chinaProgress,
-              color: light ? colors.lime : colors.purple,
+              color: colors.displaySecondary,
               detail: strings.t('visitedRegions'),
             ),
             const SizedBox(height: AppSpacing.xs),
@@ -100,6 +100,7 @@ class _ProgressSection extends StatelessWidget {
     required this.total,
     required this.progress,
     required this.color,
+    this.fillColor,
     required this.detail,
   });
 
@@ -109,6 +110,7 @@ class _ProgressSection extends StatelessWidget {
   final int total;
   final double progress;
   final Color color;
+  final Color? fillColor;
   final String detail;
 
   @override
@@ -209,8 +211,10 @@ class _ProgressSection extends StatelessWidget {
               key: ValueKey('$section-progress'),
               value: progress,
               borderRadius: AppRadii.pill,
-              backgroundColor: colors.background.withValues(alpha: .72),
-              valueColor: AlwaysStoppedAnimation<Color>(color),
+              backgroundColor: Theme.of(context).brightness == Brightness.light
+                  ? Color.lerp(colors.border, colors.cardSurface, .28)
+                  : colors.background.withValues(alpha: .72),
+              valueColor: AlwaysStoppedAnimation<Color>(fillColor ?? color),
             ),
           ),
         ),

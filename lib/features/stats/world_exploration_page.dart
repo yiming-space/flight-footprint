@@ -8,7 +8,11 @@ import '../../domain/airport.dart';
 import '../../domain/flight.dart';
 import '../../domain/visited_place.dart';
 import '../../ui/theme/app_theme.dart';
+import '../../ui/widgets/app_page_background.dart';
 import 'exploration_passport.dart';
+import 'personal_travel_summary.dart';
+import 'personal_travel_card.dart';
+import '../flights/flight_card.dart';
 import 'world_exploration.dart';
 
 class WorldExplorationPage extends StatefulWidget {
@@ -18,12 +22,14 @@ class WorldExplorationPage extends StatefulWidget {
     required this.flights,
     required this.visitedPlaces,
     required this.worldCount,
+    this.memoryYear,
   });
 
   final AppController controller;
   final List<Flight> flights;
   final List<VisitedPlace> visitedPlaces;
   final int worldCount;
+  final int? memoryYear;
 
   @override
   State<WorldExplorationPage> createState() => _WorldExplorationPageState();
@@ -85,33 +91,54 @@ class _WorldExplorationPageState extends State<WorldExplorationPage> {
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.appColors;
     final places = buildExplorationPlaces(
       flights: widget.flights,
       visitedPlaces: widget.visitedPlaces,
       airportFor: widget.controller.airportFor,
       isZh: context.strings.isZh,
     );
-    return Scaffold(
-      backgroundColor: colors.background,
-      appBar: AppBar(
-        title: Text(context.strings.t('worldExplorer')),
-        backgroundColor: colors.background,
-        surfaceTintColor: Colors.transparent,
-        scrolledUnderElevation: 0,
-      ),
-      body: SafeArea(
-        top: false,
-        child: Align(
-          alignment: Alignment.topCenter,
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 720),
-            child: ExplorationPassport(
-              places: places,
-              worldCount: widget.worldCount,
-              home: _homeAirport,
-              homeLoaded: _homeAirportLoaded,
-              onChooseHome: _chooseHomeAirport,
+    final memories = buildPersonalTravelSummary(
+      widget.flights,
+      year: widget.memoryYear ?? DateTime.now().year,
+      airportFor: widget.controller.airportFor,
+      cityNameFor: (airport) =>
+          context.strings.isZh ? localizedAirportCity(airport) : airport.city,
+    );
+    return AppPageBackground(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: AppBar(
+          title: Text(context.strings.t('worldExplorer')),
+          backgroundColor: Colors.transparent,
+          surfaceTintColor: Colors.transparent,
+          scrolledUnderElevation: 0,
+        ),
+        body: SafeArea(
+          top: false,
+          child: Align(
+            alignment: Alignment.topCenter,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 720),
+              child: ExplorationPassport(
+                places: places,
+                worldCount: widget.worldCount,
+                home: _homeAirport,
+                homeLoaded: _homeAirportLoaded,
+                onChooseHome: _chooseHomeAirport,
+                memorySummary: memories,
+                onMemorySelected: (kind) => Navigator.of(context).push<void>(
+                  MaterialPageRoute<void>(
+                    builder: (_) => PersonalTravelDetailPage(
+                      summary: memories,
+                      kind: kind,
+                      flightBuilder: (context, flight) => FlightCard(
+                        flight: flight,
+                        controller: widget.controller,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
             ),
           ),
         ),

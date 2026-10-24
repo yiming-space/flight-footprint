@@ -38,24 +38,29 @@ Map<String, dynamic> buildDetailMapStyle(
   required Map<String, dynamic> points,
   required Map<String, dynamic> routes,
   required Map<String, dynamic> location,
+  bool showRouteArrows = false,
   Map<String, dynamic> regions = emptyDetailFootprint,
   Map<String, dynamic> selectedRoute = emptyDetailFootprint,
 }) {
   final colors = light ? AppThemeColors.light : AppThemeColors.dark;
-  final land = detailMapColor(
-    light ? colors.surface : AppColors.detailMapNightLand,
-  );
+  const lightLand = Color(0xfff3f8fc);
+  const lightLandcover = Color(0xffe3eef6);
+  const lightLabel = Color(0xff1b3346);
+  const lightBoundary = Color(0xffb7cad9);
+  const lightRoad = Color(0xffa9cfe8);
+  final lightNode = AppColors.mapMarkerLight;
+  final land = detailMapColor(light ? lightLand : AppColors.detailMapNightLand);
   final water = detailMapColor(
-    light ? colors.iceTint : AppColors.detailMapNightWater,
+    light ? AppColors.detailMapLightWater : AppColors.detailMapNightWater,
   );
   final landcover = detailMapColor(
-    light ? colors.surfaceElevated : AppColors.detailMapNightLandcover,
+    light ? lightLandcover : AppColors.detailMapNightLandcover,
   );
   final muted = detailMapColor(
-    light ? colors.textSecondary : AppColors.detailMapNightLabel,
+    light ? lightLabel : AppColors.detailMapNightLabel,
   );
   final edge = detailMapColor(
-    light ? colors.border : AppColors.detailMapNightBoundary,
+    light ? lightBoundary : AppColors.detailMapNightBoundary,
   );
   final layers = <Map<String, dynamic>>[];
   for (final raw in base['layers'] as List) {
@@ -75,11 +80,15 @@ Map<String, dynamic> buildDetailMapStyle(
       }
     }
     if (layer['type'] == 'line') {
-      paint['line-color'] = source == 'waterway' ? water : edge;
+      paint['line-color'] = source == 'waterway' && light
+          ? detailMapColor(lightRoad)
+          : source == 'waterway'
+          ? water
+          : edge;
       if (source == 'transportation') {
         layer['minzoom'] = ((layer['minzoom'] as num?) ?? 0).clamp(7, 24);
         paint['line-color'] = light
-            ? edge
+            ? detailMapColor(lightRoad)
             : detailMapColor(AppColors.detailMapNightRoad);
         paint['line-opacity'] = light ? .65 : .75;
       } else if (!light && source == 'boundary') {
@@ -184,7 +193,7 @@ Map<String, dynamic> buildDetailMapStyle(
       'layout': {'line-cap': 'round', 'line-join': 'round'},
       'paint': {
         'line-color': detailMapColor(
-          light ? AppColors.routePurpleLight : AppColors.routePurple,
+          light ? colors.displaySecondary : AppColors.routePurple,
         ),
         'line-width': [
           'interpolate',
@@ -207,6 +216,35 @@ Map<String, dynamic> buildDetailMapStyle(
         'line-opacity': light ? .9 : .62,
       },
     },
+    if (showRouteArrows)
+      {
+        'id': 'ff-route-arrows',
+        'type': 'symbol',
+        'source': 'ff-routes',
+        'layout': {
+          'symbol-placement': 'line-center',
+          'icon-image': 'ff-route-arrow',
+          'icon-size': [
+            'interpolate',
+            ['linear'],
+            ['zoom'],
+            0,
+            .207,
+            2,
+            .253,
+            5,
+            .345,
+            12,
+            .437,
+          ],
+          'icon-rotation-alignment': 'map',
+          'icon-keep-upright': false,
+          'icon-allow-overlap': true,
+          'icon-ignore-placement': true,
+          'icon-padding': 0,
+        },
+        'paint': {'icon-opacity': 1},
+      },
     {
       'id': 'ff-route-selection',
       'type': 'line',
@@ -214,7 +252,7 @@ Map<String, dynamic> buildDetailMapStyle(
       'layout': {'line-cap': 'round', 'line-join': 'round'},
       'paint': {
         'line-color': detailMapColor(
-          light ? AppColors.routePurpleLight : AppColors.routePurple,
+          light ? colors.displaySecondary : AppColors.routePurple,
         ),
         'line-width': 2.05,
         'line-offset': [
@@ -230,7 +268,9 @@ Map<String, dynamic> buildDetailMapStyle(
       'type': 'circle',
       'source': 'ff-points',
       'paint': {
-        'circle-color': detailMapColor(colors.lime),
+        'circle-color': light
+            ? detailMapColor(lightNode)
+            : detailMapColor(colors.lime),
         'circle-radius': [
           'interpolate',
           ['linear'],
@@ -267,7 +307,9 @@ Map<String, dynamic> buildDetailMapStyle(
         'text-anchor': 'top',
       },
       'paint': {
-        'text-color': detailMapColor(colors.textPrimary),
+        'text-color': light
+            ? detailMapColor(lightLabel)
+            : detailMapColor(colors.textPrimary),
         'text-halo-color': land,
         'text-halo-width': 1.5,
       },
@@ -277,7 +319,7 @@ Map<String, dynamic> buildDetailMapStyle(
       'type': 'circle',
       'source': 'ff-location',
       'paint': {
-        'circle-color': '#B69CFF',
+        'circle-color': light ? '#347CA7' : '#B69CFF',
         'circle-radius': 6,
         'circle-stroke-width': 2.5,
         'circle-stroke-color': '#FFFFFF',

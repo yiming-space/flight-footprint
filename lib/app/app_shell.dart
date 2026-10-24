@@ -1,15 +1,13 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:math' as math;
-import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
-import 'package:flutter/physics.dart';
 import 'package:flutter/services.dart';
 
 import '../core/localization/app_strings.dart';
 import '../data/app_update_service.dart';
 import '../features/add_flight/add_flight_page.dart';
+import '../features/add_flight/flight_entry_sheet.dart';
 import '../features/flights/flights_page.dart';
 import '../features/home/home_page.dart';
 import '../features/map/add_visited_place_sheet.dart';
@@ -17,6 +15,8 @@ import '../features/map/map_models.dart';
 import '../features/profile/profile_page.dart';
 import '../features/stats/stats_page.dart';
 import '../ui/theme/app_theme.dart';
+import '../ui/widgets/app_page_background.dart';
+import '../ui/widgets/frosted_glass_surface.dart';
 import 'app_controller.dart';
 
 class AppShell extends StatefulWidget {
@@ -77,12 +77,58 @@ class _AppShellState extends State<AppShell>
     super.dispose();
   }
 
-  void _openAdd() {
+  Future<void> _openAdd([FlightEntryMethod? method]) async {
     unawaited(_playAddAnimation());
-    if (_index == 0 && _homeMapMode == MapMode.travelFootprint) {
-      unawaited(_openAddPlace());
+    if (method == null &&
+        _index == 0 &&
+        _homeMapMode == MapMode.travelFootprint) {
+      await _openAddPlace();
       return;
     }
+    if (method == FlightEntryMethod.manual) {
+      _openManualFlight();
+      return;
+    }
+    final FlightEntryResult? result;
+    if (_isDesktopWindow(context)) {
+      result = await showDialog<FlightEntryResult>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => Dialog(
+          backgroundColor: Colors.transparent,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 480),
+            child: FlightEntrySheet(
+              controller: widget.controller,
+              initialMethod: method,
+            ),
+          ),
+        ),
+      );
+    } else {
+      result = await showModalBottomSheet<FlightEntryResult>(
+        context: context,
+        isScrollControlled: true,
+        useSafeArea: true,
+        requestFocus: false,
+        isDismissible: false,
+        enableDrag: false,
+        backgroundColor: Colors.transparent,
+        builder: (_) => FlightEntrySheet(
+          controller: widget.controller,
+          initialMethod: method,
+        ),
+      );
+    }
+    if (!mounted) return;
+    if (result == FlightEntryResult.manual) {
+      _openManualFlight();
+    } else if (result == FlightEntryResult.imported) {
+      setState(() => _index = 1);
+    }
+  }
+
+  void _openManualFlight() {
     if (_isDesktopWindow(context)) {
       showDialog<void>(
         context: context,
@@ -219,8 +265,13 @@ class _AppShellState extends State<AppShell>
         controller: widget.controller,
         isActive: _index == 0,
         onMapModeChanged: _setHomeMapMode,
+        onRecord: _openAdd,
       ),
-      FlightsPage(controller: widget.controller, onAdd: _openAdd),
+      FlightsPage(
+        controller: widget.controller,
+        onAdd: _openAdd,
+        onRecord: _openAdd,
+      ),
       StatsPage(controller: widget.controller),
       ProfilePage(
         controller: widget.controller,
@@ -251,6 +302,7 @@ class _AppShellState extends State<AppShell>
               addLabel: addLabel,
             )
           : Scaffold(
+              backgroundColor: Colors.transparent,
               // The modal sheet owns IME avoidance through its viewInsets-aware
               // padding. Keeping the underlying shell fixed prevents the entire
               // page stack and its map from relayouting during the keyboard slide.
@@ -262,6 +314,7 @@ class _AppShellState extends State<AppShell>
               body: Stack(
                 fit: StackFit.expand,
                 children: [
+                  const AppPageBackground(),
                   // Keep the IndexedStack viewport stable across tab
                   // changes. Applying the top inset to the whole stack made
                   // the home map change height when returning from another
@@ -360,46 +413,49 @@ class _DesktopWorkspace extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = context.appColors;
     return Scaffold(
+      backgroundColor: Colors.transparent,
       resizeToAvoidBottomInset: false,
-      body: SafeArea(
-        minimum: const EdgeInsets.all(16),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            _DesktopSidebar(
-              index: index,
-              labels: labels,
-              addAnimation: addAnimation,
-              onChanged: onChanged,
-              onAdd: onAdd,
-              addLabel: addLabel,
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: DecoratedBox(
-                decoration: ShapeDecoration(
-                  color: colors.background,
-                  shape: RoundedSuperellipseBorder(
-                    borderRadius: AppRadii.large,
-                    side: BorderSide(
-                      color: colors.border.withValues(alpha: .35),
-                    ),
-                  ),
-                ),
-                child: Column(
-                  children: [
-                    _DesktopHeader(title: labels[index]),
-                    Expanded(
-                      child: ClipRRect(
-                        borderRadius: AppRadii.large,
-                        child: IndexedStack(index: index, children: pages),
+      body: AppPageBackground(
+        child: SafeArea(
+          minimum: const EdgeInsets.all(16),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _DesktopSidebar(
+                index: index,
+                labels: labels,
+                addAnimation: addAnimation,
+                onChanged: onChanged,
+                onAdd: onAdd,
+                addLabel: addLabel,
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: DecoratedBox(
+                  decoration: ShapeDecoration(
+                    color: Colors.transparent,
+                    shape: RoundedSuperellipseBorder(
+                      borderRadius: AppRadii.large,
+                      side: BorderSide(
+                        color: colors.border.withValues(alpha: .35),
                       ),
                     ),
-                  ],
+                  ),
+                  child: Column(
+                    children: [
+                      _DesktopHeader(title: labels[index]),
+                      Expanded(
+                        child: ClipRRect(
+                          borderRadius: AppRadii.large,
+                          child: IndexedStack(index: index, children: pages),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -466,7 +522,7 @@ class _DesktopSidebar extends StatelessWidget {
                       width: 38,
                       height: 38,
                       decoration: BoxDecoration(
-                        color: colors.lime,
+                        color: colors.actionFill,
                         shape: BoxShape.circle,
                       ),
                       child: Icon(
@@ -533,7 +589,9 @@ class _DesktopNavItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
-    final foreground = selected ? colors.lime : colors.textSecondary;
+    final foreground = selected
+        ? colors.navigationSelected
+        : colors.navigationUnselected;
     return Semantics(
       button: true,
       selected: selected,
@@ -545,9 +603,7 @@ class _DesktopNavItem extends StatelessWidget {
               ? Duration.zero
               : AppMotion.control,
           decoration: ShapeDecoration(
-            color: selected
-                ? colors.lime.withValues(alpha: .14)
-                : Colors.transparent,
+            color: Colors.transparent,
             shape: AppShapes.small,
           ),
           child: Material(
@@ -597,7 +653,7 @@ class _DesktopAddButton extends StatelessWidget {
     return MouseRegion(
       cursor: SystemMouseCursors.click,
       child: Material(
-        color: colors.lime,
+        color: colors.actionFill,
         shape: AppShapes.medium,
         clipBehavior: Clip.antiAlias,
         child: InkWell(
@@ -706,67 +762,10 @@ class _BottomBar extends StatefulWidget {
   State<_BottomBar> createState() => _BottomBarState();
 }
 
-class _BottomBarState extends State<_BottomBar>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _selectionAnimation;
-  var _selectionStart = 0.0;
-  var _selectionTarget = 0.0;
-
-  @override
-  void initState() {
-    super.initState();
-    final initialSlot = _slotForIndex(widget.index).toDouble();
-    _selectionStart = initialSlot;
-    _selectionTarget = initialSlot;
-    _selectionAnimation = AnimationController.unbounded(
-      vsync: this,
-      value: initialSlot,
-    );
-  }
-
-  @override
-  void didUpdateWidget(covariant _BottomBar oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.index == widget.index) return;
-
-    final target = _slotForIndex(widget.index).toDouble();
-    _selectionStart = _selectionAnimation.value;
-    _selectionTarget = target;
-    if (MediaQuery.disableAnimationsOf(context)) {
-      _selectionAnimation.value = target;
-      return;
-    }
-
-    final spring = SpringDescription.withDurationAndBounce(
-      duration: const Duration(milliseconds: 300),
-      bounce: 0,
-    );
-    unawaited(
-      _selectionAnimation.animateWith(
-        SpringSimulation(
-          spring,
-          _selectionAnimation.value,
-          target,
-          _selectionAnimation.velocity,
-        ),
-      ),
-    );
-  }
-
-  @override
-  void dispose() {
-    _selectionAnimation.dispose();
-    super.dispose();
-  }
-
+class _BottomBarState extends State<_BottomBar> {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
-    final isLight = Theme.of(context).brightness == Brightness.light;
-    final glassColor = isLight
-        ? colors.surfaceElevated
-        : colors.surface.withValues(alpha: .86);
-    final glassShadow = Colors.black.withValues(alpha: isLight ? .14 : .28);
     const icons = [
       Icons.home_rounded,
       Icons.flight_rounded,
@@ -788,84 +787,45 @@ class _BottomBarState extends State<_BottomBar>
         AppSpacing.page,
         AppSpacing.bottomBarBottomMinimum,
       ),
-      child: SizedBox(
-        height: AppSpacing.bottomBarHeight,
-        child: ClipPath(
-          clipper: ShapeBorderClipper(shape: glassShape),
-          child: BackdropFilter(
-            filter: ui.ImageFilter.blur(
-              sigmaX: isLight ? 24 : 20,
-              sigmaY: isLight ? 24 : 20,
-            ),
-            child: DecoratedBox(
-              decoration: ShapeDecoration(
-                // A translucent material lets the page remain present beneath
-                // the bar while the blur keeps labels readable over maps/cards.
-                color: glassColor,
-                shape: glassShape,
-                shadows: [
-                  BoxShadow(
-                    color: glassShadow,
-                    blurRadius: 24,
-                    offset: const Offset(0, 10),
-                  ),
-                ],
-              ),
-              child: Stack(
-                children: [
-                  Positioned.fill(
-                    child: IgnorePointer(
-                      child: DecoratedBox(
-                        decoration: ShapeDecoration(
-                          gradient: LinearGradient(
-                            begin: Alignment.topCenter,
-                            end: Alignment.bottomCenter,
-                            colors: [
-                              Colors.white.withValues(
-                                alpha: isLight ? .16 : .10,
-                              ),
-                              Colors.white.withValues(
-                                alpha: isLight ? .06 : .025,
-                              ),
-                              Colors.transparent,
-                            ],
-                            stops: const [0, .24, 1],
-                          ),
-                          shape: glassShape,
-                        ),
-                      ),
-                    ),
-                  ),
-                  _liquidSelection(),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 8),
-                    child: Row(
-                      children: [
-                        _item(0, icons[0]),
-                        _item(1, icons[1]),
-                        Expanded(
-                          child: Center(
-                            child: ScaleTransition(
-                              scale: widget.addAnimation,
-                              child: SizedBox.square(
-                                dimension: 64,
-                                child: Semantics(
-                                  button: true,
-                                  label: widget.addLabel,
-                                  child: Material(
-                                    color: colors.lime,
-                                    shape: const CircleBorder(),
-                                    clipBehavior: Clip.antiAlias,
-                                    child: InkWell(
-                                      onTap: widget.onAdd,
-                                      customBorder: const CircleBorder(),
-                                      child: Center(
-                                        child: Icon(
-                                          Icons.add_rounded,
-                                          size: 34,
-                                          color: colors.onPrimary,
-                                        ),
-                                      ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final barSize = Size(
+            constraints.maxWidth,
+            AppSpacing.bottomBarHeight,
+          );
+          return SizedBox(
+            height: barSize.height,
+            child: FrostedGlassSurface(
+              shape: glassShape,
+              edgeThickness: 2,
+              adaptiveContrast: true,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                child: Row(
+                  children: [
+                    _item(0, icons[0]),
+                    _item(1, icons[1]),
+                    Expanded(
+                      child: Center(
+                        child: ScaleTransition(
+                          scale: widget.addAnimation,
+                          child: SizedBox.square(
+                            dimension: 64,
+                            child: Semantics(
+                              button: true,
+                              label: widget.addLabel,
+                              child: Material(
+                                color: colors.actionFill,
+                                shape: const CircleBorder(),
+                                clipBehavior: Clip.antiAlias,
+                                child: InkWell(
+                                  onTap: widget.onAdd,
+                                  customBorder: const CircleBorder(),
+                                  child: Center(
+                                    child: Icon(
+                                      Icons.add_rounded,
+                                      size: 34,
+                                      color: colors.onPrimary,
                                     ),
                                   ),
                                 ),
@@ -873,127 +833,26 @@ class _BottomBarState extends State<_BottomBar>
                             ),
                           ),
                         ),
-                        _item(2, icons[2]),
-                        _item(3, icons[3]),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _liquidSelection() {
-    final colors = context.appColors;
-    final isLight = Theme.of(context).brightness == Brightness.light;
-    return Positioned.fill(
-      child: IgnorePointer(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              final slotWidth = (constraints.maxWidth - 16) / 5;
-              final baseWidth = math.max(0.0, slotWidth - 6);
-              final shape = RoundedSuperellipseBorder(
-                borderRadius: BorderRadius.circular(26),
-                side: BorderSide.none,
-              );
-
-              return AnimatedBuilder(
-                animation: _selectionAnimation,
-                builder: (context, child) {
-                  final travel = _selectionTarget - _selectionStart;
-                  final progress = travel.abs() < .001
-                      ? 1.0
-                      : ((_selectionAnimation.value - _selectionStart) / travel)
-                            .clamp(0.0, 1.0)
-                            .toDouble();
-                  // Stretch from the middle of the route, not from the raw
-                  // spring velocity. This keeps the blob's edge motion
-                  // continuous when the user quickly changes destinations.
-                  final stretch = math.sin(progress * math.pi) * 10;
-                  final scaleX = baseWidth <= 0 ? 1.0 : 1 + stretch / baseWidth;
-                  final left =
-                      8 +
-                      _selectionAnimation.value * slotWidth +
-                      3 -
-                      stretch / 2;
-                  return Align(
-                    alignment: Alignment.centerLeft,
-                    child: Transform.translate(
-                      offset: Offset(left, 0),
-                      child: Transform.scale(
-                        alignment: Alignment.center,
-                        scaleX: scaleX,
-                        child: SizedBox(
-                          width: baseWidth,
-                          height: constraints.maxHeight,
-                          child: child,
-                        ),
                       ),
                     ),
-                  );
-                },
-                child: DecoratedBox(
-                  decoration: ShapeDecoration(
-                    color: isLight
-                        ? Color.lerp(colors.iceTint, colors.textPrimary, .06)
-                        : null,
-                    gradient: isLight
-                        ? null
-                        : LinearGradient(
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                            colors: [
-                              colors.lime.withValues(
-                                alpha: isLight ? .25 : .22,
-                              ),
-                              colors.lime.withValues(
-                                alpha: isLight ? .10 : .11,
-                              ),
-                              colors.lime.withValues(
-                                alpha: isLight ? .18 : .16,
-                              ),
-                            ],
-                          ),
-                    shape: shape,
-                    shadows: isLight
-                        ? const []
-                        : [
-                            BoxShadow(
-                              color: colors.lime.withValues(
-                                alpha: isLight ? .10 : .08,
-                              ),
-                              blurRadius: 18,
-                              spreadRadius: 1,
-                            ),
-                          ],
-                  ),
+                    _item(2, icons[2]),
+                    _item(3, icons[3]),
+                  ],
                 ),
-              );
-            },
-          ),
-        ),
+              ),
+            ),
+          );
+        },
       ),
     );
   }
 
   Widget _item(int value, IconData icon) {
     final colors = context.appColors;
-    final isLight = Theme.of(context).brightness == Brightness.light;
     final selected = value == widget.index;
     final reduceMotion = MediaQuery.disableAnimationsOf(context);
-    final inactiveColor = isLight ? colors.textSecondary : colors.textTertiary;
-    final selectedColor = colors.lime;
-    final style = TextStyle(
-      fontSize: 11,
-      fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-      color: selected ? selectedColor : inactiveColor,
-    );
+    final inactiveColor = colors.navigationUnselected;
+    final selectedColor = colors.navigationSelected;
     return Expanded(
       child: InkWell(
         onTap: () => widget.onChanged(value),
@@ -1032,13 +891,13 @@ class _BottomBarState extends State<_BottomBar>
                   ),
                 ),
                 const SizedBox(height: 4),
-                AnimatedDefaultTextStyle(
-                  duration: reduceMotion
-                      ? Duration.zero
-                      : const Duration(milliseconds: 180),
-                  curve: Curves.easeOutCubic,
-                  style: style,
-                  child: Text(widget.labels[value]),
+                Text(
+                  widget.labels[value],
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w500,
+                    color: selected ? selectedColor : inactiveColor,
+                  ),
                 ),
               ],
             ),
@@ -1047,6 +906,4 @@ class _BottomBarState extends State<_BottomBar>
       ),
     );
   }
-
-  static int _slotForIndex(int value) => value < 2 ? value : value + 1;
 }

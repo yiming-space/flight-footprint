@@ -1,9 +1,9 @@
 {
-  "version": "1.4.0",
-  "build": 17,
-  "releaseUrl": "https://github.com/yiming-space/flight-footprint/releases/tag/v1.4.0",
-  "apkUrl": "https://github.com/yiming-space/flight-footprint/releases/download/v1.4.0/app-release.apk",
-  "apkSize": 127066502,
-  "apkSha256": "cef6e6b37d10c67c4b43c2cb7b5918c00a680965046c071305511903cd8b98dd",
-  "notes": "详细地图与探索升级：足迹板块点亮、往返左右弧线、自适应标点；新增最远足迹纪念卡与解锁大洲。机型补充8张家族代表图，城市和国家统计合并飞行与足迹，航班到达后再归档。首页自动检查更新，优化低次数航司胶囊及统计翻牌。正式版继续关闭实验实时机型查询。"
+  "version": "1.5.0",
+  "build": 18,
+  "releaseUrl": "https://github.com/yiming-space/flight-footprint/releases/tag/v1.5.0",
+  "apkUrl": "https://github.com/yiming-space/flight-footprint/releases/download/v1.5.0/app-release.apk",
+  "apkSize": 134383420,
+  "apkSha256": "56df0b2bc8b32535ee632a5eaafecf6e5e8d7c60ad70634bd4f24c090568391a",
+  "notes": "新版冰川蓝与雾紫主题、厚磨砂玻璃导航与飞行护照；探索世界四张记忆卡支持循环切换，优化机型插画与卡片排版。首页和全屏地图增加随缩放调整的实色航线箭头，暗色足迹板块使用雾紫色。优化机场当地时间、夏令时处理与跨时区年度统计。正式包保留常规航班补全和手动填写。"
 }

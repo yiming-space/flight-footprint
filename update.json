@@ -1,9 +1,9 @@
 {
-  "version": "1.6.0",
-  "build": 19,
-  "releaseUrl": "https://github.com/yiming-space/flight-footprint/releases/tag/v1.6.0",
-  "apkUrl": "https://github.com/yiming-space/flight-footprint/releases/download/v1.6.0/app-release.apk",
-  "apkSize": 285293228,
-  "apkSha256": "378445707f43bf05f1cf2fe33efefdb7c3ec847d050c545004b6dc6089bb91b7",
-  "notes": "新增航班截图本地识别、批量核对与日历航班确认；优化足迹、中转记录、城市统计、相册去重及探索世界体验。"
+  "version": "1.6.1",
+  "build": 20,
+  "releaseUrl": "https://github.com/yiming-space/flight-footprint/releases/tag/v1.6.1",
+  "apkUrl": "https://github.com/yiming-space/flight-footprint/releases/download/v1.6.1/app-release.apk",
+  "apkSize": 147184556,
+  "apkSha256": "7f8f3dd20e76d3ac58eac2a30fb2efe2eb66297e6643d95f270143036fbbf577",
+  "notes": "压缩通用 Android 安装包，减小下载体积。保留截图识别、日历航班确认及旅行足迹优化。"
 }

@@ -503,6 +503,50 @@ class _ProfilePageState extends State<ProfilePage>
             ),
             const _ProfileGroupDivider(),
             _ProfileActionTile(
+              title: s.isZh ? '中转抵达计入到访' : 'Count transfer arrivals as visits',
+              subtitle: s.isZh ? '关闭后不计中转抵达' : 'Exclude transfer arrivals when off',
+              value: controller.countTransitArrivals
+                  ? (s.isZh ? '开启' : 'On')
+                  : (s.isZh ? '关闭' : 'Off'),
+              icon: Icons.connecting_airports_rounded,
+              color: colors.lime,
+              backgroundColor: Colors.transparent,
+              textColor: textColor,
+              secondaryTextColor: secondaryColor,
+              wide: true,
+              onTap: () => controller.setCountTransitArrivals(
+                !controller.countTransitArrivals,
+              ),
+            ),
+            const _ProfileGroupDivider(),
+            Material(
+              color: Colors.transparent,
+              child: SwitchListTile.adaptive(
+                contentPadding: const EdgeInsets.symmetric(horizontal: 14),
+                secondary: _IconTile(
+                  icon: Icons.calendar_month_rounded,
+                  color: colors.purple,
+                ),
+                title: Text(
+                  s.t('calendarAutoImport'),
+                  style: AppTextStyles.body.copyWith(
+                    color: textColor,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                subtitle: Text(
+                  s.t('calendarAutoImportHint'),
+                  style: AppTextStyles.label.copyWith(color: secondaryColor),
+                ),
+                value: controller.calendarAutoImportEnabled,
+                onChanged: (value) async {
+                  await controller.setCalendarAutoImportEnabled(value);
+                  if (mounted) setState(() {});
+                },
+              ),
+            ),
+            const _ProfileGroupDivider(),
+            _ProfileActionTile(
               title: s.t('feedbackTitle'),
               subtitle: s.t('feedbackEntryHint'),
               icon: Icons.chat_bubble_outline_rounded,
@@ -1619,7 +1663,7 @@ class _ProfileActionTile extends StatelessWidget {
                       const SizedBox(height: 2),
                       Text(
                         subtitle!,
-                        maxLines: 1,
+                        maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: AppTextStyles.label.copyWith(
                           color: resolvedSecondaryTextColor,

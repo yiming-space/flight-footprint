@@ -332,10 +332,10 @@ class CloudSyncService extends ChangeNotifier {
       // Export only the local database. Do not pull the remote snapshot here:
       // importBackup is a merge API and would re-introduce the duplicate-row
       // bug this action is designed to avoid.
-      // Re-encode through the portable codec so a cloud write can contain only
-      // the two user-owned datasets: flights (including their track points)
-      // and visited places. Derived statistics and UI cache fields never enter
-      // the cloud snapshot.
+      // Re-encode through the portable codec so a cloud write carries user
+      // records (including explicit transit-arrival annotations), saved places,
+      // and the transit-count preference. Derived statistics and UI caches do
+      // not enter the cloud snapshot.
       final localBackup = BackupCodec.decode(await repository.exportBackup());
       final localSnapshot = jsonDecode(BackupCodec.encode(localBackup));
       final result = await _request(

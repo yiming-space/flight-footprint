@@ -29,6 +29,7 @@ class _Controller extends ChangeNotifier implements AppController {
   Future<CalendarImportResult> scanCalendarFlights({
     DateTime? start,
     DateTime? end,
+    bool allowPermissionRequest = true,
   }) async {
     scans++;
     return pendingScan?.future ?? result;

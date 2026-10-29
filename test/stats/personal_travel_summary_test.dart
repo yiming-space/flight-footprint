@@ -1,5 +1,6 @@
 import 'package:flight_footprint/domain/airport.dart';
 import 'package:flight_footprint/domain/flight.dart';
+import 'package:flight_footprint/domain/transfer_decision.dart';
 import 'package:flight_footprint/features/stats/personal_travel_summary.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -79,6 +80,51 @@ void main() {
       2,
     );
     expect(_summary([flight, repeatedRoute], year: 2025).frequentRoute, isNull);
+  });
+
+  test('confirmed transfer endpoints do not create a new city memory', () {
+    final inbound = _flight(
+      'inbound',
+      from: 'PVG',
+      to: 'SIN',
+      date: DateTime(2026, 5, 1, 8),
+      arrival: DateTime(2026, 5, 1, 11),
+    );
+    final outbound = _flight(
+      'outbound',
+      from: 'SIN',
+      to: 'PEK',
+      date: DateTime(2026, 5, 1, 13),
+      arrival: DateTime(2026, 5, 1, 19),
+    );
+    final repeatedInbound = _flight(
+      'inbound-repeat',
+      from: 'PVG',
+      to: 'SIN',
+      date: DateTime(2026, 5, 8, 8),
+      arrival: DateTime(2026, 5, 8, 11),
+    ).copyWith(isTransitArrival: true);
+    final decision = TransferDecision.fromFlights(
+      inbound: inbound,
+      outbound: outbound,
+      status: TransferDecisionStatus.confirmed,
+      decidedAt: DateTime(2026, 5, 1, 12),
+    );
+    final result = buildPersonalTravelSummary(
+      [inbound, outbound, repeatedInbound],
+      year: 2026,
+      airportFor: (code) => _airports[code],
+      cityNameFor: (airport) => airport.city,
+      includeTransitArrivals: false,
+      confirmedTransfers: [decision],
+    );
+
+    expect(result.newCities.map((city) => city.name), ['Beijing']);
+    // A single recorded leg is below the existing frequent-route threshold.
+    // The repeated inbound proves the confirmed transfer endpoint is removed
+    // by flight ID and endpoint, not by deleting that route from the summary.
+    expect(result.frequentRoute?.count, 2);
+    expect(result.frequentRoute?.flights, contains(repeatedInbound));
   });
 
   test(

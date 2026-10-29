@@ -4,6 +4,7 @@ import '../../app/app_controller.dart';
 import '../../core/localization/app_strings.dart';
 import '../../data/airport_catalog.dart';
 import '../../data/airport_localization.dart';
+import '../../data/city_catalog.dart';
 import '../../domain/airport.dart';
 import '../../domain/flight.dart';
 import '../../domain/visited_place.dart';
@@ -22,14 +23,18 @@ class WorldExplorationPage extends StatefulWidget {
     required this.flights,
     required this.visitedPlaces,
     required this.worldCount,
+    this.cityCatalog,
     this.memoryYear,
+    this.includeTransitArrivals = true,
   });
 
   final AppController controller;
   final List<Flight> flights;
   final List<VisitedPlace> visitedPlaces;
   final int worldCount;
+  final CityCatalog? cityCatalog;
   final int? memoryYear;
+  final bool includeTransitArrivals;
 
   @override
   State<WorldExplorationPage> createState() => _WorldExplorationPageState();
@@ -96,6 +101,8 @@ class _WorldExplorationPageState extends State<WorldExplorationPage> {
       visitedPlaces: widget.visitedPlaces,
       airportFor: widget.controller.airportFor,
       isZh: context.strings.isZh,
+      includeTransitArrivals: widget.includeTransitArrivals,
+      confirmedTransfers: widget.controller.transferDecisions,
     );
     final memories = buildPersonalTravelSummary(
       widget.flights,
@@ -103,6 +110,8 @@ class _WorldExplorationPageState extends State<WorldExplorationPage> {
       airportFor: widget.controller.airportFor,
       cityNameFor: (airport) =>
           context.strings.isZh ? localizedAirportCity(airport) : airport.city,
+      includeTransitArrivals: widget.includeTransitArrivals,
+      confirmedTransfers: widget.controller.transferDecisions,
     );
     return AppPageBackground(
       child: Scaffold(
@@ -125,6 +134,7 @@ class _WorldExplorationPageState extends State<WorldExplorationPage> {
                 home: _homeAirport,
                 homeLoaded: _homeAirportLoaded,
                 onChooseHome: _chooseHomeAirport,
+                cityCatalog: widget.cityCatalog,
                 memorySummary: memories,
                 onMemorySelected: (kind) => Navigator.of(context).push<void>(
                   MaterialPageRoute<void>(

@@ -11,6 +11,10 @@ import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.android.RenderMode
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
+import java.util.concurrent.Executors
+import com.paddle.ocr.PaddleOCR
+import com.paddle.ocr.util.OpenCVUtils
+import kotlinx.coroutines.runBlocking
 
 /**
  * Calendar access stays behind a very small platform channel.  The Flutter
@@ -22,7 +26,12 @@ class MainActivity : FlutterActivity() {
     companion object {
         private const val CALENDAR_CHANNEL = "flight_footprint/calendar"
         private const val UPDATE_CHANNEL = "flight_footprint/update"
+        private const val SCREENSHOT_OCR_CHANNEL = "flight_footprint/screenshot_ocr"
         private const val READ_CALENDAR_REQUEST = 4101
+        private val calendarQueryExecutor = Executors.newSingleThreadExecutor { task ->
+            Thread(task, "calendar-provider-query")
+        }
+        private val screenshotOcrExecutor = Executors.newSingleThreadExecutor()
     }
 
     private var pendingCalendarArguments: Map<*, *>? = null
@@ -36,11 +45,44 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, SCREENSHOT_OCR_CHANNEL)
+            .setMethodCallHandler { call, result ->
+                if (call.method != "recognize") {
+                    result.notImplemented()
+                    return@setMethodCallHandler
+                }
+                if (android.os.Build.VERSION.SDK_INT < 26) {
+                    result.error("unsupported", "Android 8.0 or later is required", null)
+                    return@setMethodCallHandler
+                }
+                val bytes = call.argument<ByteArray>("image")
+                if (bytes == null || bytes.isEmpty() || bytes.size > 20 * 1024 * 1024) {
+                    result.error("invalid_image", "Invalid or oversized image", null)
+                    return@setMethodCallHandler
+                }
+                screenshotOcrExecutor.execute {
+                    try {
+                        val lines = runBlocking {
+                            check(OpenCVUtils.init(applicationContext)) { "OpenCV unavailable" }
+                            val ocr = PaddleOCR.create(applicationContext)
+                            try { ocr.recognize(bytes).results.map { it.text } }
+                            finally { ocr.release() }
+                        }
+                        runOnUiThread { result.success(lines) }
+                    } catch (error: Throwable) {
+                        runOnUiThread { result.error("ocr_failed", "Image recognition failed", null) }
+                    }
+                }
+            }
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
             CALENDAR_CHANNEL,
         ).setMethodCallHandler { call, result ->
             when (call.method) {
+                "hasReadPermission" -> result.success(
+                    checkSelfPermission(Manifest.permission.READ_CALENDAR) ==
+                        PackageManager.PERMISSION_GRANTED,
+                )
                 "queryEvents" -> queryEvents(call.arguments, result)
                 else -> result.notImplemented()
             }
@@ -88,6 +130,16 @@ class MainActivity : FlutterActivity() {
 
     private fun queryEvents(arguments: Any?, result: MethodChannel.Result) {
         if (checkSelfPermission(Manifest.permission.READ_CALENDAR) != PackageManager.PERMISSION_GRANTED) {
+            val allowPermissionRequest =
+                (arguments as? Map<*, *>)?.get("allowPermissionRequest") != false
+            if (!allowPermissionRequest) {
+                result.error(
+                    "calendar_permission_denied",
+                    "Calendar access was not already granted.",
+                    null,
+                )
+                return
+            }
             if (pendingCalendarResult != null) {
                 result.error(
                     "calendar_request_in_progress",
@@ -104,7 +156,7 @@ class MainActivity : FlutterActivity() {
             )
             return
         }
-        result.success(readCalendarEvents(arguments as? Map<*, *>))
+        readCalendarEventsAsync(arguments as? Map<*, *>, result)
     }
 
     override fun onRequestPermissionsResult(
@@ -122,13 +174,36 @@ class MainActivity : FlutterActivity() {
         if (result == null) return
 
         if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) {
-            result.success(readCalendarEvents(arguments))
+            readCalendarEventsAsync(arguments, result)
         } else {
             result.error(
                 "calendar_permission_denied",
                 "Calendar read permission was not granted.",
                 null,
             )
+        }
+    }
+
+    /// CalendarProvider queries are synchronous Binder/database operations.
+    /// Keep them off the Android main thread so a large calendar cannot freeze
+    /// Flutter while startup or a manual scan is running.
+    private fun readCalendarEventsAsync(
+        arguments: Map<*, *>?,
+        result: MethodChannel.Result,
+    ) {
+        calendarQueryExecutor.execute {
+            try {
+                val events = readCalendarEvents(arguments)
+                runOnUiThread { result.success(events) }
+            } catch (error: Exception) {
+                runOnUiThread {
+                    result.error(
+                        "calendar_query_failed",
+                        error.message ?: "Calendar provider query failed.",
+                        null,
+                    )
+                }
+            }
         }
     }
 

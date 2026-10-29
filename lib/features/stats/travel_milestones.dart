@@ -1,4 +1,6 @@
 import '../../domain/flight.dart';
+import '../../domain/footprint_sources.dart';
+import '../../domain/transfer_decision.dart';
 
 typedef CityNameResolver = String? Function(String iataCode);
 
@@ -18,9 +20,14 @@ class TravelMilestones {
   factory TravelMilestones.fromFlights(
     Iterable<Flight> flights, {
     required CityNameResolver cityNameFor,
+    bool includeTransitArrivals = true,
+    Iterable<TransferDecision> confirmedTransfers = const [],
   }) {
     final completed = flights.where((flight) => flight.isCompleted).toList()
       ..sort((a, b) => a.departedAt.compareTo(b.departedAt));
+    final excludedTransferEndpoints = includeTransitArrivals
+        ? const <({String flightId, bool isArrival})>{}
+        : confirmedTransitFootprintEndpoints(completed, confirmedTransfers);
 
     FirstArrivalMilestone? firstArrival;
     final firstArrivalByCity = <String, DateTime>{};
@@ -28,7 +35,12 @@ class TravelMilestones {
     final routeLabels = <String, (String, String)>{};
 
     for (final flight in completed) {
-      final arrivalCity = cityNameFor(flight.arrivalIata)?.trim();
+      final arrivalCity = (flight.isTransitArrival && !includeTransitArrivals) ||
+              excludedTransferEndpoints.contains(
+                (flightId: flight.id, isArrival: true),
+              )
+          ? null
+          : cityNameFor(flight.arrivalIata)?.trim();
       if (arrivalCity != null && arrivalCity.isNotEmpty) {
         final localDate = flight.departedAt.toLocal();
         firstArrival ??= FirstArrivalMilestone(

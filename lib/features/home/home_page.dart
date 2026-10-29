@@ -11,6 +11,8 @@ import '../../data/airport_localization.dart';
 import '../../data/city_catalog.dart';
 import '../../data/device_location_service.dart';
 import '../../domain/flight.dart';
+import '../../domain/footprint_sources.dart';
+import '../../domain/transfer_decision.dart';
 import '../../domain/visited_place.dart';
 import '../../features/map/map.dart';
 import '../map/map_records_sheet.dart';
@@ -161,26 +163,28 @@ class _HomePageState extends State<HomePage> {
                 mode: _mode,
                 globeMode: _globeMode,
                 onToggleMode: () {
-                  final nextMode = _mode == MapMode.flight
-                      ? MapMode.travelFootprint
-                      : MapMode.flight;
-                  setState(() => _mode = nextMode);
-                  widget.onMapModeChanged?.call(nextMode);
+                  setState(() {
+                    _mode = _mode == MapMode.flight
+                        ? MapMode.travelFootprint
+                        : MapMode.flight;
+                  });
+                  widget.onMapModeChanged?.call(_mode);
                 },
                 onToggleProjection: () => setState(() {
                   _globeMode = !_globeMode;
                 }),
                 onLocate: _locateUser,
                 locating: _locating,
-                onFullscreen: () => unawaited(
-                  _openHorizontalMap(
+                onFullscreen: () => unawaited(() async {
+                  if (!mounted) return;
+                  await _openHorizontalMap(
                     mode: _mode,
                     globeMode: _globeMode,
                     airports: mapAirports,
                     routes: routes,
                     places: mapPlaces,
-                  ),
-                ),
+                  );
+                }()),
               ),
             ),
           ),
@@ -323,11 +327,15 @@ class _HomePageState extends State<HomePage> {
   _HomeMapData _homeMapData() {
     final allFlights = widget.controller.flights;
     final visitedPlaces = widget.controller.visitedPlaces;
+    final transferDecisions = widget.controller.transferDecisions;
     final cached = _mapDataCache;
     if (cached != null &&
         identical(cached.flightsSource, allFlights) &&
         identical(cached.visitedPlacesSource, visitedPlaces) &&
-        identical(cached.catalog, _mapCatalog)) {
+        identical(cached.transferDecisionsSource, transferDecisions) &&
+        identical(cached.catalog, _mapCatalog) &&
+        cached.includeTransitArrivals ==
+            widget.controller.countTransitArrivals) {
       return cached;
     }
 
@@ -335,10 +343,48 @@ class _HomePageState extends State<HomePage> {
     final mapAirportsByCode = <String, MapAirport>{};
     final routes = <MapRoute>[];
     final places = <String, MapPlace>{};
+    for (final source in buildFootprintSources(
+      flights: flights,
+      visitedPlaces: visitedPlaces,
+      airportFor: widget.controller.airportFor,
+      includeTransitArrivals: widget.controller.countTransitArrivals,
+      confirmedTransfers: transferDecisions,
+    )) {
+      if (source.airport case final airport?) {
+        final name = localizedAirportCity(airport);
+        mapAirportsByCode[airport.iataCode] = MapAirport(
+          code: airport.iataCode,
+          name: name,
+          latitude: airport.latitude,
+          longitude: airport.longitude,
+        );
+        places[airport.iataCode] = MapPlace(
+          name: name,
+          latitude: airport.latitude,
+          longitude: airport.longitude,
+          countryCode: airport.countryCode,
+        );
+      } else if (source.visitedPlace case final place?) {
+        places['visited:${place.id}'] = MapPlace(
+          name: place.name,
+          latitude: place.latitude,
+          longitude: place.longitude,
+          countryCode: place.countryCode,
+          id: place.id,
+          visitedAt: place.visitedAt,
+          isDeletable: true,
+        );
+      }
+    }
     for (final flight in flights) {
       final from = widget.controller.airportFor(flight.departureIata);
       final to = widget.controller.airportFor(flight.arrivalIata);
-      if (from == null || to == null) continue;
+      if (from == null ||
+          to == null ||
+          !validFootprintCoordinates(from.latitude, from.longitude) ||
+          !validFootprintCoordinates(to.latitude, to.longitude)) {
+        continue;
+      }
       final a = MapAirport(
         code: from.iataCode,
         name: localizedAirportCity(from),
@@ -351,20 +397,6 @@ class _HomePageState extends State<HomePage> {
         latitude: to.latitude,
         longitude: to.longitude,
       );
-      mapAirportsByCode[a.code] = a;
-      mapAirportsByCode[b.code] = b;
-      places[a.code] = MapPlace(
-        name: localizedAirportCity(from),
-        latitude: from.latitude,
-        longitude: from.longitude,
-        countryCode: from.countryCode,
-      );
-      places[b.code] = MapPlace(
-        name: localizedAirportCity(to),
-        latitude: to.latitude,
-        longitude: to.longitude,
-        countryCode: to.countryCode,
-      );
       routes.add(
         MapRoute(
           from: a,
@@ -376,17 +408,6 @@ class _HomePageState extends State<HomePage> {
               MapCoordinate(point.latitude, point.longitude),
           ],
         ),
-      );
-    }
-    for (final place in visitedPlaces) {
-      places['visited:${place.id}'] = MapPlace(
-        name: place.name,
-        latitude: place.latitude,
-        longitude: place.longitude,
-        countryCode: place.countryCode,
-        id: place.id,
-        visitedAt: place.visitedAt,
-        isDeletable: true,
       );
     }
     final mapPlaces = _normalizeAndDedupeMapPlaces(places.values);
@@ -406,7 +427,9 @@ class _HomePageState extends State<HomePage> {
     return _mapDataCache = _HomeMapData(
       flightsSource: allFlights,
       visitedPlacesSource: visitedPlaces,
+      transferDecisionsSource: transferDecisions,
       catalog: _mapCatalog,
+      includeTransitArrivals: widget.controller.countTransitArrivals,
       airports: airports,
       routes: List.unmodifiable(routes),
       places: mapPlaces,
@@ -571,6 +594,7 @@ class _HomePageState extends State<HomePage> {
   List<MapPlace> _normalizeAndDedupeMapPlaces(Iterable<MapPlace> source) {
     final normalizedPlaces = <MapPlace>[];
     final indexesByCityKey = <String, int>{};
+    final identityResolver = CityIdentityResolver(_mapCatalog);
     for (final place in source) {
       // Do not let the coordinate fallback turn a legacy province row into a
       // nearby city. Province records are intentionally absent from the map;
@@ -583,6 +607,7 @@ class _HomePageState extends State<HomePage> {
             countryCode: place.countryCode,
             latitude: place.latitude,
             longitude: place.longitude,
+            allowCoordinateFallback: false,
           ) ??
           normalizedMapLabel(place.name, countryCode: place.countryCode);
       if (name.trim().isEmpty || isProvinceMapLabel(name)) continue;
@@ -597,7 +622,12 @@ class _HomePageState extends State<HomePage> {
         visitedAt: place.visitedAt,
         isDeletable: place.isDeletable,
       );
-      final cityKey = _mapPlaceCityKey(normalized);
+      final cityKey = identityResolver.keyFor(
+        name: normalized.name,
+        countryCode: normalized.countryCode,
+        latitude: normalized.latitude,
+        longitude: normalized.longitude,
+      );
       final duplicateIndex = indexesByCityKey[cityKey];
       if (duplicateIndex == null) {
         indexesByCityKey[cityKey] = normalizedPlaces.length;
@@ -617,29 +647,6 @@ class _HomePageState extends State<HomePage> {
     }
     return List.unmodifiable(normalizedPlaces);
   }
-
-  String _mapPlaceCityKey(MapPlace place) {
-    final catalog = _mapCatalog;
-    if (catalog != null) {
-      // Resolve aliases such as “丽江市”/“丽江” and source-language photo
-      // labels first. The resolver's name match keeps nearby cities (for
-      // example Shenzhen and Hong Kong) distinct instead of merging by a
-      // broad distance threshold.
-      final resolved = catalog.resolveCity(
-        place.name,
-        countryCode: place.countryCode,
-      );
-      if (resolved != null) {
-        return '${resolved.countryCode.trim().toUpperCase()}|${CityCatalog.normalizeLookup(resolved.name)}';
-      }
-    }
-    final country = place.countryCode?.trim().toUpperCase() ?? '';
-    final name = normalizedMapLabel(
-      place.name,
-      countryCode: place.countryCode,
-    ).trim().toLowerCase();
-    return '$country|$name';
-  }
 }
 
 /// Derived map inputs are intentionally kept stable between widget rebuilds.
@@ -650,7 +657,9 @@ class _HomeMapData {
   const _HomeMapData({
     required this.flightsSource,
     required this.visitedPlacesSource,
+    required this.transferDecisionsSource,
     required this.catalog,
+    required this.includeTransitArrivals,
     required this.airports,
     required this.routes,
     required this.places,
@@ -659,7 +668,9 @@ class _HomeMapData {
 
   final List<Flight> flightsSource;
   final List<VisitedPlace> visitedPlacesSource;
+  final List<TransferDecision> transferDecisionsSource;
   final CityCatalog? catalog;
+  final bool includeTransitArrivals;
   final List<MapAirport> airports;
   final List<MapRoute> routes;
   final List<MapPlace> places;
@@ -700,12 +711,16 @@ class _HomeMapControls extends StatelessWidget {
         Semantics(
           button: true,
           label: modeIsFlight
-              ? '${strings.t('flightMap')}，点击切换'
-              : '${strings.t('travelMap')}，点击切换',
+              ? (strings.isZh
+                    ? '航线地图，点击切换至旅行足迹'
+                    : 'Flight map, tap to switch to travel footprint')
+              : (strings.isZh
+                    ? '旅行足迹，点击切换至航线地图'
+                    : 'Travel footprint, tap to switch to flight map'),
           child: LiquidGlassIconButton(
             tooltip: modeIsFlight
                 ? strings.t('travelMap')
-                : strings.t('flightMap'),
+                : (strings.isZh ? '航线地图' : 'Flight map'),
             icon: modeIsFlight
                 ? Icons.flight_rounded
                 : Icons.directions_walk_rounded,

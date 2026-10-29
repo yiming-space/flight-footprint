@@ -1,10 +1,10 @@
 # 航迹 · Flight Footprint
 
-一个独立、本地优先的 Flutter 飞行记录应用。Android 最新版为 `1.5.0`；记录保存在设备内，无需登录。详细底图、可选云同步及版本检查需要联网，核心记录功能可离线使用。
+一个独立、本地优先的 Flutter 飞行记录应用。Android 最新版为 `1.6.0`；记录保存在设备内，无需登录。详细底图、可选云同步及版本检查需要联网，核心记录功能可离线使用。
 
 ![Flight Footprint v1.2.0：平面航线地图、地球模式与飞行护照卡](docs/images/flight-footprint-v1.2.0-showcase.png)
 
-*Android 模拟器实拍 · 深色主题 · 上图为 v1.2.0 历史展示，不代表 v1.5.0 最新界面*
+*Android 模拟器实拍 · 深色主题 · 上图为 v1.2.0 历史展示，不代表最新界面*
 
 ## 主要功能
 
@@ -31,8 +31,8 @@
   <tr>
     <td width="50%" valign="top">
       <h3>Android</h3>
-      <p>APK · v1.5.0 · 本地优先</p>
-      <a href="https://github.com/yiming-space/flight-footprint/releases/download/v1.5.0/app-release.apk">
+      <p>APK · v1.6.0 · 本地优先</p>
+      <a href="https://github.com/yiming-space/flight-footprint/releases/download/v1.6.0/app-release.apk">
         <img alt="下载 Android APK" src="https://img.shields.io/badge/下载_Android_APK-9BEA3D?style=for-the-badge&logo=android&logoColor=0B1017&labelColor=0B1017" />
       </a>
     </td>

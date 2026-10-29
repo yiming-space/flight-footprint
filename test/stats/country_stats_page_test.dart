@@ -81,6 +81,12 @@ void main() {
     }
     expect(find.text('101'), findsOneWidget);
     expect(find.text('7 countries/regions visited'), findsOneWidget);
+    expect(
+      find.text(
+        'Numbers show flight arrivals, including transfers; other footprints are recorded separately',
+      ),
+      findsOneWidget,
+    );
     expect(tester.takeException(), isNull);
   });
 
@@ -97,7 +103,7 @@ void main() {
         expect(
           tester.getSemantics(find.byKey(const ValueKey('China'))),
           matchesSemantics(
-            label: 'China, 101 visits',
+            label: 'China, 101 flight arrivals',
             isButton: true,
             hasTapAction: true,
           ),
@@ -110,6 +116,32 @@ void main() {
       }
     },
   );
+
+  testWidgets('country semantics distinguish arrivals from saved footprints', (
+    tester,
+  ) async {
+    final semantics = tester.ensureSemantics();
+    await tester.pumpWidget(
+      host(
+        CountryStatsPage(
+          items: const [('China', 1)],
+          countryCodes: codes,
+          savedPlaceCounts: const {'China': 2},
+          onCountrySelected: (_) {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      tester.getSemantics(find.byKey(const ValueKey('China'))),
+      matchesSemantics(
+        label: 'China, 1 flight arrival, 2 other footprints',
+        isButton: true,
+        hasTapAction: true,
+      ),
+    );
+    semantics.dispose();
+  });
 
   testWidgets(
     'five columns work in both themes and large text on narrow/wide screens',

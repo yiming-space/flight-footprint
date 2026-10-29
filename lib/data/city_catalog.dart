@@ -92,15 +92,159 @@ bool isProvinceMapName(String value) {
       normalized.endsWith('特别行政区');
 }
 
+/// Lazily built lookup tables for repeated map, exploration and ranking
+/// identity queries. Candidate lists retain catalogue order and can contain
+/// multiple same-name cities for coordinate disambiguation.
+class _CityIdentityIndex {
+  _CityIdentityIndex(List<CityCenter> cities) {
+    for (var index = 0; index < cities.length; index++) {
+      final city = cities[index];
+      _order[city] = index;
+      final country = city.countryCode.trim().toUpperCase();
+      for (final alias in <String>{city.name, ...city.aliases}) {
+        final normalized = CityCatalog.normalizeLookup(
+          normalizeMapCityName(alias, countryCode: country),
+        );
+        if (normalized.isEmpty) continue;
+        _append(_byCountryAlias, '$country|$normalized', city);
+        _append(_byGlobalAlias, normalized, city);
+      }
+      final nameKey = '$country|${CityCatalog.normalizeLookup(city.name)}';
+      _append(_byCountryName, nameKey, city);
+    }
+  }
+
+  final Map<String, List<CityCenter>> _byCountryAlias = {};
+  final Map<String, List<CityCenter>> _byGlobalAlias = {};
+  final Map<String, List<CityCenter>> _byCountryName = {};
+  final Map<CityCenter, int> _order = {};
+
+  static void _append(
+    Map<String, List<CityCenter>> index,
+    String key,
+    CityCenter city,
+  ) => index.putIfAbsent(key, () => <CityCenter>[]).add(city);
+
+  List<CityCenter> aliasCandidates(
+    String value, {
+    required String countryCode,
+  }) {
+    if (countryCode.isNotEmpty) {
+      final normalized = CityCatalog.normalizeLookup(
+        normalizeMapCityName(value, countryCode: countryCode),
+      );
+      return _byCountryAlias['$countryCode|$normalized'] ?? const [];
+    }
+    final normalized = CityCatalog.normalizeLookup(value);
+    final chinaNormalized = CityCatalog.normalizeLookup(
+      normalizeMapCityName(value, countryCode: 'CN'),
+    );
+    final candidates = <CityCenter>{
+      ...?_byGlobalAlias[normalized],
+      ...?_byGlobalAlias[chinaNormalized],
+    }.toList();
+    candidates.sort((a, b) => _order[a]!.compareTo(_order[b]!));
+    return candidates;
+  }
+
+  List<CityCenter> sameNameCandidates(String countryCode, String name) =>
+      _byCountryName['${countryCode.trim().toUpperCase()}|${CityCatalog.normalizeLookup(name)}'] ??
+      const [];
+}
+
+/// Resolves city identities across an ordered batch of places. Known catalogue
+/// aliases use CityCatalog's country/name/coordinate matching; unknown names
+/// are grouped into local 120 km clusters so separate distant homonyms do not
+/// collapse into one map or exploration entry.
+class CityIdentityResolver {
+  CityIdentityResolver(this.catalog);
+
+  final CityCatalog? catalog;
+  final Map<String, List<_UnknownCityCluster>> _unknownClusters = {};
+
+  String keyFor({
+    required String name,
+    required String? countryCode,
+    required double latitude,
+    required double longitude,
+  }) {
+    final country = countryCode?.trim().toUpperCase() ?? '';
+    final known = catalog?.resolveCity(
+      name,
+      countryCode: country,
+      latitude: latitude,
+      longitude: longitude,
+      allowCoordinateFallback: false,
+    );
+    if (known != null) {
+      return catalog!.cityIdentityKey(
+        name,
+        countryCode: country,
+        latitude: latitude,
+        longitude: longitude,
+      );
+    }
+
+    final normalizedName = CityCatalog.normalizeLookup(
+      normalizeMapCityName(name, countryCode: country),
+    );
+    final baseKey = '$country:$normalizedName';
+    if (normalizedName.isEmpty ||
+        !latitude.isFinite ||
+        !longitude.isFinite ||
+        latitude.abs() > 90 ||
+        longitude.abs() > 180) {
+      return baseKey;
+    }
+    final clusters = _unknownClusters.putIfAbsent(
+      baseKey,
+      () => <_UnknownCityCluster>[],
+    );
+    for (var index = 0; index < clusters.length; index++) {
+      final cluster = clusters[index];
+      if (CityCatalog.distanceKm(
+            fromLatitude: latitude,
+            fromLongitude: longitude,
+            toLatitude: cluster.latitude,
+            toLongitude: cluster.longitude,
+          ) <=
+          120) {
+        return index == 0 ? baseKey : '$baseKey:${cluster.id}';
+      }
+    }
+    final cluster = _UnknownCityCluster(
+      id: '${latitude.toStringAsFixed(3)},${longitude.toStringAsFixed(3)}',
+      latitude: latitude,
+      longitude: longitude,
+    );
+    clusters.add(cluster);
+    return clusters.length == 1 ? baseKey : '$baseKey:${cluster.id}';
+  }
+}
+
+class _UnknownCityCluster {
+  const _UnknownCityCluster({
+    required this.id,
+    required this.latitude,
+    required this.longitude,
+  });
+
+  final String id;
+  final double latitude;
+  final double longitude;
+}
+
 /// Offline city picker for manually adding a travel footprint. Keeping the
 /// catalogue bundled means adding a place works without network access.
 class CityCatalog {
-  CityCatalog(this.cities);
+  CityCatalog(List<CityCenter> cities)
+    : cities = List<CityCenter>.unmodifiable(cities);
 
   static const assetPath = 'assets/data/china-city-centers.json';
   static const _airportAssetPath = 'assets/data/airport-coordinates.json';
   static Future<CityCatalog>? _worldCache;
   final List<CityCenter> cities;
+  late final _CityIdentityIndex _identityIndex = _CityIdentityIndex(cities);
 
   factory CityCatalog.fromJsonString(String source) {
     final decoded = jsonDecode(source);
@@ -128,15 +272,16 @@ class CityCatalog {
     }
     final deduplicated = <String, CityCenter>{};
     for (final city in cities) {
-      final key = _keyFor(city.countryCode, city.name);
-      final existing = deduplicated[key];
+      final baseKey = _keyFor(city.countryCode, city.name);
+      final existingKey = _nearbyCityKey(deduplicated, baseKey, city);
+      final existing = existingKey == null ? null : deduplicated[existingKey];
       if (existing == null) {
-        deduplicated[key] = city;
+        deduplicated[_uniqueCityKey(deduplicated, baseKey, city)] = city;
         continue;
       }
       // A source can contain both “丽江” and “丽江市”. Keep one canonical
       // city centre and retain every source spelling for lookup/deduplication.
-      deduplicated[key] = existing.copyWith(
+      deduplicated[existingKey!] = existing.copyWith(
         aliases: <String>{...existing.aliases, ...city.aliases}.toList(),
         isAdministrativeRegion:
             existing.isAdministrativeRegion && city.isAdministrativeRegion,
@@ -182,9 +327,21 @@ class CityCatalog {
   }
 
   CityCatalog withAirports(AirportCatalog catalog) {
-    final merged = <String, CityCenter>{
-      for (final city in cities) _keyFor(city.countryCode, city.name): city,
-    };
+    final merged = <String, CityCenter>{};
+    for (final city in cities) {
+      final baseKey = _keyFor(city.countryCode, city.name);
+      final existingKey = _nearbyCityKey(merged, baseKey, city);
+      if (existingKey == null) {
+        merged[_uniqueCityKey(merged, baseKey, city)] = city;
+      } else {
+        final existing = merged[existingKey]!;
+        merged[existingKey] = existing.copyWith(
+          aliases: <String>{...existing.aliases, ...city.aliases}.toList(),
+          isAdministrativeRegion:
+              existing.isAdministrativeRegion && city.isAdministrativeRegion,
+        );
+      }
+    }
     for (final airport in catalog.values) {
       final rawCity = airport.city.trim();
       if (rawCity.isEmpty ||
@@ -207,16 +364,27 @@ class CityCatalog {
         localizedCity,
         if (localizedCity.isNotEmpty) '$localizedCity机场',
       }..removeWhere((value) => value.trim().isEmpty);
-      final existing = merged[key];
+      final existingKey = _nearbyCityKey(
+        merged,
+        key,
+        CityCenter(
+          name: name,
+          longitude: airport.longitude,
+          latitude: airport.latitude,
+          province: localizedCountryName(countryCode),
+          countryCode: countryCode,
+        ),
+      );
+      final existing = existingKey == null ? null : merged[existingKey];
       if (existing != null) {
         // Keep the curated city centre but add the airport's source-language
         // spelling. This lets old “Lijiang” records resolve to “丽江”.
-        merged[key] = existing.copyWith(
+        merged[existingKey!] = existing.copyWith(
           aliases: <String>{...existing.aliases, ...aliases}.toList(),
         );
         continue;
       }
-      merged[key] = CityCenter(
+      final center = CityCenter(
         name: name,
         longitude: airport.longitude,
         latitude: airport.latitude,
@@ -224,12 +392,42 @@ class CityCatalog {
         countryCode: countryCode,
         aliases: List.unmodifiable(aliases),
       );
+      merged[_uniqueCityKey(merged, key, center)] = center;
     }
     return CityCatalog(List.unmodifiable(merged.values));
   }
 
   static String _keyFor(String countryCode, String name) =>
       '${countryCode.trim().toUpperCase()}|${normalizeLookup(name)}';
+
+  static String? _nearbyCityKey(
+    Map<String, CityCenter> existing,
+    String baseKey,
+    CityCenter candidate,
+  ) {
+    for (final entry in existing.entries) {
+      if (entry.key != baseKey && !entry.key.startsWith('$baseKey@')) continue;
+      if (distanceKm(
+            fromLatitude: candidate.latitude,
+            fromLongitude: candidate.longitude,
+            toLatitude: entry.value.latitude,
+            toLongitude: entry.value.longitude,
+          ) <=
+          120) {
+        return entry.key;
+      }
+    }
+    return null;
+  }
+
+  static String _uniqueCityKey(
+    Map<String, CityCenter> existing,
+    String baseKey,
+    CityCenter candidate,
+  ) {
+    if (!existing.containsKey(baseKey)) return baseKey;
+    return '$baseKey@${candidate.latitude.toStringAsFixed(3)},${candidate.longitude.toStringAsFixed(3)}';
+  }
 
   List<CityCenter> search(String query, {int limit = 12}) {
     final normalized = normalizeLookup(query);
@@ -301,11 +499,17 @@ class CityCatalog {
     String? countryCode,
     double? latitude,
     double? longitude,
+    bool allowCoordinateFallback = true,
   }) {
     final lookup = normalizeLookup(value);
     final normalizedCountry = countryCode?.trim().toUpperCase() ?? '';
     if (lookup.isNotEmpty) {
-      for (final city in cities) {
+      final matches = <CityCenter>[];
+      final candidates = _identityIndex.aliasCandidates(
+        value,
+        countryCode: normalizedCountry,
+      );
+      for (final city in candidates) {
         if (city.isAdministrativeRegion ||
             (normalizedCountry.isNotEmpty &&
                 city.countryCode.trim().toUpperCase() != normalizedCountry)) {
@@ -321,11 +525,36 @@ class CityCatalog {
                 normalizeMapCityName(value, countryCode: city.countryCode),
               ),
         )) {
-          return city;
+          matches.add(city);
         }
       }
+      if (matches.isNotEmpty) {
+        // A known spelling is the strongest signal. When that spelling names
+        // multiple places in one country, use the supplied position to select
+        // the local city cluster (for example, airport records in same-named
+        // cities). Without coordinates retain deterministic catalogue order.
+        if (latitude != null && longitude != null) {
+          matches.sort(
+            (a, b) =>
+                distanceKm(
+                  fromLatitude: latitude,
+                  fromLongitude: longitude,
+                  toLatitude: a.latitude,
+                  toLongitude: a.longitude,
+                ).compareTo(
+                  distanceKm(
+                    fromLatitude: latitude,
+                    fromLongitude: longitude,
+                    toLatitude: b.latitude,
+                    toLongitude: b.longitude,
+                  ),
+                ),
+          );
+        }
+        return matches.first;
+      }
     }
-    if (latitude != null && longitude != null) {
+    if (allowCoordinateFallback && latitude != null && longitude != null) {
       return nearest(
         latitude,
         longitude,
@@ -341,12 +570,14 @@ class CityCatalog {
     String? countryCode,
     double? latitude,
     double? longitude,
+    bool allowCoordinateFallback = true,
   }) {
     final city = resolveCity(
       value,
       countryCode: countryCode,
       latitude: latitude,
       longitude: longitude,
+      allowCoordinateFallback: allowCoordinateFallback,
     );
     return city?.name ??
         _canonicalCityName(value, countryCode: countryCode ?? '');
@@ -369,6 +600,43 @@ class CityCatalog {
       code,
       city?.name ?? _canonicalCityName(value, countryCode: code),
     );
+  }
+
+  /// Stable identity for a named city, shared by map and exploration views.
+  ///
+  /// Known names and country are resolved first. Coordinates disambiguate
+  /// catalogue entries that share a name and keep airports in one local city
+  /// cluster together.
+  String cityIdentityKey(
+    String value, {
+    String? countryCode,
+    double? latitude,
+    double? longitude,
+  }) {
+    final city = resolveCity(
+      value,
+      countryCode: countryCode,
+      latitude: latitude,
+      longitude: longitude,
+      allowCoordinateFallback: false,
+    );
+    final code = city?.countryCode ?? countryCode ?? '';
+    final name = city?.name ?? _canonicalCityName(value, countryCode: code);
+    // Preserve separate catalogue clusters when one exact name occurs more
+    // than once in a country. The center coordinate is stable across all
+    // airports whose known alias resolves to that cluster.
+    final siblings = _identityIndex
+        .sameNameCandidates(code, name)
+        .where((candidate) => !candidate.isAdministrativeRegion)
+        .toList();
+    final suffix = siblings.length > 1 && city != null
+        ? ':${city.latitude.toStringAsFixed(3)},${city.longitude.toStringAsFixed(3)}'
+        : '';
+    final key = _keyFor(code, name);
+    final separator = key.indexOf('|');
+    return separator < 0
+        ? '$key$suffix'
+        : '${key.substring(0, separator)}:${key.substring(separator + 1)}$suffix';
   }
 
   static String normalizeLookup(String value) => value

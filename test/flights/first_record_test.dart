@@ -3,6 +3,8 @@ import 'package:flight_footprint/core/localization/app_strings.dart';
 import 'package:flight_footprint/data/airport_catalog.dart';
 import 'package:flight_footprint/domain/airport.dart';
 import 'package:flight_footprint/domain/flight.dart';
+import 'package:flight_footprint/domain/transfer_decision.dart';
+import 'package:flight_footprint/domain/visited_place.dart';
 import 'package:flight_footprint/features/add_flight/flight_entry_sheet.dart';
 import 'package:flight_footprint/features/flights/flight_card.dart';
 import 'package:flight_footprint/features/flights/flights_page.dart';
@@ -15,6 +17,10 @@ import 'package:flutter_test/flutter_test.dart';
 class _Controller extends ChangeNotifier implements AppController {
   @override
   List<Flight> flights = [];
+  @override
+  List<TransferDecision> get transferDecisions => const [];
+  @override
+  List<VisitedPlace> visitedPlaces = [];
   @override
   final airports = AirportCatalog({});
   @override

@@ -52,12 +52,11 @@ class DetailFootprintBoundaries {
       'type': 'FeatureCollection',
       'features': [
         for (final region in _countries)
-          // Country features have no ISO properties in the bundled dataset.
-          // Domestic coordinates identify the China feature geometrically;
-          // only its visited provinces should be lit, not the whole country.
+          // Mainland China uses its province features instead of filling the
+          // whole country. The witness also handles unlabelled legacy data.
           if (!region.contains(_chinaWitness) &&
-              !domestic.any(region.contains) &&
-              overseas.any(region.contains))
+              !domestic.any(region.matchesCountry) &&
+              overseas.any(region.matchesCountry))
             region.feature,
         for (final region in _provinces)
           if (visited.any(region.matchesProvince)) region.feature,
@@ -146,18 +145,49 @@ class _Region {
   bool contains(MapPlace place) =>
       polygons.any((p) => p.contains(place.longitude, place.latitude));
 
+  bool matchesCountry(MapPlace place) {
+    final recordedCode = place.countryCode?.trim().toUpperCase();
+    final geometryCode = (feature['properties'] as Map?)?['ISO_A2_EH']
+        ?.toString()
+        .toUpperCase();
+    if (geometryCode == '-99') return false;
+    if (recordedCode != null && recordedCode.isNotEmpty) {
+      // An explicit but disputed/missing ISO assignment (-99) cannot safely
+      // be used to select a country. Older/custom geometry without an ISO
+      // attribute retains its previous coordinate-only behavior.
+      if (geometryCode != null && geometryCode != recordedCode) return false;
+    }
+    return contains(place);
+  }
+
   bool matchesProvince(MapPlace place) {
-    if (contains(place)) return true;
-    // HKG's current airport coordinate is just outside the simplified coast.
-    // A trusted HK code can select its own feature near its geographic bounds;
-    // never infer a nearby region for arbitrary coastal points or CN records.
-    return adcode == 810000 &&
-        place.countryCode?.trim().toUpperCase() == 'HK' &&
-        polygons.any(
-          (p) =>
-              p.rings.isNotEmpty &&
-              p.rings.first.nearBounds(place.longitude, place.latitude, .02),
-        );
+    final code = place.countryCode?.trim().toUpperCase();
+    final regionCode = adcode;
+
+    // A coordinate in another country must not light a China administrative
+    // feature just because of a bad import or a border overlap. Older records
+    // without a country code still use geometry as their only evidence.
+    if (regionCode == 810000) {
+      if (code != 'HK') return false;
+      if (contains(place)) return true;
+      // HKG's current airport coordinate is just outside the simplified coast.
+      // A trusted HK code may select its own feature near its geographic bounds.
+      return polygons.any(
+        (p) =>
+            p.rings.isNotEmpty &&
+            p.rings.first.nearBounds(place.longitude, place.latitude, .02),
+      );
+    }
+    if (regionCode == 820000 && code != null && code != 'MO') return false;
+    if (regionCode == 710000 && code != null && code != 'TW') return false;
+    if (regionCode != 710000 &&
+        regionCode != 810000 &&
+        regionCode != 820000 &&
+        code != null &&
+        code != 'CN') {
+      return false;
+    }
+    return contains(place);
   }
 }
 

@@ -16,9 +16,14 @@ List<List<double>> _box(double x, double y, [double size = 4]) => [
   [x, y + size],
   [x, y],
 ];
-Map<String, dynamic> _polygon(String name, List<List<List<double>>> rings) => {
+Map<String, dynamic> _polygon(
+  String name,
+  List<List<List<double>>> rings, {
+  int? adcode,
+  String? isoCode,
+}) => {
   'type': 'Feature',
-  'properties': {'name': name},
+  'properties': {'name': name, 'adcode': ?adcode, 'ISO_A2_EH': ?isoCode},
   'geometry': {'type': 'Polygon', 'coordinates': rings},
 };
 MapPlace _place(double x, double y, {String? country, bool visited = true}) =>
@@ -79,6 +84,36 @@ void main() {
     expect(_features(boundaries.select([_place(10.5, 10.5)])), hasLength(1));
   });
 
+  test('known country codes cannot light another country feature', () {
+    final us = _polygon('United States', [_box(-80, 35)], isoCode: 'US');
+    final uk = _polygon('United Kingdom', [_box(-5, 50)], isoCode: 'GB');
+    final unassigned = _polygon('unassigned', [_box(20, 20)], isoCode: '-99');
+    final boundaries = DetailFootprintBoundaries(
+      countries: _collection([us, uk, unassigned]),
+      provinces: emptyDetailFootprint,
+    );
+
+    expect(
+      _features(
+        boundaries.select([
+          _place(-2, 51, country: 'US'),
+          _place(-77, 38, country: 'GB'),
+          _place(21, 21, country: 'XX'),
+        ]),
+      ),
+      isEmpty,
+    );
+    expect(
+      _features(
+        boundaries.select([
+          _place(-77, 38, country: 'US'),
+          _place(-2, 51, country: 'GB'),
+        ]),
+      ),
+      unorderedEquals([us, uk]),
+    );
+  });
+
   test('dateline polygon matches both sides but not Greenwich', () {
     final boundaries = DetailFootprintBoundaries(
       countries: _collection([
@@ -117,6 +152,26 @@ void main() {
         );
       }
       expect(_features(boundaries.select(const [])), isEmpty);
+    },
+  );
+
+  test(
+    'province fills require a compatible country code when one is known',
+    () {
+      final province = _polygon('Beijing', [_box(115, 39, 2)], adcode: 110000);
+      final boundaries = DetailFootprintBoundaries(
+        countries: emptyDetailFootprint,
+        provinces: _collection([province]),
+      );
+
+      expect(
+        _features(boundaries.select([_place(116, 40, country: 'US')])),
+        isEmpty,
+      );
+      expect(_features(boundaries.select([_place(116, 40, country: 'CN')])), [
+        province,
+      ]);
+      expect(_features(boundaries.select([_place(116, 40)])), [province]);
     },
   );
 

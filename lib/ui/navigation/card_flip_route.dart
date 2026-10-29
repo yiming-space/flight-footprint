@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../theme/app_theme.dart';
@@ -19,6 +20,7 @@ Route<T> cardFlipRoute<T>({
   Axis flipAxis = Axis.horizontal,
   double sourceRadius = 28,
   String keyPrefix = 'card-flip',
+  bool snapshotDuringTransition = false,
 }) {
   Widget buildPage(BuildContext pageContext) =>
       HeroMode(enabled: false, child: builder(pageContext));
@@ -37,7 +39,10 @@ Route<T> cardFlipRoute<T>({
   }
 
   return PageRouteBuilder<T>(
-    opaque: false,
+    // Flutter keeps the source visible while this route moves, then occludes
+    // it at completion. Leaving it translucent keeps the stats glass drawing
+    // underneath a full-screen page even though none of it can be seen.
+    opaque: true,
     barrierColor: Colors.transparent,
     barrierDismissible: false,
     transitionDuration: Duration(milliseconds: reduceMotion ? 120 : 460),
@@ -59,6 +64,7 @@ Route<T> cardFlipRoute<T>({
         flipAxis: flipAxis,
         sourceRadius: sourceRadius,
         keyPrefix: keyPrefix,
+        snapshotDuringTransition: snapshotDuringTransition,
         child: child,
       );
     },
@@ -106,6 +112,7 @@ class _CardFlipTransition extends StatelessWidget {
     required this.flipAxis,
     required this.sourceRadius,
     required this.keyPrefix,
+    required this.snapshotDuringTransition,
     required this.child,
   });
 
@@ -116,6 +123,7 @@ class _CardFlipTransition extends StatelessWidget {
   final Axis flipAxis;
   final double sourceRadius;
   final String keyPrefix;
+  final bool snapshotDuringTransition;
   final Widget child;
 
   static const _handoff = 0.42;
@@ -153,7 +161,12 @@ class _CardFlipTransition extends StatelessWidget {
             maxWidth: viewport.width,
             minHeight: viewport.height,
             maxHeight: viewport.height,
-            child: SizedBox.fromSize(size: viewport, child: child),
+            child: SizedBox.fromSize(
+              size: viewport,
+              child: snapshotDuringTransition && !kIsWeb
+                  ? _RouteTransitionSnapshot(animation: animation, child: child)
+                  : child,
+            ),
           ),
         ),
       );
@@ -225,5 +238,61 @@ class _CardFlipTransition extends StatelessWidget {
         },
       );
     },
+  );
+}
+
+/// Only the short page flip uses a texture. The real page and its live glass
+/// resume as soon as it opens; state and interactive cards remain mounted.
+class _RouteTransitionSnapshot extends StatefulWidget {
+  const _RouteTransitionSnapshot({
+    required this.animation,
+    required this.child,
+  });
+
+  final Animation<double> animation;
+  final Widget child;
+
+  @override
+  State<_RouteTransitionSnapshot> createState() =>
+      _RouteTransitionSnapshotState();
+}
+
+class _RouteTransitionSnapshotState extends State<_RouteTransitionSnapshot> {
+  late final SnapshotController _controller = SnapshotController(
+    allowSnapshotting: widget.animation.isAnimating,
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    widget.animation.addStatusListener(_statusChanged);
+  }
+
+  void _statusChanged(AnimationStatus status) {
+    _controller.allowSnapshotting = status.isAnimating;
+  }
+
+  @override
+  void didUpdateWidget(covariant _RouteTransitionSnapshot oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.animation == widget.animation) return;
+    oldWidget.animation.removeStatusListener(_statusChanged);
+    widget.animation.addStatusListener(_statusChanged);
+    _statusChanged(widget.animation.status);
+  }
+
+  @override
+  void dispose() {
+    widget.animation.removeStatusListener(_statusChanged);
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => SnapshotWidget(
+    controller: _controller,
+    mode: SnapshotMode.permissive,
+    autoresize: true,
+    child: widget.child,
   );
 }

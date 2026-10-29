@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:math' as math;
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -22,10 +23,14 @@ class AddFlightPage extends StatefulWidget {
     super.key,
     required this.controller,
     this.initialFlight,
+    this.initialScreenshotDraft,
+    this.screenshotImage,
     this.draftStore,
   });
   final AppController controller;
   final Flight? initialFlight;
+  final FlightDraft? initialScreenshotDraft;
+  final Uint8List? screenshotImage;
   final FlightDraftStore? draftStore;
   @override
   State<AddFlightPage> createState() => _AddFlightPageState();
@@ -42,6 +47,7 @@ class _AddFlightPageState extends State<AddFlightPage>
   DateTime? _arrivalAt;
   bool _arrivalTouched = false;
   bool _more = false;
+  bool _isTransitArrival = false;
   bool _saving = false;
   bool _lookingUp = false;
   String? _lookupMessage;
@@ -86,6 +92,10 @@ class _AddFlightPageState extends State<AddFlightPage>
     }
     final initial = widget.initialFlight;
     if (initial == null) {
+      if (widget.initialScreenshotDraft case final draft?) {
+        _applyDraft(draft);
+        return;
+      }
       WidgetsBinding.instance.addObserver(this);
       unawaited(
         _restoreDraft().catchError((_) {
@@ -96,6 +106,7 @@ class _AddFlightPageState extends State<AddFlightPage>
     }
     _departure = widget.controller.airportFor(initial.departureIata);
     _arrival = widget.controller.airportFor(initial.arrivalIata);
+    _isTransitArrival = initial.isTransitArrival;
     _date = _wallTimeForInstant(
       initial.departedAt,
       widget.controller.airports.timeZoneIdForIata(initial.departureIata),
@@ -141,7 +152,7 @@ class _AddFlightPageState extends State<AddFlightPage>
 
   @override
   void dispose() {
-    if (widget.initialFlight == null) {
+    if (widget.initialFlight == null && widget.initialScreenshotDraft == null) {
       WidgetsBinding.instance.removeObserver(this);
       _draftTimer?.cancel();
       _flushDraftQuietly();
@@ -167,6 +178,7 @@ class _AddFlightPageState extends State<AddFlightPage>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (widget.initialFlight == null &&
+        widget.initialScreenshotDraft == null &&
         (state == AppLifecycleState.inactive ||
             state == AppLifecycleState.paused ||
             state == AppLifecycleState.detached)) {
@@ -175,13 +187,19 @@ class _AddFlightPageState extends State<AddFlightPage>
   }
 
   void _onDraftTextChanged() {
-    if (_applyingDraft || widget.initialFlight != null) return;
+    if (_applyingDraft ||
+        widget.initialFlight != null ||
+        widget.initialScreenshotDraft != null)
+      return;
     _userEdited = true;
     _scheduleDraftSave();
   }
 
   void _markDraftChanged() {
-    if (_applyingDraft || widget.initialFlight != null) return;
+    if (_applyingDraft ||
+        widget.initialFlight != null ||
+        widget.initialScreenshotDraft != null)
+      return;
     _userEdited = true;
     _scheduleDraftSave();
   }
@@ -200,7 +218,8 @@ class _AddFlightPageState extends State<AddFlightPage>
   }
 
   Future<void> _flushDraft() async {
-    if (widget.initialFlight != null) return;
+    if (widget.initialFlight != null || widget.initialScreenshotDraft != null)
+      return;
     final revision = _draftRevision;
     final draft = _currentDraft();
     _draftWrites = _draftWrites.then((_) async {
@@ -385,6 +404,43 @@ class _AddFlightPageState extends State<AddFlightPage>
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
+                        if (widget.initialScreenshotDraft != null) ...[
+                          if (widget.screenshotImage != null)
+                            ExpansionTile(
+                              leading: ClipRRect(
+                                borderRadius: BorderRadius.circular(8),
+                                child: Image.memory(
+                                  widget.screenshotImage!,
+                                  width: 48,
+                                  height: 48,
+                                  fit: BoxFit.cover,
+                                ),
+                              ),
+                              title: Text(
+                                s.isZh ? '查看原截图' : 'View original screenshot',
+                              ),
+                              children: [
+                                ConstrainedBox(
+                                  constraints: const BoxConstraints(
+                                    maxHeight: 240,
+                                  ),
+                                  child: InteractiveViewer(
+                                    child: Image.memory(
+                                      widget.screenshotImage!,
+                                      fit: BoxFit.contain,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          Text(
+                            s.isZh ? '请核对截图识别的信息，未识别的内容请补全' : 'Review recognized information and fill in missing details',
+                            style: AppTextStyles.bodySecondary.copyWith(
+                              color: colors.textSecondary,
+                            ),
+                          ),
+                          const SizedBox(height: AppSpacing.md),
+                        ],
                         RepaintBoundary(
                           child: Container(
                             padding: const EdgeInsets.all(AppSpacing.md),
@@ -398,7 +454,14 @@ class _AddFlightPageState extends State<AddFlightPage>
                                   children: [
                                     Expanded(
                                       child: _AirportSelector(
-                                        label: s.t('departure'),
+                                        label:
+                                            widget.initialScreenshotDraft !=
+                                                    null &&
+                                                _departure == null
+                                            ? (s.isZh
+                                                  ? '出发地 · 待填写'
+                                                  : 'Departure · Required')
+                                            : s.t('departure'),
                                         airport: _departure,
                                         onTap: () => _pickAirport(true),
                                       ),
@@ -419,7 +482,14 @@ class _AddFlightPageState extends State<AddFlightPage>
                                     ),
                                     Expanded(
                                       child: _AirportSelector(
-                                        label: s.t('arrival'),
+                                        label:
+                                            widget.initialScreenshotDraft !=
+                                                    null &&
+                                                _arrival == null
+                                            ? (s.isZh
+                                                  ? '目的地 · 待填写'
+                                                  : 'Arrival · Required')
+                                            : s.t('arrival'),
                                         airport: _arrival,
                                         alignEnd: true,
                                         onTap: () => _pickAirport(false),
@@ -433,7 +503,17 @@ class _AddFlightPageState extends State<AddFlightPage>
                                   children: [
                                     Expanded(
                                       child: _DateTimeSelector(
-                                        label: s.t('takeoff'),
+                                        label:
+                                            widget.initialScreenshotDraft !=
+                                                null
+                                            ? (_dateTouched
+                                                  ? (s.isZh
+                                                        ? '起飞 · 请核对'
+                                                        : 'Departure · Review')
+                                                  : (s.isZh
+                                                        ? '起飞 · 待填写'
+                                                        : 'Departure · Required'))
+                                            : s.t('takeoff'),
                                         value: _date,
                                         onDateTap: _pickDate,
                                         onTimeTap: _pickDepartureTime,
@@ -442,7 +522,15 @@ class _AddFlightPageState extends State<AddFlightPage>
                                     const SizedBox(width: _routeGutterWidth),
                                     Expanded(
                                       child: _DateTimeSelector(
-                                        label: s.t('landing'),
+                                        label:
+                                            widget.initialScreenshotDraft !=
+                                                    null &&
+                                                !_arrivalTouched &&
+                                                _estimatedArrival != null
+                                            ? (s.isZh
+                                                  ? '降落 · 估算'
+                                                  : 'Landing · Estimated')
+                                            : s.t('landing'),
                                         alignEnd: true,
                                         // Older imported records may only contain a
                                         // duration. Keep the calculated arrival visible
@@ -455,6 +543,41 @@ class _AddFlightPageState extends State<AddFlightPage>
                                   ],
                                 ),
                               ],
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: AppSpacing.cardGap),
+                        SurfaceCard(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: AppSpacing.sm,
+                            vertical: AppSpacing.xs,
+                          ),
+                          color: colors.surface,
+                          borderRadius: AppRadii.medium,
+                          child: Material(
+                            color: colors.surface,
+                            borderRadius: AppRadii.medium,
+                            child: SwitchListTile.adaptive(
+                              key: const ValueKey('transit-arrival-toggle'),
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: AppSpacing.sm,
+                              ),
+                              value: _isTransitArrival,
+                              onChanged: (value) =>
+                                  setState(() => _isTransitArrival = value),
+                              title: Text(
+                                s.isZh ? '抵达后继续中转' : 'Continue via transfer',
+                                style: AppTextStyles.body.copyWith(
+                                  color: colors.textPrimary,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              subtitle: Text(
+                                s.isZh ? '只标记本航班抵达端；不会自动识别，后续航班起飞端仍算足迹' : 'Marks this arrival only; never inferred. A later departure from the airport still counts.',
+                                style: AppTextStyles.label.copyWith(
+                                  color: colors.textSecondary,
+                                ),
+                              ),
                             ),
                           ),
                         ),
@@ -1410,6 +1533,18 @@ class _AddFlightPageState extends State<AddFlightPage>
           .showSnackBar(SnackBar(content: Text(strings.t('missingRequired'))));
       return;
     }
+    if (widget.initialScreenshotDraft != null && !_dateTouched) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            strings.isZh
+                ? '请选择起飞日期和时间'
+                : 'Please select the departure date and time',
+          ),
+        ),
+      );
+      return;
+    }
     final departureZone = widget.controller.airports.timeZoneIdForIata(
       _departure!.iataCode,
     );
@@ -1467,8 +1602,94 @@ class _AddFlightPageState extends State<AddFlightPage>
               arrivedAt: arrivalInstant,
               durationMinutes: durationMinutes,
             );
+      if (widget.initialScreenshotDraft != null) {
+        final now = DateTime.now();
+        final candidateLocal =
+            FlightTimeResolver.toWallTime(departureInstant, departureZone) ??
+            departureInstant.toLocal();
+        final number = _flightNumber.text.trim().toUpperCase().replaceAll(
+          RegExp(r'\s+'),
+          '',
+        );
+        final similar = widget.controller.flights.where((flight) {
+          if (departureZone == null || !departureResolution.isResolved)
+            return false;
+          if ((flight.flightNumber ?? '').trim().toUpperCase().replaceAll(
+                    RegExp(r'\s+'),
+                    '',
+                  ) !=
+                  number ||
+              flight.departureIata != _departure!.iataCode)
+            return false;
+          final local =
+              FlightTimeResolver.toWallTime(flight.departedAt, departureZone) ??
+              flight.departedAt.toLocal();
+          return local.year == candidateLocal.year &&
+              local.month == candidateLocal.month &&
+              local.day == candidateLocal.day;
+        }).toList();
+        if (similar.isNotEmpty) {
+          final existing = similar.first;
+          final local =
+              FlightTimeResolver.toWallTime(
+                existing.departedAt,
+                departureZone,
+              ) ??
+              existing.departedAt.toLocal();
+          if (!mounted) return;
+          await showDialog<void>(
+            context: context,
+            builder: (dialogContext) => AlertDialog(
+              title: Text(strings.isZh ? '发现相似航班' : 'Similar flight found'),
+              content: Text(
+                strings.isZh
+                    ? '已有：${existing.flightNumber ?? ''} ${existing.departureIata} → ${existing.arrivalIata} ${DateFormat('yyyy-MM-dd HH:mm').format(local)}\n截图：${_flightNumber.text} ${_departure!.iataCode} → ${_arrival!.iataCode} ${DateFormat('yyyy-MM-dd HH:mm').format(candidateLocal)}\n\n请检查已有记录，避免重复添加。'
+                    : 'Existing: ${existing.flightNumber ?? ''} ${existing.departureIata} → ${existing.arrivalIata} ${DateFormat('yyyy-MM-dd HH:mm').format(local)}\nScreenshot: ${_flightNumber.text} ${_departure!.iataCode} → ${_arrival!.iataCode} ${DateFormat('yyyy-MM-dd HH:mm').format(candidateLocal)}',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext),
+                  child: Text(strings.t('close')),
+                ),
+              ],
+            ),
+          );
+          if (mounted) setState(() => _saving = false);
+          return;
+        }
+        final preview = await widget.controller.previewSpreadsheetDetails([
+          Flight(
+            id: 'screenshot-preview',
+            departureIata: _departure!.iataCode,
+            arrivalIata: _arrival!.iataCode,
+            departedAt: departureInstant,
+            arrivedAt: arrivalInstant,
+            createdAt: now,
+            updatedAt: now,
+            flightNumber: _flightNumber.text,
+            airline: _airline.text,
+            aircraftType: _aircraft.text,
+            durationMinutes: durationMinutes,
+            distanceKm: distanceKm,
+            status: status,
+          ),
+        ]);
+        if (!mounted) return;
+        if (preview.summary.unchanged > 0 || preview.summary.conflicts > 0) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                strings.isZh ? '可能已有相同航班，请检查已有记录' : 'This flight may already exist. Please check your records.',
+              ),
+            ),
+          );
+          setState(() => _saving = false);
+          return;
+        }
+      }
+      Flight? created;
       if (initial == null) {
-        await widget.controller.addFlight(
+        created = await widget.controller.addFlight(
           departure: _departure!,
           arrival: _arrival!,
           date: departureInstant,
@@ -1482,6 +1703,7 @@ class _AddFlightPageState extends State<AddFlightPage>
           cabinClass: _cabin,
           note: _note.text,
           status: status,
+          isTransitArrival: _isTransitArrival,
         );
       } else {
         await widget.controller.updateFlight(
@@ -1499,10 +1721,16 @@ class _AddFlightPageState extends State<AddFlightPage>
           cabinClass: _cabin,
           note: _note.text,
           status: status,
+          isTransitArrival: _isTransitArrival,
         );
       }
-      if (initial == null) await _clearDraft();
-      if (mounted) Navigator.pop(context);
+      if (initial == null && widget.initialScreenshotDraft == null)
+        await _clearDraft();
+      if (mounted)
+        Navigator.pop(
+          context,
+          widget.initialScreenshotDraft != null ? created : null,
+        );
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(

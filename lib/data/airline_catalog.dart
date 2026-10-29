@@ -75,7 +75,7 @@ const _airlineIdentities = <AirlineIdentity>[
     icaoCode: 'CSN',
     chineseName: '中国南方航空',
     englishName: 'China Southern Airlines',
-    aliases: ['南航'],
+    aliases: ['南航', '南方航空', '中国南方航空公司', '中国南方航空股份有限公司'],
   ),
   AirlineIdentity(
     iataCode: 'EU',
@@ -156,7 +156,7 @@ const _airlineIdentities = <AirlineIdentity>[
     icaoCode: 'CES',
     chineseName: '中国东方航空',
     englishName: 'China Eastern Airlines',
-    aliases: ['东航'],
+    aliases: ['东航', '东方航空', '中国东方航空公司', '中国东方航空股份有限公司'],
   ),
   AirlineIdentity(
     iataCode: 'NS',

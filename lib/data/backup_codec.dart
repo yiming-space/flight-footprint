@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import '../domain/flight.dart';
 import '../domain/journey.dart';
+import '../domain/transfer_decision.dart';
 import '../domain/visited_place.dart';
 
 class BackupData {
@@ -10,6 +11,9 @@ class BackupData {
     required this.visitedPlaces,
     this.journeys = const [],
     this.containsJourneys = false,
+    this.countTransitArrivals,
+    this.transferDecisions = const [],
+    this.containsTransferDecisions = false,
   });
 
   final List<Flight> flights;
@@ -19,6 +23,13 @@ class BackupData {
   /// False means this backup predates journey support and must not clear or
   /// overwrite journeys already stored on the device.
   final bool containsJourneys;
+
+  /// Null means an older backup has no preference value.
+  final bool? countTransitArrivals;
+  final List<TransferDecision> transferDecisions;
+
+  /// False for legacy exports, which must preserve locally stored decisions.
+  final bool containsTransferDecisions;
 
   bool get hasJourneys => containsJourneys;
 }
@@ -37,6 +48,12 @@ class BackupCodec {
         'visitedPlaces': data.visitedPlaces.map(_placeToJson).toList(),
         if (data.containsJourneys || data.journeys.isNotEmpty)
           'journeys': data.journeys.map((journey) => journey.toJson()).toList(),
+        if (data.countTransitArrivals != null)
+          'countTransitArrivals': data.countTransitArrivals,
+        if (data.containsTransferDecisions || data.transferDecisions.isNotEmpty)
+          'transferDecisions': data.transferDecisions
+              .map((decision) => decision.toJson())
+              .toList(),
       });
 
   /// Decodes a snapshot returned by the cloud API.
@@ -67,6 +84,7 @@ class BackupCodec {
           map['flights'] is List ||
           map['visitedPlaces'] is List ||
           map['journeys'] is List ||
+          map['transferDecisions'] is List ||
           map['places'] is List ||
           map['visited_places'] is List;
       // Some gateways wrap the stored JSON one more time as {snapshot: ...}
@@ -111,9 +129,22 @@ class BackupCodec {
             .map((item) => _placeFromJson(_object(item, 'visited place')))
             .toList(growable: false);
         final containsJourneys = object.containsKey('journeys');
+        final countTransitArrivals = object['countTransitArrivals'] is bool
+            ? object['countTransitArrivals'] as bool
+            : null;
         final journeys = containsJourneys
             ? _journeysFromJson(object['journeys'] as List)
             : const <Journey>[];
+        if (object.containsKey('transferDecisions') &&
+            object['transferDecisions'] is! List) {
+          throw const FormatException('Malformed transfer decisions.');
+        }
+        final containsTransferDecisions = object.containsKey(
+          'transferDecisions',
+        );
+        final transferDecisions = containsTransferDecisions
+            ? _transferDecisionsFromJson(object['transferDecisions'] as List)
+            : const <TransferDecision>[];
         _assertUniqueIds(flights.map((flight) => flight.id), 'flight');
         _assertUniqueIds(
           visitedPlaces.map((place) => place.id),
@@ -124,6 +155,9 @@ class BackupCodec {
           visitedPlaces: visitedPlaces,
           journeys: journeys,
           containsJourneys: containsJourneys,
+          countTransitArrivals: countTransitArrivals,
+          transferDecisions: transferDecisions,
+          containsTransferDecisions: containsTransferDecisions,
         );
       }
 
@@ -155,6 +189,8 @@ class BackupCodec {
     'departedAt': value.departedAt.toUtc().toIso8601String(),
     'arrivedAt': value.arrivedAt?.toUtc().toIso8601String(),
     'status': flightStatusToStorage(value.status),
+    if (value.hasTransitArrivalAnnotation)
+      'isTransitArrival': value.isTransitArrival,
     'airline': value.airline,
     'flightNumber': value.flightNumber,
     'cabinClass': value.cabinClass,
@@ -195,6 +231,13 @@ class BackupCodec {
       'actual_arrival_at',
     ]),
     status: flightStatusFromStorage(json['status']),
+    isTransitArrival:
+        json['isTransitArrival'] == true ||
+        json['is_transit_arrival'] == true ||
+        json['is_transit_arrival'] == 1,
+    hasTransitArrivalAnnotation:
+        json.containsKey('isTransitArrival') ||
+        json.containsKey('is_transit_arrival'),
     airline: _nullableStringAny(json, const ['airline']),
     flightNumber: _nullableStringAny(json, const [
       'flightNumber',
@@ -296,6 +339,7 @@ class BackupCodec {
     'visitedAt': value.visitedAt.toUtc().toIso8601String(),
     'countryCode': value.countryCode,
     'note': value.note,
+    if (value.hasSourceAnnotation) 'source': value.source.name,
     'createdAt': value.createdAt.toUtc().toIso8601String(),
     'updatedAt': value.updatedAt.toUtc().toIso8601String(),
   };
@@ -311,6 +355,8 @@ class BackupCodec {
       'country_code',
     ]),
     note: _nullableStringAny(json, const ['note']),
+    source: footprintRecordSourceFromStorage(json['source']),
+    hasSourceAnnotation: json.containsKey('source'),
     createdAt: _dateAny(json, const ['createdAt', 'created_at']),
     updatedAt: _dateAny(json, const [
       'updatedAt',
@@ -471,7 +517,30 @@ class BackupCodec {
       ],
       journeys: journeys,
       containsJourneys: decoded is Map && decoded.containsKey('journeys'),
+      countTransitArrivals:
+          decoded is Map && decoded['countTransitArrivals'] is bool
+          ? decoded['countTransitArrivals'] as bool
+          : null,
+      transferDecisions: decoded is Map && decoded['transferDecisions'] is List
+          ? _transferDecisionsFromJson(decoded['transferDecisions'] as List)
+          : const [],
+      containsTransferDecisions:
+          decoded is Map && decoded.containsKey('transferDecisions'),
     );
+  }
+
+  static List<TransferDecision> _transferDecisionsFromJson(List values) {
+    final decisions = <TransferDecision>[];
+    final ids = <String>{};
+    for (final item in values) {
+      final map = _object(item, 'transfer decision');
+      final decision = TransferDecision.fromJson(map);
+      if (!ids.add(decision.id)) {
+        throw const FormatException('Duplicate transfer decision.');
+      }
+      decisions.add(decision);
+    }
+    return List.unmodifiable(decisions);
   }
 
   static Flight _webFlightFromJson(Map<String, dynamic> json) {
@@ -530,6 +599,13 @@ class BackupCodec {
       createdAt: createdAt,
       updatedAt: updatedAt,
       status: flightStatusFromStorage(json['status']),
+      isTransitArrival:
+          json['isTransitArrival'] == true ||
+          json['is_transit_arrival'] == true ||
+          json['is_transit_arrival'] == 1,
+      hasTransitArrivalAnnotation:
+          json.containsKey('isTransitArrival') ||
+          json.containsKey('is_transit_arrival'),
       airline: airline,
       flightNumber: flightNumber,
       cabinClass: _webNullableText(json, [
@@ -583,6 +659,8 @@ class BackupCodec {
       createdAt: createdAt,
       updatedAt: createdAt,
       countryCode: countryCode,
+      source: footprintRecordSourceFromStorage(json['source']),
+      hasSourceAnnotation: json.containsKey('source'),
       note: _webNullableText(json, ['note']),
     );
   }
@@ -778,6 +856,9 @@ class BackupCodec {
       visitedPlaces: List.unmodifiable(places.values),
       journeys: List.unmodifiable(journeys.values),
       containsJourneys: data.containsJourneys,
+      countTransitArrivals: data.countTransitArrivals,
+      transferDecisions: data.transferDecisions,
+      containsTransferDecisions: data.containsTransferDecisions,
     );
   }
 

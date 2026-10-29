@@ -1,5 +1,9 @@
+import 'dart:typed_data';
+
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 
 import '../../app/app_controller.dart';
@@ -7,11 +11,14 @@ import '../../core/localization/app_strings.dart';
 import '../../data/airport_localization.dart';
 import '../../data/calendar_import_service.dart';
 import '../../data/flight_repository.dart';
+import '../../data/flight_draft_store.dart';
 import '../../data/flight_spreadsheet_import_service.dart';
 import '../../data/flight_time_resolver.dart';
+import '../../data/screenshot_flight_recognizer.dart';
 import '../../domain/flight.dart';
 import '../../ui/theme/app_theme.dart';
 import '../../ui/widgets/widgets.dart';
+import 'add_flight_page.dart';
 
 /// Shared review, conflict handling and import UI for the entry sheet and Profile.
 /// No records are written until the existing preview has been confirmed.
@@ -20,6 +27,7 @@ mixin FlightImportActions<T extends StatefulWidget> on State<T> {
 
   bool _isRecognizingSpreadsheet = false;
   bool _isReadingCalendar = false;
+  bool _isRecognizingScreenshot = false;
   bool isImporting = false;
   String? importErrorMessage;
 
@@ -27,6 +35,13 @@ mixin FlightImportActions<T extends StatefulWidget> on State<T> {
       ? const _SpreadsheetRecognizingNotice()
       : _isReadingCalendar
       ? const _CalendarReadingNotice()
+      : _isRecognizingScreenshot
+      ? Padding(
+          padding: const EdgeInsets.all(12),
+          child: Text(
+            context.strings.isZh ? '正在识别截图…' : 'Recognizing screenshot…',
+          ),
+        )
       : null;
 
   Future<bool> importSpreadsheet(BuildContext context) =>
@@ -34,6 +49,230 @@ mixin FlightImportActions<T extends StatefulWidget> on State<T> {
 
   Future<bool> importCalendar(BuildContext context) =>
       _runImport(context, () => _runCalendarImport(context));
+
+  Future<bool> reviewCalendarScan(
+    BuildContext context,
+    CalendarImportResult scanned,
+  ) => _runImport(
+    context,
+    () => _reviewCalendarScan(context, scanned, startup: true),
+  );
+
+  Future<bool> importScreenshot(BuildContext context) =>
+      _runImport(context, () => _runScreenshotImport(context));
+
+  Future<bool> _runScreenshotImport(BuildContext context) async {
+    final picked = await FilePicker.pickFiles(type: FileType.image);
+    if (picked.isEmpty || !context.mounted) return false;
+    final items = <({FlightDraft draft, Uint8List image})>[];
+    final images = <Uint8List>[];
+    final identities = <String>{};
+    var skipped = 0;
+    setState(() => _isRecognizingScreenshot = true);
+    try {
+      await WidgetsBinding.instance.endOfFrame;
+      for (final file in picked) {
+        Uint8List bytes;
+        try {
+          bytes = await file.readAsBytes();
+        } catch (_) {
+          skipped++;
+          continue;
+        }
+        if (!context.mounted) return false;
+        if (bytes.length > 20 * 1024 * 1024 ||
+            images.any((image) => listEquals(image, bytes))) {
+          skipped++;
+          continue;
+        }
+        images.add(bytes);
+        List<String> lines;
+        try {
+          lines = await const ScreenshotFlightRecognizer().recognize(bytes);
+        } on PlatformException catch (error) {
+          if (error.code == 'unsupported') rethrow;
+          skipped++;
+          continue;
+        }
+        for (final draft in parseScreenshotFlights(
+          lines,
+          controller.airports,
+        )) {
+          if (!draft.hasMeaningfulContent) {
+            skipped++;
+            continue;
+          }
+          final key =
+              draft.identity.isNotEmpty &&
+                  draft.departureIata != null &&
+                  draft.arrivalIata != null &&
+                  draft.dateTouched
+              ? '${draft.identity}|${draft.departureIata}|${draft.arrivalIata}|${draft.date!.toIso8601String()}'
+              : null;
+          if (key != null && !identities.add(key)) {
+            skipped++;
+            continue;
+          }
+          items.add((draft: draft, image: bytes));
+        }
+      }
+    } on MissingPluginException {
+      if (context.mounted)
+        _message(
+          context,
+          context.strings.isZh
+              ? '当前平台暂不支持截图识别'
+              : 'Screenshot recognition is not available on this platform',
+        );
+      return false;
+    } on PlatformException catch (error) {
+      if (context.mounted)
+        _message(
+          context,
+          error.code == 'unsupported'
+              ? (context.strings.isZh
+                    ? '截图识别需要 Android 8.0 或更高版本'
+                    : 'Screenshot recognition requires Android 8.0 or later')
+              : (context.strings.isZh
+                    ? '识别失败，请更换截图重试'
+                    : 'Recognition failed. Please try another image.'),
+        );
+      return false;
+    } finally {
+      if (mounted) setState(() => _isRecognizingScreenshot = false);
+    }
+    if (!context.mounted) return false;
+    if (items.isEmpty) {
+      _message(
+        context,
+        context.strings.isZh ? '未识别到航班信息，请更换截图或手动录入' : 'No flight information found. Try another image or enter it manually.',
+      );
+      return false;
+    }
+    final selected = <int>{for (var i = 0; i < items.length; i++) i};
+    if (items.length > 1 || skipped > 0) {
+      final proceed = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => StatefulBuilder(
+          builder: (dialogContext, refresh) => AlertDialog(
+            title: Text(
+              dialogContext.strings.isZh
+                  ? '截图航班预览'
+                  : 'Screenshot flight preview',
+            ),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (skipped > 0)
+                    Text(
+                      dialogContext.strings.isZh
+                          ? '跳过 $skipped 个重复、过大或识别失败的项目'
+                          : 'Skipped $skipped duplicate, oversized or unrecognized items',
+                    ),
+                  for (var i = 0; i < items.length; i++)
+                    CheckboxListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: Text(
+                        '${items[i].draft.identity.isEmpty ? '—' : items[i].draft.identity}  ${items[i].draft.departureIata ?? '?'} → ${items[i].draft.arrivalIata ?? '?'}',
+                      ),
+                      value: selected.contains(i),
+                      onChanged: (value) => refresh(() {
+                        if (value == true) {
+                          selected.add(i);
+                        } else {
+                          selected.remove(i);
+                        }
+                      }),
+                    ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: Text(dialogContext.strings.t('cancel')),
+              ),
+              TextButton(
+                onPressed: selected.isEmpty
+                    ? null
+                    : () => Navigator.pop(dialogContext, true),
+                child: Text(
+                  dialogContext.strings.isZh ? '依次核对' : 'Review flights',
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+      if (proceed != true || !context.mounted) return false;
+    }
+    final addedRecords = <Flight>[];
+    for (var index = 0; index < items.length; index++) {
+      if (!selected.contains(index)) continue;
+      final item = items[index];
+      if (!context.mounted) break;
+      final saved = await showModalBottomSheet<Flight>(
+        context: context,
+        isScrollControlled: true,
+        useSafeArea: true,
+        requestFocus: false,
+        backgroundColor: Colors.transparent,
+        builder: (_) => FractionallySizedBox(
+          heightFactor: .94,
+          child: ClipPath(
+            clipper: ShapeBorderClipper(shape: AppShapes.sheet),
+            child: AddFlightPage(
+              controller: controller,
+              initialScreenshotDraft: item.draft,
+              screenshotImage: item.image,
+            ),
+          ),
+        ),
+      );
+      if (saved != null) addedRecords.add(saved);
+    }
+    if (context.mounted && addedRecords.isNotEmpty) {
+      await _showUndoAdded(context, addedRecords);
+    }
+    return addedRecords.isNotEmpty;
+  }
+
+  Future<void> _showUndoAdded(
+    BuildContext context,
+    List<Flight> flights,
+  ) async {
+    final shouldUndo = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(dialogContext.strings.isZh ? '导入完成' : 'Import complete'),
+        content: Text(
+          dialogContext.strings.isZh
+              ? '新增 ${flights.length} 条航程。可撤销本次新增，已修改的记录会保留。'
+              : 'Added ${flights.length} flights. You can undo unchanged additions.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: Text(dialogContext.strings.isZh ? '撤销新增' : 'Undo additions'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: Text(dialogContext.strings.t('close')),
+          ),
+        ],
+      ),
+    );
+    if (shouldUndo != true || !context.mounted) return;
+    final removed = await controller.undoAddedFlights(flights);
+    if (context.mounted)
+      _message(
+        context,
+        context.strings.isZh
+            ? '已撤销 $removed 条新增航程'
+            : 'Undid $removed additions',
+      );
+  }
 
   Future<bool> _runImport(
     BuildContext context,
@@ -180,6 +419,14 @@ mixin FlightImportActions<T extends StatefulWidget> on State<T> {
     }
 
     if (!context.mounted) return false;
+    return _reviewCalendarScan(context, scanned);
+  }
+
+  Future<bool> _reviewCalendarScan(
+    BuildContext context,
+    CalendarImportResult scanned, {
+    bool startup = false,
+  }) async {
     switch (scanned.status) {
       case CalendarScanStatus.permissionDenied:
         _message(context, context.strings.t('calendarPermissionDenied'));
@@ -196,8 +443,95 @@ mixin FlightImportActions<T extends StatefulWidget> on State<T> {
       case CalendarScanStatus.available:
         break;
     }
+    if (startup && scanned.reviewKeys.isNotEmpty) {
+      final ignored = <String>{};
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => StatefulBuilder(
+          builder: (context, update) => AlertDialog(
+            title: Text(
+              context.strings.isZh ? '待核对的日历日程' : 'Calendar events to review',
+            ),
+            content: SizedBox(
+              width: double.maxFinite,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      context.strings.isZh ? '这些日程信息不完整，可勾选不再提醒的日程。' : 'Some events are incomplete. Select events to ignore.',
+                    ),
+                    for (var i = 0; i < scanned.reviewKeys.length; i++)
+                      CheckboxListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: Text(
+                          i < scanned.reviewTitles.length &&
+                                  scanned.reviewTitles[i].isNotEmpty
+                              ? scanned.reviewTitles[i]
+                              : (context.strings.isZh
+                                    ? '未命名日程'
+                                    : 'Untitled event'),
+                        ),
+                        value: ignored.contains(scanned.reviewKeys[i]),
+                        onChanged: (value) => update(() {
+                          if (value == true) {
+                            ignored.add(scanned.reviewKeys[i]);
+                          } else {
+                            ignored.remove(scanned.reviewKeys[i]);
+                          }
+                        }),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: Text(context.strings.isZh ? '稍后提醒' : 'Remind me later'),
+              ),
+              TextButton(
+                onPressed: ignored.isEmpty
+                    ? null
+                    : () => Navigator.pop(dialogContext, true),
+                child: Text(context.strings.isZh ? '忽略选中' : 'Ignore selected'),
+              ),
+            ],
+          ),
+        ),
+      );
+      if (!context.mounted) return false;
+      if (confirmed == true && ignored.isNotEmpty)
+        await controller.ignoreCalendarRevisions(ignored);
+      if (!context.mounted) return false;
+      if (scanned.flights.isEmpty) return false;
+    }
     if (scanned.flights.isEmpty) {
-      _message(context, context.strings.t('calendarNoFlights'));
+      if (scanned.reviewCandidates > 0) {
+        await showDialog<void>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            title: Text(dialogContext.strings.t('calendarImportTitle')),
+            content: Text(
+              dialogContext.strings
+                      .t('calendarNeedsReview')
+                      .replaceFirst('{count}', '${scanned.reviewCandidates}') +
+                  (scanned.reviewTitles.isEmpty
+                      ? ''
+                      : '\n\n${scanned.reviewTitles.take(5).join('\n')}'),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: Text(dialogContext.strings.t('close')),
+              ),
+            ],
+          ),
+        );
+      } else {
+        _message(context, context.strings.t('calendarNoFlights'));
+      }
       return false;
     }
 
@@ -205,7 +539,14 @@ mixin FlightImportActions<T extends StatefulWidget> on State<T> {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => _CalendarPreviewSheet(result: scanned),
+      builder: (_) => _CalendarPreviewSheet(
+        result: scanned,
+        onIgnore: startup
+            ? (draft) => controller.ignoreCalendarRevisions([
+                draft.autoImportRevisionKey,
+              ])
+            : null,
+      ),
     );
     if (selected == null || !context.mounted) return false;
     if (selected.isEmpty) {
@@ -220,6 +561,7 @@ mixin FlightImportActions<T extends StatefulWidget> on State<T> {
       final decision = await _confirmSpreadsheetOverwrite(
         context,
         preview.summary.conflicts,
+        preview: preview,
       );
       if (decision == null || !context.mounted) return false;
       overwriteExisting = decision;
@@ -239,6 +581,8 @@ mixin FlightImportActions<T extends StatefulWidget> on State<T> {
     }
     if (!context.mounted) return false;
     await _showCalendarComplete(context, imported);
+    if (context.mounted && imported.addedRecords.isNotEmpty)
+      await _showUndoAdded(context, imported.addedRecords);
     return true;
   }
 
@@ -268,15 +612,42 @@ mixin FlightImportActions<T extends StatefulWidget> on State<T> {
 
   Future<bool?> _confirmSpreadsheetOverwrite(
     BuildContext context,
-    int conflictCount,
-  ) => showDialog<bool?>(
+    int conflictCount, {
+    FlightImportPreview? preview,
+  }) => showDialog<bool?>(
     context: context,
     builder: (dialogContext) {
       final s = context.strings;
-      final message = s
+      var message = s
           .t('spreadsheetOverwriteMessage')
           .replaceFirst('{count}', '$conflictCount');
+      if (preview != null && preview.existingByIncomingId.isNotEmpty) {
+        String describe(Flight flight) {
+          final zone = controller.airports.timeZoneIdForIata(
+            flight.departureIata,
+          );
+          final wall =
+              FlightTimeResolver.toWallTime(flight.departedAt, zone) ??
+              flight.departedAt.toLocal();
+          final arrivalZone = controller.airports.timeZoneIdForIata(
+            flight.arrivalIata,
+          );
+          final arrival = flight.arrivedAt == null
+              ? null
+              : FlightTimeResolver.toWallTime(flight.arrivedAt!, arrivalZone) ??
+                    flight.arrivedAt!.toLocal();
+          return '${flight.flightNumber ?? ''}  ${flight.departureIata} → ${flight.arrivalIata}\n${DateFormat('yyyy-MM-dd HH:mm').format(wall)} → ${arrival == null ? '—' : DateFormat('yyyy-MM-dd HH:mm').format(arrival)}';
+        }
+
+        message +=
+            '\n\n${preview.conflictingFlights.where((flight) => preview.existingByIncomingId.containsKey(flight.id)).map((flight) {
+              final old = preview.existingByIncomingId[flight.id]!;
+              final changes = <String>[if (old.departureIata != flight.departureIata || old.arrivalIata != flight.arrivalIata) s.isZh ? '机场' : 'airports', if (old.departedAt != flight.departedAt) s.isZh ? '起飞时间' : 'departure time', if (old.arrivedAt != flight.arrivedAt) s.isZh ? '到达时间' : 'arrival time', if (old.flightNumber != flight.flightNumber) s.isZh ? '航班号' : 'flight number'];
+              return '${changes.isEmpty ? '' : '${s.isZh ? '变更' : 'Changed'}：${changes.join('、')}\n'}${s.isZh ? '已有' : 'Existing'}: ${describe(old)}\n${s.isZh ? '日历' : 'Calendar'}: ${describe(flight)}';
+            }).join('\n\n')}';
+      }
       return AlertDialog(
+        scrollable: true,
         title: Text(s.t('spreadsheetOverwriteTitle')),
         content: Text(message),
         actions: [
@@ -331,6 +702,8 @@ mixin FlightImportActions<T extends StatefulWidget> on State<T> {
     if (reviewIssues == true && context.mounted) {
       await _showSpreadsheetIssues(context, issues);
     }
+    if (context.mounted && summary.addedRecords.isNotEmpty)
+      await _showUndoAdded(context, summary.addedRecords);
   }
 
   Future<void> _showSpreadsheetIssues(
@@ -647,9 +1020,10 @@ class _CalendarReadingNotice extends StatelessWidget {
 }
 
 class _CalendarPreviewSheet extends StatefulWidget {
-  const _CalendarPreviewSheet({required this.result});
+  const _CalendarPreviewSheet({required this.result, this.onIgnore});
 
   final CalendarImportResult result;
+  final Future<void> Function(CalendarFlightDraft)? onIgnore;
 
   @override
   State<_CalendarPreviewSheet> createState() => _CalendarPreviewSheetState();
@@ -657,6 +1031,7 @@ class _CalendarPreviewSheet extends StatefulWidget {
 
 class _CalendarPreviewSheetState extends State<_CalendarPreviewSheet> {
   late Set<String> _selected;
+  final Set<String> _ignored = {};
 
   @override
   void initState() {
@@ -665,7 +1040,11 @@ class _CalendarPreviewSheetState extends State<_CalendarPreviewSheet> {
   }
 
   List<CalendarFlightDraft> get _selectedDrafts => widget.result.flights
-      .where((draft) => _selected.contains(_draftKey(draft)))
+      .where(
+        (draft) =>
+            _selected.contains(_draftKey(draft)) &&
+            !_ignored.contains(_draftKey(draft)),
+      )
       .toList(growable: false);
 
   @override
@@ -706,6 +1085,26 @@ class _CalendarPreviewSheetState extends State<_CalendarPreviewSheet> {
                   '${s.t('calendarFlightsFound').replaceFirst('{count}', '${widget.result.flights.length}')}',
                   style: AppTextStyles.bodySecondary,
                 ),
+                if (widget.result.reviewCandidates > 0) ...[
+                  const SizedBox(height: 8),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(10),
+                    decoration: ShapeDecoration(
+                      color: colors.surfaceElevated,
+                      shape: AppShapes.small,
+                    ),
+                    child: Text(
+                      '${s.t('calendarNeedsReview').replaceFirst('{count}', '${widget.result.reviewCandidates}')}'
+                      '${widget.result.reviewTitles.isEmpty ? '' : '\n${widget.result.reviewTitles.take(3).join('\n')}'}',
+                      maxLines: 4,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTextStyles.label.copyWith(
+                        color: colors.textSecondary,
+                      ),
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 10),
                 Align(
                   alignment: Alignment.centerRight,
@@ -734,6 +1133,8 @@ class _CalendarPreviewSheetState extends State<_CalendarPreviewSheet> {
                     separatorBuilder: (_, _) => const SizedBox(height: 8),
                     itemBuilder: (context, index) {
                       final draft = widget.result.flights[index];
+                      if (_ignored.contains(_draftKey(draft)))
+                        return const SizedBox.shrink();
                       final selected = _selected.contains(_draftKey(draft));
                       final departureName = localizedAirportCardName(
                         draft.departureAirport,
@@ -864,6 +1265,60 @@ class _CalendarPreviewSheetState extends State<_CalendarPreviewSheet> {
                                     activeColor: colors.actionFill,
                                     checkColor: colors.onPrimary,
                                   ),
+                                  if (widget.onIgnore != null)
+                                    IconButton(
+                                      tooltip: s.isZh
+                                          ? '忽略此日程'
+                                          : 'Ignore this event',
+                                      icon: const Icon(
+                                        Icons.notifications_off_outlined,
+                                      ),
+                                      onPressed: () async {
+                                        final confirmed = await showDialog<bool>(
+                                          context: context,
+                                          builder: (dialogContext) =>
+                                              AlertDialog(
+                                                title: Text(
+                                                  s.isZh
+                                                      ? '忽略此日程？'
+                                                      : 'Ignore this event?',
+                                                ),
+                                                content: Text(
+                                                  s.isZh ? '此日程发生变化后仍会提醒。' : 'You will be reminded if this event changes.',
+                                                ),
+                                                actions: [
+                                                  TextButton(
+                                                    onPressed: () =>
+                                                        Navigator.pop(
+                                                          dialogContext,
+                                                          false,
+                                                        ),
+                                                    child: Text(s.t('cancel')),
+                                                  ),
+                                                  TextButton(
+                                                    onPressed: () =>
+                                                        Navigator.pop(
+                                                          dialogContext,
+                                                          true,
+                                                        ),
+                                                    child: Text(
+                                                      s.isZh ? '忽略' : 'Ignore',
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                        );
+                                        if (confirmed != true ||
+                                            !context.mounted)
+                                          return;
+                                        await widget.onIgnore!(draft);
+                                        if (mounted)
+                                          setState(() {
+                                            _ignored.add(_draftKey(draft));
+                                            _selected.remove(_draftKey(draft));
+                                          });
+                                      },
+                                    ),
                                 ],
                               ),
                             ),

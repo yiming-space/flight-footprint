@@ -7,6 +7,7 @@ import 'package:flight_footprint/data/city_catalog.dart';
 import 'package:flight_footprint/domain/airport.dart';
 import 'package:flight_footprint/domain/flight.dart';
 import 'package:flight_footprint/domain/visited_place.dart';
+import 'package:flight_footprint/domain/transfer_decision.dart';
 import 'package:flight_footprint/features/stats/city_ranking.dart';
 
 void main() {
@@ -68,6 +69,7 @@ void main() {
     String to,
     DateTime date, {
     FlightStatus status = FlightStatus.completed,
+    bool isTransitArrival = false,
   }) => Flight(
     id: id,
     departureIata: from,
@@ -76,6 +78,7 @@ void main() {
     createdAt: date,
     updatedAt: date,
     status: status,
+    isTransitArrival: isTransitArrival,
   );
 
   VisitedPlace place(
@@ -298,5 +301,122 @@ void main() {
     expect(result.map((entry) => entry.countryCode).toSet(), {'HK', 'MO'});
     expect(result.map((entry) => entry.name).toSet(), {'香港', '澳门'});
     expect(result.every((entry) => entry.count == 2), isTrue);
+  });
+
+  test('only a manually marked transit arrival follows the preference', () {
+    final marked = flight(
+      'manual-transfer',
+      'AAA',
+      'BBB',
+      DateTime(2025),
+      isTransitArrival: true,
+    );
+    final included = buildCityRanking(
+      [marked],
+      airportFor: airportFor,
+      cityNameFor: cityNameFor,
+      countryNameFor: countryNameFor,
+    );
+    final excluded = buildCityRanking(
+      [marked],
+      airportFor: airportFor,
+      cityNameFor: cityNameFor,
+      countryNameFor: countryNameFor,
+      includeTransitArrivals: false,
+    );
+    expect(included, hasLength(2));
+    expect(included.fold<int>(0, (sum, entry) => sum + entry.count), 2);
+    expect(excluded, hasLength(1));
+    expect(excluded.single.countryCode, 'US');
+    expect(excluded.single.count, 1);
+  });
+
+  test('setting never excludes unmarked arrivals', () {
+    final unmarked = flight('ordinary', 'AAA', 'BBB', DateTime(2025));
+    final ranking = buildCityRanking(
+      [unmarked],
+      airportFor: airportFor,
+      cityNameFor: cityNameFor,
+      countryNameFor: countryNameFor,
+      includeTransitArrivals: false,
+    );
+    expect(ranking, hasLength(2));
+  });
+
+  test('a later departure from a marked transfer airport still counts', () {
+    final arriveAtTransfer = flight(
+      'leg-one',
+      'AAA',
+      'BBB',
+      DateTime(2025),
+      isTransitArrival: true,
+    );
+    final departTransfer = flight(
+      'leg-two',
+      'BBB',
+      'AAA',
+      DateTime(2025, 1, 2),
+    );
+    final ranking = buildCityRanking(
+      [arriveAtTransfer, departTransfer],
+      airportFor: airportFor,
+      cityNameFor: cityNameFor,
+      countryNameFor: countryNameFor,
+      includeTransitArrivals: false,
+    );
+    final canada = ranking.singleWhere((entry) => entry.countryCode == 'CA');
+    expect(canada.count, 1);
+  });
+
+  test('a confirmed matching transfer excludes both footprint endpoints', () {
+    final inbound = flight(
+      'inbound', 'AAA', 'BBB', DateTime(2025, 1, 1, 8),
+      isTransitArrival: true,
+    ).copyWith(arrivedAt: DateTime(2025, 1, 1, 10));
+    final outbound = flight(
+      'outbound', 'BBB', 'AAA', DateTime(2025, 1, 1, 12),
+    );
+    final decision = TransferDecision.fromFlights(
+      inbound: inbound,
+      outbound: outbound,
+      status: TransferDecisionStatus.confirmed,
+      decidedAt: DateTime(2025, 1, 1, 11),
+    );
+    final ranking = buildCityRanking(
+      [inbound, outbound],
+      airportFor: airportFor,
+      cityNameFor: cityNameFor,
+      countryNameFor: countryNameFor,
+      includeTransitArrivals: false,
+      confirmedTransfers: [decision],
+    );
+    expect(ranking.map((entry) => entry.countryCode), ['US']);
+    expect(ranking.single.count, 2);
+  });
+
+  test('a stale confirmed decision does not remove current endpoints', () {
+    final inbound = flight(
+      'inbound', 'AAA', 'BBB', DateTime(2025, 1, 1, 8),
+      isTransitArrival: true,
+    ).copyWith(arrivedAt: DateTime(2025, 1, 1, 10));
+    final outbound = flight(
+      'outbound', 'BBB', 'AAA', DateTime(2025, 1, 1, 12),
+    );
+    final staleDecision = TransferDecision.fromFlights(
+      inbound: inbound.copyWith(arrivalIata: 'CCC'),
+      outbound: outbound,
+      status: TransferDecisionStatus.confirmed,
+      decidedAt: DateTime(2025, 1, 1, 11),
+    );
+    final ranking = buildCityRanking(
+      [inbound, outbound],
+      airportFor: airportFor,
+      cityNameFor: cityNameFor,
+      countryNameFor: countryNameFor,
+      includeTransitArrivals: false,
+      confirmedTransfers: [staleDecision],
+    );
+    expect(ranking.any((entry) => entry.countryCode == 'CA'), isTrue);
+    expect(ranking.singleWhere((entry) => entry.countryCode == 'CA').count, 1);
   });
 }

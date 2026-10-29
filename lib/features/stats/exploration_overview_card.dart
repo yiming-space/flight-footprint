@@ -39,6 +39,7 @@ class ExplorationOverviewCard extends StatelessWidget {
       icon: Icons.public_rounded,
       keyPrefix: 'world-exploration',
       flipOnOpen: true,
+      snapshotDuringTransition: true,
       flipSourceRadius: AppRadii.large.topLeft.x,
       pageBuilder: pageBuilder,
       overviewBuilder: (context, onTap) => SurfaceCard(

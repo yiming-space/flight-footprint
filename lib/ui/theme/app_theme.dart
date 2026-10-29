@@ -64,8 +64,8 @@ class AppThemeColors extends ThemeExtension<AppThemeColors> {
   Color get displaySecondary =>
       isLightPalette ? const Color(0xFF8B78A3) : purple;
 
-  /// Selected navigation shares the same accent as feature UI.
-  Color get navigationSelected => displayPrimary;
+  /// Match the central action button in the light palette.
+  Color get navigationSelected => isLightPalette ? actionFill : displayPrimary;
   Color get navigationUnselected =>
       isLightPalette ? const Color(0xFF7C8791) : textSecondary;
 

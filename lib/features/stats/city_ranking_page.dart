@@ -16,11 +16,13 @@ class CityRankingPage extends StatelessWidget {
     required this.items,
     required this.onCitySelected,
     this.animateEntrance = false,
+    this.includeTransitArrivals = true,
   });
 
   final List<CityRankingEntry> items;
   final ValueChanged<CityRankingEntry> onCitySelected;
   final bool animateEntrance;
+  final bool includeTransitArrivals;
 
   @override
   Widget build(BuildContext context) => RankingEntrance(
@@ -60,11 +62,26 @@ class CityRankingPage extends StatelessWidget {
                   SliverPadding(
                     padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
                     sliver: SliverToBoxAdapter(
-                      child: Text(
-                        cityVisitSummary(items.length, isZh: strings.isZh),
-                        style: AppTextStyles.bodySecondary.copyWith(
-                          color: colors.textSecondary,
-                        ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            cityVisitSummary(items.length, isZh: strings.isZh),
+                            style: AppTextStyles.bodySecondary.copyWith(
+                              color: colors.textSecondary,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            strings.isZh
+                                ? '次数含完成航班的${includeTransitArrivals ? '起飞与抵达' : '起飞与非中转抵达'}端点，以及已保存足迹。'
+                                : 'Counts include completed-flight departures and ${includeTransitArrivals ? 'arrivals' : 'non-transfer arrivals'}, plus saved footprints.',
+                            style: AppTextStyles.label.copyWith(
+                              color: colors.textSecondary,
+                              fontWeight: FontWeight.w400,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ),

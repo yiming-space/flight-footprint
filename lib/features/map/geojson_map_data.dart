@@ -13,8 +13,76 @@ GeoJsonMapData _decodeGeoJson(String source) {
 }
 
 class MapPolygon {
-  const MapPolygon(this.rings);
+  const MapPolygon(this.rings, {this.properties = const {}});
   final List<List<List<double>>> rings;
+  final Map<String, dynamic> properties;
+
+  String? get countryCode => properties['ISO_A2_EH']?.toString().toUpperCase();
+
+  bool matchesChinaAdministrativeRegion(String? countryCode) {
+    final code = countryCode?.trim().toUpperCase();
+    if (code == null || code.isEmpty) return true;
+    return switch (properties['adcode']?.toString()) {
+      '710000' => code == 'TW',
+      '810000' => code == 'HK',
+      '820000' => code == 'MO',
+      _ => code == 'CN',
+    };
+  }
+
+  /// Tests a WGS84 point against this polygon, including polygons crossing
+  /// the antimeridian. GeoJSON rings after the first are treated as holes.
+  bool containsPoint(double longitude, double latitude) =>
+      longitude.isFinite &&
+      latitude.isFinite &&
+      longitude >= -180 &&
+      longitude <= 180 &&
+      latitude >= -90 &&
+      latitude <= 90 &&
+      rings.isNotEmpty &&
+      _containsRing(rings.first, longitude, latitude) &&
+      !rings.skip(1).any((ring) => _containsRing(ring, longitude, latitude));
+
+  static bool _containsRing(
+    List<List<double>> ring,
+    double longitude,
+    double latitude,
+  ) {
+    if (ring.length < 3) return false;
+    final points = <(double, double)>[];
+    var minX = double.infinity;
+    var maxX = double.negativeInfinity;
+    var minY = double.infinity;
+    var maxY = double.negativeInfinity;
+    for (final point in ring) {
+      if (point.length < 2 || !point[0].isFinite || !point[1].isFinite) {
+        continue;
+      }
+      var x = point[0];
+      if (points.isNotEmpty) {
+        final previous = points.last.$1;
+        x = previous + (x - previous + 180) % 360 - 180;
+      }
+      final y = point[1];
+      points.add((x, y));
+      minX = x < minX ? x : minX;
+      maxX = x > maxX ? x : maxX;
+      minY = y < minY ? y : minY;
+      maxY = y > maxY ? y : maxY;
+    }
+    if (points.length < 3 || latitude < minY || latitude > maxY) return false;
+    final x = longitude + (((minX + maxX) / 2 - longitude) / 360).round() * 360;
+    if (x < minX || x > maxX) return false;
+    var inside = false;
+    for (var i = 0, j = points.length - 1; i < points.length; j = i++) {
+      final a = points[i], b = points[j];
+      if ((a.$2 > latitude) != (b.$2 > latitude) &&
+          x < (b.$1 - a.$1) * (latitude - a.$2) / (b.$2 - a.$2) + a.$1) {
+        inside = !inside;
+      }
+    }
+    return inside;
+  }
 }
 
 class MapLine {
@@ -33,15 +101,22 @@ class GeoJsonMapData {
     for (final feature in (json['features'] as List? ?? const [])) {
       final geometry = feature is Map ? feature['geometry'] : null;
       if (geometry is! Map) continue;
+      final properties = feature is Map && feature['properties'] is Map
+          ? Map<String, dynamic>.from(feature['properties'] as Map)
+          : const <String, dynamic>{};
       final type = geometry['type'];
       final coordinates = geometry['coordinates'];
       if (type == 'Polygon') {
         final rings = _rings(coordinates);
-        if (rings.isNotEmpty) polygons.add(MapPolygon(rings));
+        if (rings.isNotEmpty) {
+          polygons.add(MapPolygon(rings, properties: properties));
+        }
       } else if (type == 'MultiPolygon') {
         for (final polygon in (coordinates as List? ?? const [])) {
           final rings = _rings(polygon);
-          if (rings.isNotEmpty) polygons.add(MapPolygon(rings));
+          if (rings.isNotEmpty) {
+            polygons.add(MapPolygon(rings, properties: properties));
+          }
         }
       } else if (type == 'LineString') {
         final line = _line(coordinates);

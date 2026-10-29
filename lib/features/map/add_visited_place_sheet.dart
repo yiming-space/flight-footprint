@@ -13,9 +13,14 @@ import '../../ui/widgets/widgets.dart';
 import 'photo_footprint_picker_sheet.dart';
 
 class AddVisitedPlaceSheet extends StatefulWidget {
-  const AddVisitedPlaceSheet({super.key, required this.controller});
+  const AddVisitedPlaceSheet({
+    super.key,
+    required this.controller,
+    this.initialPlace,
+  });
 
   final AppController controller;
+  final VisitedPlace? initialPlace;
 
   @override
   State<AddVisitedPlaceSheet> createState() => _AddVisitedPlaceSheetState();
@@ -33,6 +38,27 @@ class _AddVisitedPlaceSheetState extends State<AddVisitedPlaceSheet> {
   @override
   void initState() {
     super.initState();
+    final initial = widget.initialPlace;
+    if (initial != null) {
+      _visitedAt = initial.visitedAt.toLocal();
+      final hasValidCoordinates =
+          initial.latitude.isFinite &&
+          initial.longitude.isFinite &&
+          initial.latitude >= -90 &&
+          initial.latitude <= 90 &&
+          initial.longitude >= -180 &&
+          initial.longitude <= 180;
+      if (hasValidCoordinates && initial.name.trim().isNotEmpty) {
+        _selected = CityCenter(
+          name: initial.name,
+          latitude: initial.latitude,
+          longitude: initial.longitude,
+          province: '',
+          countryCode: initial.countryCode ?? '',
+        );
+        _search.text = initial.name;
+      }
+    }
     _search.addListener(_onSearchChanged);
   }
 
@@ -84,7 +110,9 @@ class _AddVisitedPlaceSheetState extends State<AddVisitedPlaceSheet> {
                 children: [
                   Expanded(
                     child: Text(
-                      s.t('addPlace'),
+                      widget.initialPlace == null
+                          ? s.t('addPlace')
+                          : (s.isZh ? '修正足迹' : 'Fix footprint'),
                       style: AppTextStyles.sectionTitle.copyWith(
                         color: colors.textPrimary,
                       ),
@@ -99,25 +127,31 @@ class _AddVisitedPlaceSheetState extends State<AddVisitedPlaceSheet> {
               ),
               const SizedBox(height: 4),
               Text(
-                s.t('addPlaceHint'),
+                widget.initialPlace == null
+                    ? s.t('addPlaceHint')
+                    : (s.isZh
+                          ? '搜索并选择正确的城市，再保存以修正这条足迹。'
+                          : 'Search for the correct city and save to fix this footprint.'),
                 style: AppTextStyles.bodySecondary.copyWith(
                   color: colors.textSecondary,
                 ),
               ),
               const SizedBox(height: 18),
-              FilledButton.icon(
-                onPressed: _saving ? null : _openPhotoImport,
-                icon: const Icon(Icons.photo_library_outlined),
-                label: Text(s.t('addFromPhotos')),
-                style: FilledButton.styleFrom(
-                  minimumSize: const Size.fromHeight(52),
-                  backgroundColor: actionFill,
-                  foregroundColor: actionInk,
-                  shape: AppShapes.medium,
-                  side: BorderSide.none,
+              if (widget.initialPlace == null) ...[
+                FilledButton.icon(
+                  onPressed: _saving ? null : _openPhotoImport,
+                  icon: const Icon(Icons.photo_library_outlined),
+                  label: Text(s.t('addFromPhotos')),
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size.fromHeight(52),
+                    backgroundColor: actionFill,
+                    foregroundColor: actionInk,
+                    shape: AppShapes.medium,
+                    side: BorderSide.none,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 12),
+                const SizedBox(height: 12),
+              ],
               TextField(
                 controller: _search,
                 focusNode: _searchFocus,
@@ -273,8 +307,16 @@ class _AddVisitedPlaceSheetState extends State<AddVisitedPlaceSheet> {
                 ),
               const SizedBox(height: 12),
               PrimaryButton(
-                label: _saving ? '…' : s.t('savePlace'),
-                icon: Icons.add_location_alt_rounded,
+                label: _saving
+                    ? '…'
+                    : s.t(
+                        widget.initialPlace == null
+                            ? 'savePlace'
+                            : 'saveChanges',
+                      ),
+                icon: widget.initialPlace == null
+                    ? Icons.add_location_alt_rounded
+                    : Icons.check_rounded,
                 onPressed: _selected == null || _saving ? null : _save,
                 backgroundColor: isLight ? colors.actionFill : null,
                 foregroundColor: isLight ? colors.onPrimary : null,
@@ -388,6 +430,7 @@ class _AddVisitedPlaceSheetState extends State<AddVisitedPlaceSheet> {
           longitude: draft.longitude,
           visitedAt: draft.visitedAt,
           countryCode: draft.countryCode,
+          source: FootprintRecordSource.photo,
         );
       }
       if (mounted) Navigator.pop(context, true);
@@ -439,13 +482,25 @@ class _AddVisitedPlaceSheetState extends State<AddVisitedPlaceSheet> {
     if (selected == null) return;
     setState(() => _saving = true);
     try {
-      await widget.controller.addVisitedPlace(
-        name: selected.name,
-        latitude: selected.latitude,
-        longitude: selected.longitude,
-        visitedAt: _visitedAt,
-        countryCode: selected.countryCode,
-      );
+      final initial = widget.initialPlace;
+      if (initial == null) {
+        await widget.controller.addVisitedPlace(
+          name: selected.name,
+          latitude: selected.latitude,
+          longitude: selected.longitude,
+          visitedAt: _visitedAt,
+          countryCode: selected.countryCode,
+        );
+      } else {
+        await widget.controller.updateVisitedPlace(
+          existing: initial,
+          name: selected.name,
+          latitude: selected.latitude,
+          longitude: selected.longitude,
+          visitedAt: _visitedAt,
+          countryCode: selected.countryCode,
+        );
+      }
       if (mounted) Navigator.pop(context, true);
     } catch (error) {
       if (!mounted) return;

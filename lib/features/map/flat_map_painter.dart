@@ -605,17 +605,24 @@ class FlatMapPainter extends CustomPainter {
       final result = <int>[];
       for (var index = 0; index < polygons.length; index++) {
         final polygon = polygons[index];
+        final polygonCode = polygon.countryCode;
+        if (skipChinaCountry &&
+            (polygonCode == 'CN' ||
+                (polygonCode == null && polygon.containsPoint(116.4, 39.9)))) {
+          // China is painted by its visited province polygons below. The
+          // witness only supports older geometry assets without ISO tags.
+          continue;
+        }
+        if (!china && polygonCode == '-99') continue;
         var visited = false;
         for (final place in places) {
           if (!place.isVisited) continue;
-          if (skipChinaCountry &&
-              place.countryCode?.trim().toUpperCase() == 'CN' &&
-              _contains(polygon, place.longitude, place.latitude)) {
-            // China is intentionally rendered like the world base map here;
-            // only the visited province layer below receives a fill.
-            visited = false;
-            break;
+          final code = place.countryCode?.trim().toUpperCase();
+          if (skipChinaCountry && code == 'CN') continue;
+          if (china && !polygon.matchesChinaAdministrativeRegion(code)) {
+            continue;
           }
+          if (!china && polygonCode != null && polygonCode != code) continue;
           if (_contains(polygon, place.longitude, place.latitude)) {
             visited = true;
             break;
@@ -1422,37 +1429,7 @@ class FlatMapPainter extends CustomPainter {
   )..layout(maxWidth: _screen(120));
 
   bool _contains(MapPolygon polygon, double longitude, double latitude) {
-    if (polygon.rings.isEmpty ||
-        !_ringContains(polygon.rings.first, longitude, latitude)) {
-      return false;
-    }
-    for (final hole in polygon.rings.skip(1)) {
-      if (_ringContains(hole, longitude, latitude)) return false;
-    }
-    return true;
-  }
-
-  bool _ringContains(
-    List<List<double>> ring,
-    double longitude,
-    double latitude,
-  ) {
-    var inside = false;
-    for (
-      var index = 0, previous = ring.length - 1;
-      index < ring.length;
-      previous = index++
-    ) {
-      final x1 = ring[index][0];
-      final y1 = ring[index][1];
-      final x2 = ring[previous][0];
-      final y2 = ring[previous][1];
-      final intersects =
-          (y1 > latitude) != (y2 > latitude) &&
-          longitude < (x2 - x1) * (latitude - y1) / (y2 - y1 + .0000001) + x1;
-      if (intersects) inside = !inside;
-    }
-    return inside;
+    return polygon.containsPoint(longitude, latitude);
   }
 
   @override

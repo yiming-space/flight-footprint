@@ -8,6 +8,7 @@ import 'package:flight_footprint/features/stats/personal_travel_card.dart';
 import 'package:flight_footprint/features/stats/personal_travel_summary.dart';
 import 'package:flight_footprint/features/stats/world_exploration.dart';
 import 'package:flight_footprint/ui/theme/app_theme.dart';
+import 'package:flight_footprint/ui/widgets/surface_card.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -38,7 +39,7 @@ final _summary = PersonalTravelSummary(
   newCities: [
     NewCityMoment(
       key: 'JP|TOKYO',
-      name: 'Tokyo',
+      name: 'San Carlos de Bariloche',
       countryCode: 'JP',
       firstFlight: _firstFlight,
       arrivedAt: _firstFlight.arrivedAt!,
@@ -54,68 +55,71 @@ final _summary = PersonalTravelSummary(
   ),
 );
 
-Widget _host({required Locale locale, required bool light}) => MaterialApp(
-  theme: light ? AppTheme.light() : AppTheme.dark(),
-  locale: locale,
-  supportedLocales: AppStrings.supportedLocales,
-  localizationsDelegates: const [
-    AppStringsDelegate(),
-    GlobalMaterialLocalizations.delegate,
-    GlobalWidgetsLocalizations.delegate,
-    GlobalCupertinoLocalizations.delegate,
-  ],
-  builder: (context, child) => MediaQuery(
-    data: MediaQuery.of(context).copyWith(textScaler: TextScaler.linear(2)),
-    child: child!,
-  ),
-  home: Scaffold(
-    body: SafeArea(
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: ExplorationMemoryCarousel(
-          cards: [
-            FarthestFootprintCard(
-              home: _home,
-              farthest: FarthestFootprint(
-                place: ExplorationPlace(
-                  name: 'Singapore',
-                  countryCode: 'SG',
-                  latitude: 1.35,
-                  longitude: 103.82,
-                  visitedAt: DateTime(2026, 9, 10),
+Widget _host({required Locale locale, required bool light, double scale = 2}) =>
+    MaterialApp(
+      theme: light ? AppTheme.light() : AppTheme.dark(),
+      locale: locale,
+      supportedLocales: AppStrings.supportedLocales,
+      localizationsDelegates: const [
+        AppStringsDelegate(),
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
+      builder: (context, child) => MediaQuery(
+        data: MediaQuery.of(context)
+            .copyWith(textScaler: TextScaler.linear(scale)),
+        child: child!,
+      ),
+      home: Scaffold(
+        body: SafeArea(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(16),
+            child: ExplorationMemoryCarousel(
+              cards: [
+                FarthestFootprintCard(
+                  home: _home,
+                  farthest: FarthestFootprint(
+                    place: ExplorationPlace(
+                      name: 'Singapore',
+                      countryCode: 'SG',
+                      latitude: 1.35,
+                      longitude: 103.82,
+                      visitedAt: DateTime(2026, 9, 10),
+                    ),
+                    distanceKm: 3800,
+                  ),
+                  homeLoaded: true,
+                  onChooseHome: _chooseHome,
                 ),
-                distanceKm: 3800,
-              ),
-              homeLoaded: true,
-              onChooseHome: _chooseHome,
+                PersonalTravelMomentCard(
+                  summary: _summary,
+                  kind: PersonalTravelKind.newCities,
+                  onOpen: () => _openedMemory = PersonalTravelKind.newCities,
+                ),
+                PersonalTravelMomentCard(
+                  summary: _summary,
+                  kind: PersonalTravelKind.frequentRoute,
+                  onOpen: () =>
+                      _openedMemory = PersonalTravelKind.frequentRoute,
+                ),
+                PersonalTravelMomentCard(
+                  summary: _summary,
+                  kind: PersonalTravelKind.newAircraft,
+                  onOpen: () => _openedMemory = PersonalTravelKind.newAircraft,
+                ),
+              ],
+              labels: const [
+                'Farthest footprint',
+                'New cities',
+                'Most-flown route',
+                'New aircraft types',
+              ],
             ),
-            PersonalTravelMomentCard(
-              summary: _summary,
-              kind: PersonalTravelKind.newCities,
-              onOpen: () => _openedMemory = PersonalTravelKind.newCities,
-            ),
-            PersonalTravelMomentCard(
-              summary: _summary,
-              kind: PersonalTravelKind.frequentRoute,
-              onOpen: () => _openedMemory = PersonalTravelKind.frequentRoute,
-            ),
-            PersonalTravelMomentCard(
-              summary: _summary,
-              kind: PersonalTravelKind.newAircraft,
-              onOpen: () => _openedMemory = PersonalTravelKind.newAircraft,
-            ),
-          ],
-          labels: const [
-            'Farthest footprint',
-            'New cities',
-            'Most-flown route',
-            'New aircraft types',
-          ],
+          ),
         ),
       ),
-    ),
-  ),
-);
+    );
 
 int _homeChoices = 0;
 PersonalTravelKind? _openedMemory;
@@ -132,9 +136,44 @@ Finder get _deck => find.byKey(const ValueKey('exploration-memory-deck'));
 Finder get _deckSemantics =>
     find.byKey(const ValueKey('exploration-memory-deck-semantics'));
 
+void _expectSurfaceSize(WidgetTester tester, Finder finder, Size size) {
+  final surface = tester.widget<SurfaceCard>(finder);
+  expect(tester.getSize(finder), size);
+  expect(surface.borderRadius, AppRadii.medium);
+  final card = tester.getRect(finder);
+  final header = tester.getRect(
+    find.descendant(
+      of: finder,
+      matching: find.byKey(const ValueKey('exploration-memory-header')),
+    ),
+  );
+  final footer = tester.getRect(
+    find.descendant(
+      of: finder,
+      matching: find.byKey(const ValueKey('exploration-memory-footer')),
+    ),
+  );
+  final left = tester.getRect(
+    find.descendant(
+      of: finder,
+      matching: find.byKey(const ValueKey('exploration-memory-footer-left')),
+    ),
+  );
+  final right = tester.getRect(
+    find.descendant(
+      of: finder,
+      matching: find.byKey(const ValueKey('exploration-memory-footer-right')),
+    ),
+  );
+  expect(header.top - card.top, 12);
+  expect(card.bottom - footer.bottom, 20);
+  expect(left.width, closeTo(right.width, .1));
+}
+
 Future<void> _advance(WidgetTester tester, double width, int index) async {
-  await tester.drag(_deck, Offset(-width * .38, 0));
+  await tester.drag(_deck, Offset(-width * .7, 0));
   await tester.pumpAndSettle();
+  expect(tester.takeException(), isNull, reason: 'layout after page $index');
   expect(
     tester.widget<Semantics>(_deckSemantics).properties.value,
     '${index + 1} / 4',
@@ -143,6 +182,67 @@ Future<void> _advance(WidgetTester tester, double width, int index) async {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  testWidgets('new city card balances wrapped city and yearly count', (
+    tester,
+  ) async {
+    for (final width in [320.0, 411.0]) {
+      _setSurface(tester, width);
+      for (final locale in [const Locale('zh'), const Locale('en')]) {
+        for (final scale in [1.0, 2.0]) {
+          await tester.pumpWidget(const SizedBox.shrink());
+          await tester.pumpWidget(
+            _host(locale: locale, light: true, scale: scale),
+          );
+          await tester.pumpAndSettle();
+          await _advance(tester, width, 1);
+
+          final city = find.byKey(const ValueKey('personal-travel-city-name'));
+          final country = find.byKey(
+            const ValueKey('personal-travel-city-country'),
+          );
+          final count = find.byKey(
+            const ValueKey('personal-travel-new-city-count'),
+          );
+          expect(city, findsOneWidget);
+          expect(country, findsOneWidget);
+          expect(count, findsOneWidget);
+          expect(
+            tester.getRect(country).top,
+            greaterThan(tester.getRect(city).top),
+          );
+          expect(
+            tester.getRect(count).right,
+            lessThanOrEqualTo(
+              tester
+                      .getRect(
+                        find.byKey(const ValueKey('personal-travel-newCities')),
+                      )
+                      .right -
+                  16,
+            ),
+          );
+          expect(
+            tester.widget<Text>(count).style!.color,
+            AppTheme.light().extension<AppThemeColors>()!.displayPrimary,
+          );
+          expect(
+            find.text(locale.languageCode == 'zh' ? '首次抵达' : 'First arrival'),
+            findsOneWidget,
+          );
+          expect(
+            find.byKey(const ValueKey('personal-travel-date')),
+            findsOneWidget,
+          );
+          expect(
+            tester.takeException(),
+            isNull,
+            reason: 'width=$width scale=$scale locale=$locale',
+          );
+        }
+      }
+    }
+  });
 
   testWidgets(
     'four memory cards fit large text across widths, locales and themes',
@@ -156,6 +256,11 @@ void main() {
             await tester.pumpWidget(const SizedBox.shrink());
             await tester.pumpWidget(_host(locale: locale, light: light));
             await tester.pumpAndSettle();
+            expect(
+              tester.takeException(),
+              isNull,
+              reason: 'initial layout at $width, $locale, light=$light',
+            );
 
             expect(
               tester.widget<Semantics>(_deckSemantics).properties.value,
@@ -165,22 +270,43 @@ void main() {
               of: find.byType(FarthestFootprintCard),
               matching: find.byType(IconButton),
             );
+            final farthestSurface = find.descendant(
+              of: find.byType(FarthestFootprintCard),
+              matching: find.byType(SurfaceCard),
+            );
+            final sharedCardSize = tester.getSize(farthestSurface);
+            _expectSurfaceSize(tester, farthestSurface, sharedCardSize);
             await tester.tap(edit);
             expect(_homeChoices, 1);
 
             await _advance(tester, width, 1);
+            _expectSurfaceSize(
+              tester,
+              find.byKey(const ValueKey('personal-travel-newCities')),
+              sharedCardSize,
+            );
             await tester.tap(
               find.byKey(const ValueKey('personal-travel-newCities')),
             );
             expect(_openedMemory, PersonalTravelKind.newCities);
 
             await _advance(tester, width, 2);
+            _expectSurfaceSize(
+              tester,
+              find.byKey(const ValueKey('personal-travel-frequentRoute')),
+              sharedCardSize,
+            );
             await tester.tap(
               find.byKey(const ValueKey('personal-travel-frequentRoute')),
             );
             expect(_openedMemory, PersonalTravelKind.frequentRoute);
 
             await _advance(tester, width, 3);
+            _expectSurfaceSize(
+              tester,
+              find.byKey(const ValueKey('personal-travel-newAircraft')),
+              sharedCardSize,
+            );
             await tester.tap(
               find.byKey(const ValueKey('personal-travel-newAircraft')),
             );
@@ -207,7 +333,8 @@ void main() {
               find.byKey(const ValueKey('aircraft-art-fallback-A350-900')),
               findsNothing,
             );
-            expect(tester.takeException(), isNull);
+            final layoutError = tester.takeException();
+            expect(layoutError, isNull, reason: '$layoutError');
           }
         }
       }

@@ -12,6 +12,7 @@ Route<T> rankingExpansionRoute<T>({
   required WidgetBuilder builder,
   Widget? flipFront,
   double flipSourceRadius = 28,
+  bool snapshotDuringTransition = false,
 }) {
   if (flipFront != null) {
     return cardFlipRoute<T>(
@@ -21,6 +22,7 @@ Route<T> rankingExpansionRoute<T>({
       builder: builder,
       sourceRadius: flipSourceRadius,
       keyPrefix: 'ranking-flip',
+      snapshotDuringTransition: snapshotDuringTransition,
     );
   }
   final media = MediaQuery.maybeOf(context);

@@ -5,9 +5,12 @@ import 'package:uuid/uuid.dart';
 
 import '../domain/flight.dart';
 import '../domain/journey.dart';
+import '../domain/transfer_decision.dart';
 import '../domain/visited_place.dart';
 import 'backup_codec.dart';
 import 'local_database.dart';
+import 'transfer_decision_store.dart';
+import 'flight_time_resolver.dart';
 
 class ImportResult {
   const ImportResult({required this.flightsMerged, required this.placesMerged});
@@ -29,6 +32,7 @@ class FlightImportSummary {
     this.unchanged = 0,
     this.conflicts = 0,
     this.skipped = 0,
+    this.addedRecords = const [],
   });
 
   final int added;
@@ -36,6 +40,7 @@ class FlightImportSummary {
   final int unchanged;
   final int conflicts;
   final int skipped;
+  final List<Flight> addedRecords;
 
   int get written => added + updated;
 }
@@ -51,12 +56,14 @@ class FlightImportPreview {
     required this.addedFlights,
     required this.conflictingFlights,
     required this.unchangedFlights,
+    this.existingByIncomingId = const {},
   });
 
   final FlightImportSummary summary;
   final List<Flight> addedFlights;
   final List<Flight> conflictingFlights;
   final List<Flight> unchangedFlights;
+  final Map<String, Flight> existingByIncomingId;
 }
 
 class _FlightImportPlan {
@@ -89,13 +96,19 @@ class FlightRepository {
   static const _importBatchSize = 100;
   static const _journeyMetaKey = 'journeys_v1';
   static const _journeySchemaVersion = 1;
+  static const _transferDecisionsMetaKey = 'transfer_decisions_v1';
 
-  FlightRepository({Future<Database> Function()? databaseProvider, Uuid? uuid})
-    : _databaseProvider = databaseProvider ?? LocalDatabase.open,
-      _uuid = uuid ?? const Uuid();
+  FlightRepository({
+    Future<Database> Function()? databaseProvider,
+    Uuid? uuid,
+    String? Function(String)? timeZoneForIata,
+  }) : _databaseProvider = databaseProvider ?? LocalDatabase.open,
+       _uuid = uuid ?? const Uuid(),
+       _timeZoneForIata = timeZoneForIata;
 
   final Future<Database> Function() _databaseProvider;
   final Uuid _uuid;
+  final String? Function(String)? _timeZoneForIata;
 
   Future<List<Flight>> listFlights() async {
     final database = await _databaseProvider();
@@ -134,6 +147,33 @@ class FlightRepository {
     });
   }
 
+  Future<List<TransferDecision>> listTransferDecisions() async =>
+      TransferDecisionStore.decode(await getMeta(_transferDecisionsMetaKey));
+
+  Future<void> saveTransferDecision(TransferDecision decision) async {
+    final database = await _databaseProvider();
+    await database.transaction((transaction) async {
+      final current = TransferDecisionStore.decode(
+        await _getMetaInTransaction(transaction, _transferDecisionsMetaKey),
+      );
+      final updated = TransferDecisionStore.upsert(current, decision);
+      await _setMetaInTransaction(
+        transaction,
+        _transferDecisionsMetaKey,
+        TransferDecisionStore.encode(updated),
+      );
+    });
+  }
+
+  Future<TransferDecision?> activeTransferDecision(
+    Flight inbound,
+    Flight outbound,
+  ) async => TransferDecisionStore.findActive(
+    await listTransferDecisions(),
+    inbound,
+    outbound,
+  );
+
   Future<Flight> createFlight({
     required String departureIata,
     required String arrivalIata,
@@ -148,6 +188,7 @@ class FlightRepository {
     String? note,
     double? distanceKm,
     FlightStatus status = FlightStatus.completed,
+    bool isTransitArrival = false,
   }) async {
     final now = DateTime.now().toUtc();
     final flight = Flight(
@@ -159,6 +200,7 @@ class FlightRepository {
       createdAt: now,
       updatedAt: now,
       status: status,
+      isTransitArrival: isTransitArrival,
       airline: airline,
       flightNumber: flightNumber,
       cabinClass: cabinClass,
@@ -179,6 +221,7 @@ class FlightRepository {
     required DateTime visitedAt,
     String? countryCode,
     String? note,
+    FootprintRecordSource source = FootprintRecordSource.unknown,
   }) async {
     final now = DateTime.now().toUtc();
     final place = VisitedPlace(
@@ -191,6 +234,7 @@ class FlightRepository {
       updatedAt: now,
       countryCode: countryCode,
       note: note,
+      source: source,
     );
     await upsertVisitedPlace(place);
     return place;
@@ -252,11 +296,13 @@ class FlightRepository {
     final added = <Flight>[];
     final conflicts = <Flight>[];
     final unchanged = <Flight>[];
+    final existingByIncomingId = <String, Flight>{};
     for (final operation in plan.operations) {
       if (operation.existing == null) {
         added.add(operation.incoming);
       } else if (operation.changed) {
         conflicts.add(operation.incoming);
+        existingByIncomingId[operation.incoming.id] = operation.existing!;
       } else {
         unchanged.add(operation.incoming);
       }
@@ -266,6 +312,7 @@ class FlightRepository {
       addedFlights: List.unmodifiable(added),
       conflictingFlights: List.unmodifiable(conflicts),
       unchangedFlights: List.unmodifiable(unchanged),
+      existingByIncomingId: Map.unmodifiable(existingByIncomingId),
     );
   }
 
@@ -284,6 +331,7 @@ class FlightRepository {
       final existingRows = await transaction.query('flights');
       final plan = _planImport(existingRows.map(_flightFromRow), incoming);
       var added = 0;
+      final addedRecords = <Flight>[];
       var updated = 0;
       var unchanged = 0;
       var skipped = 0;
@@ -308,6 +356,7 @@ class FlightRepository {
             conflictAlgorithm: ConflictAlgorithm.replace,
           );
           added++;
+          addedRecords.add(operation.incoming);
         } else if (!operation.changed) {
           unchanged++;
         } else if (overwriteExisting) {
@@ -338,6 +387,7 @@ class FlightRepository {
         unchanged: unchanged,
         conflicts: plan.conflicts,
         skipped: skipped,
+        addedRecords: List.unmodifiable(addedRecords),
       );
     });
   }
@@ -361,6 +411,22 @@ class FlightRepository {
     );
   }
 
+  /// Only delete records that still have the exact import revision.
+  Future<int> undoAddedFlights(Iterable<Flight> flights) async {
+    final database = await _databaseProvider();
+    return database.transaction((txn) async {
+      var deleted = 0;
+      for (final flight in flights) {
+        deleted += await txn.delete(
+          'flights',
+          where: 'id = ? AND updated_at = ?',
+          whereArgs: [flight.id, flight.updatedAt.millisecondsSinceEpoch],
+        );
+      }
+      return deleted;
+    });
+  }
+
   Future<void> deleteVisitedPlace(String id) async {
     final database = await _databaseProvider();
     await database.transaction(
@@ -377,7 +443,11 @@ class FlightRepository {
       flights: await listFlights(),
       visitedPlaces: await listVisitedPlaces(),
       journeys: _journeysFromMeta(await getMeta(_journeyMetaKey)),
+      transferDecisions: await listTransferDecisions(),
+      containsTransferDecisions: true,
       containsJourneys: true,
+      countTransitArrivals:
+          (await getMeta('count_transit_arrivals')) != 'false',
     ),
   );
 
@@ -396,9 +466,17 @@ class FlightRepository {
           flight.id,
           flight.updatedAt,
         )) {
+          final existingTransit = await _transitFlagInTransaction(
+            transaction,
+            flight.id,
+          );
           await transaction.insert(
             'flights',
-            _flightToRow(flight),
+            _flightToRow(
+              flight.withImportedTransitAnnotation(
+                existingValue: existingTransit,
+              ),
+            ),
             conflictAlgorithm: ConflictAlgorithm.replace,
           );
           flightCount++;
@@ -411,9 +489,15 @@ class FlightRepository {
           place.id,
           place.updatedAt,
         )) {
+          final existingSource = await _placeSourceInTransaction(
+            transaction,
+            place.id,
+          );
           await transaction.insert(
             'visited_places',
-            _placeToRow(place),
+            _placeToRow(
+              place.withImportedSource(existingSource: existingSource),
+            ),
             conflictAlgorithm: ConflictAlgorithm.replace,
           );
           placeCount++;
@@ -427,6 +511,24 @@ class FlightRepository {
           transaction,
           _mergeJourneys(localJourneys, backup.journeys),
         );
+      }
+      if (backup.containsTransferDecisions) {
+        final localDecisions = TransferDecisionStore.decode(
+          await _getMetaInTransaction(transaction, _transferDecisionsMetaKey),
+        );
+        await _setMetaInTransaction(
+          transaction,
+          _transferDecisionsMetaKey,
+          TransferDecisionStore.encode(
+            _mergeTransferDecisions(localDecisions, backup.transferDecisions),
+          ),
+        );
+      }
+      if (backup.countTransitArrivals != null) {
+        await transaction.insert('app_meta', {
+          'key': 'count_transit_arrivals',
+          'value': backup.countTransitArrivals.toString(),
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
       }
       return ImportResult(flightsMerged: flightCount, placesMerged: placeCount);
     });
@@ -461,6 +563,18 @@ class FlightRepository {
       if (backup.containsJourneys) {
         await _setJourneysInTransaction(transaction, backup.journeys);
       }
+      if (backup.containsTransferDecisions) {
+        await _setTransferDecisionsInTransaction(
+          transaction,
+          backup.transferDecisions,
+        );
+      }
+      if (backup.countTransitArrivals != null) {
+        await transaction.insert('app_meta', {
+          'key': 'count_transit_arrivals',
+          'value': backup.countTransitArrivals.toString(),
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
+      }
       return ImportResult(
         flightsMerged: backup.flights.length,
         placesMerged: backup.visitedPlaces.length,
@@ -480,6 +594,73 @@ class FlightRepository {
       limit: 1,
     );
     return rows.isEmpty ? null : rows.single['value']! as String;
+  }
+
+  Future<void> _setTransferDecisionsInTransaction(
+    Transaction transaction,
+    List<TransferDecision> decisions,
+  ) => _setMetaInTransaction(
+    transaction,
+    _transferDecisionsMetaKey,
+    TransferDecisionStore.encode(decisions),
+  );
+
+  Future<void> _setMetaInTransaction(
+    Transaction transaction,
+    String key,
+    String value,
+  ) async {
+    await transaction.insert('app_meta', {
+      'key': key,
+      'value': value,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  List<TransferDecision> _mergeTransferDecisions(
+    Iterable<TransferDecision> local,
+    Iterable<TransferDecision> imported,
+  ) {
+    final result = <String, TransferDecision>{
+      for (final decision in local) decision.id: decision,
+    };
+    for (final decision in imported) {
+      final existing = result[decision.id];
+      if (existing == null || !existing.decidedAt.isAfter(decision.decidedAt)) {
+        result[decision.id] = decision;
+      }
+    }
+    return List.unmodifiable(result.values);
+  }
+
+  Future<bool> _transitFlagInTransaction(
+    Transaction transaction,
+    String flightId,
+  ) async {
+    final rows = await transaction.query(
+      'flights',
+      columns: ['is_transit_arrival'],
+      where: 'id = ?',
+      whereArgs: [flightId],
+      limit: 1,
+    );
+    return rows.isNotEmpty &&
+        (rows.single['is_transit_arrival'] as int? ?? 0) != 0;
+  }
+
+  Future<FootprintRecordSource?> _placeSourceInTransaction(
+    Transaction transaction,
+    String placeId,
+  ) async {
+    final rows = await transaction.query(
+      'visited_places',
+      columns: ['source'],
+      where: 'id = ?',
+      whereArgs: [placeId],
+      limit: 1,
+    );
+    return rows.isEmpty
+        ? null
+        : footprintRecordSourceFromStorage(rows.single['source']);
   }
 
   Future<void> _setJourneysInTransaction(
@@ -568,6 +749,7 @@ class FlightRepository {
     'departed_at': flight.departedAt.millisecondsSinceEpoch,
     'arrived_at': flight.arrivedAt?.millisecondsSinceEpoch,
     'status': flightStatusToStorage(flight.status),
+    'is_transit_arrival': flight.isTransitArrival ? 1 : 0,
     'airline': flight.airline,
     'flight_number': flight.flightNumber,
     'cabin_class': flight.cabinClass,
@@ -600,6 +782,7 @@ class FlightRepository {
     departedAt: _date(row['departed_at']),
     arrivedAt: _nullableDate(row['arrived_at']),
     status: flightStatusFromStorage(row['status']),
+    isTransitArrival: (row['is_transit_arrival'] as int? ?? 0) != 0,
     airline: row['airline'] as String?,
     flightNumber: row['flight_number'] as String?,
     cabinClass: row['cabin_class'] as String?,
@@ -621,6 +804,7 @@ class FlightRepository {
     'visited_at': place.visitedAt.millisecondsSinceEpoch,
     'country_code': place.countryCode,
     'note': place.note,
+    'source': place.source.name,
     'created_at': place.createdAt.millisecondsSinceEpoch,
     'updated_at': place.updatedAt.millisecondsSinceEpoch,
   };
@@ -633,6 +817,7 @@ class FlightRepository {
     visitedAt: _date(row['visited_at']),
     countryCode: row['country_code'] as String?,
     note: row['note'] as String?,
+    source: footprintRecordSourceFromStorage(row['source']),
     createdAt: _date(row['created_at']),
     updatedAt: _date(row['updated_at']),
   );
@@ -649,7 +834,9 @@ class FlightRepository {
     Iterable<Flight> incoming,
   ) {
     final existingByKey = <String, Flight>{};
+    final existingById = <String, Flight>{};
     for (final flight in existing) {
+      if (flight.id.isNotEmpty) existingById[flight.id] = flight;
       final key = _flightImportIdentityKey(flight);
       if (key.isEmpty) continue;
       final previous = existingByKey[key];
@@ -670,7 +857,9 @@ class FlightRepository {
     final operations = <_FlightImportOperation>[];
     var conflicts = 0;
     for (final flight in uniqueIncoming.values) {
-      final existingFlight = existingByKey[_flightImportIdentityKey(flight)];
+      final existingFlight =
+          existingById[flight.id] ??
+          existingByKey[_flightImportIdentityKey(flight)];
       if (existingFlight == null) {
         operations.add(_FlightImportOperation(incoming: flight));
         continue;
@@ -717,6 +906,8 @@ class FlightRepository {
     createdAt: existing.createdAt,
     updatedAt: incoming.updatedAt,
     status: incoming.status,
+    // Explicit annotation is local/user-authored and must survive imports.
+    isTransitArrival: existing.isTransitArrival,
     airline: incoming.airline ?? existing.airline,
     flightNumber: incoming.flightNumber ?? existing.flightNumber,
     // These fields are not included in the Umetrip export, so keep the local
@@ -768,13 +959,19 @@ class FlightRepository {
   String _flightImportIdentityKey(Flight flight) {
     final number = _normalized(flight.flightNumber);
     if (number.isEmpty) return '';
-    final date = flight.departedAt.toLocal();
+    final airport = flight.departureIata.trim().toUpperCase();
+    if (airport.isEmpty) return '';
+    final zone = _timeZoneForIata?.call(airport);
+    final date = FlightTimeResolver.toWallTime(flight.departedAt, zone);
+    // Without an airport timezone, different imports cannot be safely matched
+    // by calendar day; stable IDs still match in _planImport.
+    if (date == null) return 'unknown-zone|${flight.id}';
     final day = [
       date.year,
       date.month,
       date.day,
     ].map((value) => value.toString().padLeft(2, '0')).join('-');
-    return '$day|$number';
+    return '$day|$number|$airport';
   }
 
   String _normalized(String? value) =>

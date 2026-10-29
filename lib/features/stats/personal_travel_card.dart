@@ -9,7 +9,6 @@ import '../../data/airport_localization.dart';
 import '../../ui/widgets/country_flag.dart';
 import '../../ui/theme/app_theme.dart';
 import '../../ui/widgets/app_page_background.dart';
-import '../../ui/widgets/frosted_glass_surface.dart';
 import '../../ui/widgets/surface_card.dart';
 import 'aircraft_collection.dart';
 import 'aircraft_collection_page.dart' show AircraftExhibitArtwork;
@@ -84,28 +83,15 @@ class PersonalTravelMomentCard extends StatelessWidget {
           date,
           minHeight: constraints.minHeight,
         );
-        return FrostedGlassSurface(
-          shape: RoundedSuperellipseBorder(borderRadius: AppRadii.medium),
-          refractionRadius: AppRadii.medium.topLeft.x,
-          edgeThickness: 2,
-          useLocalRefraction: true,
-          adaptiveContrast: true,
-          highlightStrength: Theme.of(context).brightness == Brightness.light
-              ? 1.5
-              : 1.35,
-          tintOpacity: Theme.of(context).brightness == Brightness.light
-              ? .055
-              : .035,
-          child: SurfaceCard(
-            key: ValueKey('personal-travel-${kind.name}'),
-            onTap: available ? onOpen : null,
-            padding: ExplorationMemoryLayout.padding,
-            color: Colors.transparent,
-            borderRadius: AppRadii.medium,
-            child: constraints.hasBoundedHeight
-                ? SingleChildScrollView(child: content)
-                : content,
-          ),
+        return SurfaceCard(
+          key: ValueKey('personal-travel-${kind.name}'),
+          onTap: available ? onOpen : null,
+          padding: ExplorationMemoryLayout.padding,
+          color: colors.cardSurface,
+          borderRadius: AppRadii.medium,
+          child: constraints.hasBoundedHeight
+              ? SingleChildScrollView(child: content)
+              : content,
         );
       },
     );
@@ -165,36 +151,85 @@ class PersonalTravelMomentCard extends StatelessWidget {
                 city: city!,
                 colors: colors,
                 isZh: zh,
+                count: count,
               ),
               PersonalTravelKind.frequentRoute => _FrequentRouteMomentHero(
                 route: route!,
                 colors: colors,
               ),
               PersonalTravelKind.newAircraft => _AircraftMomentHero(
-                type: aircraft!.type,
                 entry: aircraftEntry,
-                date: date,
-                colors: colors,
               ),
             },
       footer: !available
           ? null
-          : kind == PersonalTravelKind.frequentRoute
-          ? Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                _MomentDate(date: date, label: zh ? '首次搭乘' : 'First flown'),
-                const SizedBox(height: 10),
-                Text(
-                  zh ? '往返方向合并统计' : 'Both directions combined',
-                  style: AppTextStyles.label.copyWith(
-                    color: colors.textTertiary,
-                    fontSize: 11,
-                  ),
-                ),
-              ],
-            )
-          : _AnnualCollectionSummary(count: count, kind: kind),
+          : _buildFooter(context, kind, count, date, aircraft),
+    );
+  }
+
+  Widget _buildFooter(
+    BuildContext context,
+    PersonalTravelKind kind,
+    int count,
+    DateTime? date,
+    NewAircraftMoment? aircraft,
+  ) {
+    final zh = context.strings.isZh;
+    final colors = context.appColors;
+    final leftLabel = switch (kind) {
+      PersonalTravelKind.newCities => zh ? '本年新增城市' : 'New cities',
+      PersonalTravelKind.frequentRoute => zh ? '本年搭乘' : 'Flights this year',
+      PersonalTravelKind.newAircraft => zh ? '首次机型' : 'Aircraft',
+    };
+    final leftValue = kind == PersonalTravelKind.newAircraft && aircraft != null
+        ? aircraft.type
+        : switch (kind) {
+            PersonalTravelKind.newCities =>
+              '$count${zh ? ' 座' : (count == 1 ? ' city' : ' cities')}',
+            PersonalTravelKind.frequentRoute =>
+              '$count${zh ? ' 次' : (count == 1 ? ' flight' : ' flights')}',
+            PersonalTravelKind.newAircraft =>
+              '$count${zh ? ' 种' : (count == 1 ? ' type' : ' types')}',
+          };
+    final dateLabel = switch (kind) {
+      PersonalTravelKind.newCities => zh ? '首次抵达' : 'First arrival',
+      PersonalTravelKind.frequentRoute => zh ? '首次搭乘' : 'First flown',
+      PersonalTravelKind.newAircraft => zh ? '首次记录' : 'First recorded',
+    };
+    final dateText = Text(
+      date == null
+          ? '—'
+          : DateFormat.yMMMd(zh ? 'zh' : 'en').format(date.toLocal()),
+      key: const ValueKey('personal-travel-date'),
+      maxLines: 2,
+      overflow: TextOverflow.clip,
+      style: AppTextStyles.label.copyWith(
+        color: colors.textPrimary,
+        fontSize: 14,
+        fontWeight: FontWeight.w500,
+        height: 1.35,
+        fontFeatures: const [FontFeature.tabularFigures()],
+      ),
+    );
+    final cityFooter = kind == PersonalTravelKind.newCities;
+    return ExplorationMemoryFooter(
+      leftLabel: cityFooter ? (zh ? '首次抵达' : 'First arrival') : leftLabel,
+      leftValue: Text(
+        cityFooter ? '' : leftValue,
+        key: const ValueKey('personal-travel-count'),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: AppTextStyles.label.copyWith(
+          color: colors.textPrimary,
+          fontSize: 14,
+          fontWeight: FontWeight.w600,
+          height: 1.35,
+          fontFeatures: const [FontFeature.tabularFigures()],
+        ),
+      ),
+      rightLabel: cityFooter ? '' : dateLabel,
+      rightValue: dateText,
+      inline: cityFooter,
     );
   }
 }
@@ -204,58 +239,115 @@ class _NewCityMomentHero extends StatelessWidget {
     required this.city,
     required this.colors,
     required this.isZh,
+    required this.count,
   });
 
   final NewCityMoment city;
   final AppThemeColors colors;
   final bool isZh;
+  final int count;
 
   @override
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, constraints) {
-      final fontSize = math.min(
-        56.0,
-        math.max(36.0, constraints.maxWidth * .18),
-      );
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+      final largeText = MediaQuery.textScalerOf(context).scale(16) / 16 > 1.15;
+      final rightFlex = largeText ? 3 : 1;
+      final leftFlex = largeText ? 2 : 2;
+      final leftWidth =
+          constraints.maxWidth * leftFlex / (leftFlex + rightFlex);
+      final fontSize = math.min(44.0, math.max(28.0, leftWidth * .24));
+      return Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          Wrap(
-            spacing: 9,
-            runSpacing: 6,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: [
-              CountryFlag(code: city.countryCode, size: 21, showBorder: false),
-              Text(
-                isZh
-                    ? localizedCountryName(city.countryCode)
-                    : localizedCountryEnglishName(city.countryCode),
-                key: const ValueKey('personal-travel-city-country'),
-                style: AppTextStyles.bodySecondary.copyWith(
-                  color: colors.textSecondary,
-                  fontSize: 14,
+          Expanded(
+            flex: leftFlex,
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  city.name,
+                  key: const ValueKey('personal-travel-city-name'),
+                  softWrap: true,
+                  style: AppTextStyles.sectionTitle.copyWith(
+                    color: colors.textPrimary,
+                    fontSize: fontSize,
+                    height: 1.12,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: -.5,
+                  ),
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Text(
-            city.name,
-            key: const ValueKey('personal-travel-city-name'),
-            softWrap: true,
-            style: AppTextStyles.sectionTitle.copyWith(
-              color: colors.textPrimary,
-              fontSize: fontSize,
-              height: 1.12,
-              fontWeight: FontWeight.w600,
-              letterSpacing: -.8,
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 4,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    CountryFlag(
+                      code: city.countryCode,
+                      size: 18,
+                      showBorder: false,
+                    ),
+                    Text(
+                      isZh
+                          ? localizedCountryName(city.countryCode)
+                          : localizedCountryEnglishName(city.countryCode),
+                      key: const ValueKey('personal-travel-city-country'),
+                      style: AppTextStyles.bodySecondary.copyWith(
+                        color: colors.textSecondary,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
             ),
           ),
-          const SizedBox(height: 28),
-          _MomentDate(
-            date: city.arrivedAt,
-            label: isZh ? '首次抵达' : 'First arrival',
-            labelKey: const ValueKey('personal-travel-city-date-label'),
+          const SizedBox(width: 12),
+          Expanded(
+            flex: rightFlex,
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Wrap(
+                  alignment: WrapAlignment.end,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  spacing: 4,
+                  children: [
+                    Text(
+                      '$count',
+                      key: const ValueKey('personal-travel-new-city-count'),
+                      textAlign: TextAlign.end,
+                      style: AppTextStyles.metric.copyWith(
+                        color: colors.displayPrimary,
+                        fontSize: 44,
+                        fontWeight: FontWeight.w700,
+                        fontFeatures: const [FontFeature.tabularFigures()],
+                      ),
+                    ),
+                    Text(
+                      isZh ? '座' : (count == 1 ? 'city' : 'cities'),
+                      style: AppTextStyles.label.copyWith(
+                        color: colors.textSecondary,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  isZh ? '本年新增' : 'New cities',
+                  textAlign: TextAlign.end,
+                  softWrap: true,
+                  maxLines: 2,
+                  style: AppTextStyles.label.copyWith(
+                    color: colors.textSecondary,
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
       );
@@ -272,7 +364,6 @@ class _FrequentRouteMomentHero extends StatelessWidget {
   @override
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, constraints) {
-      final zh = context.strings.isZh;
       final codeSize = math.min(
         44.0,
         math.max(32.0, constraints.maxWidth * .13),
@@ -317,47 +408,7 @@ class _FrequentRouteMomentHero extends StatelessWidget {
           ),
         ],
       );
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Text(
-            zh ? '本年搭乘' : 'Flights this year',
-            textAlign: TextAlign.center,
-            style: AppTextStyles.label.copyWith(
-              color: colors.textSecondary,
-              fontSize: 12,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text.rich(
-            TextSpan(
-              children: [
-                TextSpan(
-                  text: '${route.flights.length}',
-                  style: TextStyle(
-                    color: colors.displayPrimary,
-                    fontSize: 52,
-                    height: 1.05,
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: -1,
-                    fontFeatures: const [FontFeature.tabularFigures()],
-                  ),
-                ),
-                TextSpan(
-                  text: zh
-                      ? ' 次'
-                      : (route.flights.length == 1 ? ' flight' : ' flights'),
-                  style: TextStyle(color: colors.textSecondary, fontSize: 15),
-                ),
-              ],
-            ),
-            key: const ValueKey('personal-travel-count'),
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 28),
-          routePair,
-        ],
-      );
+      return routePair;
     },
   );
 }
@@ -418,226 +469,22 @@ class _RouteEndpoint extends StatelessWidget {
 }
 
 class _AircraftMomentHero extends StatelessWidget {
-  const _AircraftMomentHero({
-    required this.type,
-    required this.entry,
-    required this.date,
-    required this.colors,
-  });
+  const _AircraftMomentHero({required this.entry});
 
-  final String type;
   final AircraftCollectionEntry? entry;
-  final DateTime? date;
-  final AppThemeColors colors;
 
   @override
-  Widget build(BuildContext context) => LayoutBuilder(
-    builder: (context, constraints) {
-      final model = Text(
-        type,
-        key: const ValueKey('personal-travel-aircraft-model'),
-        softWrap: true,
-        style: AppTextStyles.sectionTitle.copyWith(
-          color: colors.textPrimary,
-          fontSize: 29,
-          height: 1.12,
-          fontWeight: FontWeight.w600,
-          letterSpacing: -.6,
-        ),
-      );
-      final firstRecorded = context.strings.isZh ? '首次记录' : 'First recorded';
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          if (entry != null) ...[
-            SizedBox(
-              key: const ValueKey('personal-travel-aircraft-artwork'),
-              width: double.infinity,
-              child: AircraftExhibitArtwork(
-                entry: entry!,
-                aspectRatio: 2.35,
-                useHero: false,
-              ),
-            ),
-            const SizedBox(height: 18),
-          ],
-          _MomentDate(date: date, label: firstRecorded, leading: model),
-        ],
-      );
-    },
-  );
-}
-
-/// An annual collection is supporting context, distinct from the featured visit
-/// or aircraft. Its count shares a text line rather than competing as a metric.
-class _AnnualCollectionSummary extends StatelessWidget {
-  const _AnnualCollectionSummary({required this.count, required this.kind});
-  final int count;
-  final PersonalTravelKind kind;
-
-  @override
-  Widget build(BuildContext context) {
-    final zh = context.strings.isZh;
-    final colors = context.appColors;
-    final city = kind == PersonalTravelKind.newCities;
-    final title = city
-        ? (zh ? '本年新增城市' : 'New cities this year')
-        : (zh ? '本年新增机型' : 'New types this year');
-    final unit = zh
-        ? (city ? '座' : '种')
-        : (city
-              ? (count == 1 ? 'city' : 'cities')
-              : (count == 1 ? 'type' : 'types'));
-    final labelText = Text(
-      title,
-      key: city ? const ValueKey('personal-travel-city-count-label') : null,
-      style: AppTextStyles.label.copyWith(
-        color: colors.textSecondary,
-        fontSize: 12,
-        height: 1.35,
-      ),
-    );
-    final countText = Text.rich(
-      TextSpan(
-        children: [
-          TextSpan(
-            text: '$count',
-            style: TextStyle(
-              fontWeight: FontWeight.w600,
-              color: colors.textPrimary,
-            ),
+  Widget build(BuildContext context) => entry == null
+      ? const SizedBox.shrink()
+      : SizedBox(
+          key: const ValueKey('personal-travel-aircraft-artwork'),
+          width: double.infinity,
+          child: AircraftExhibitArtwork(
+            entry: entry!,
+            aspectRatio: 2.35,
+            useHero: false,
           ),
-          TextSpan(
-            text: ' $unit',
-            style: TextStyle(color: colors.textSecondary),
-          ),
-        ],
-      ),
-      key: const ValueKey('personal-travel-count'),
-      style: AppTextStyles.label.copyWith(fontSize: 14, height: 1.35),
-    );
-    return Row(
-      children: [
-        Expanded(
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              if (constraints.maxWidth < 240 ||
-                  MediaQuery.textScalerOf(context).scale(14) > 18) {
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [labelText, const SizedBox(height: 6), countText],
-                );
-              }
-              return Row(
-                crossAxisAlignment: CrossAxisAlignment.baseline,
-                textBaseline: TextBaseline.alphabetic,
-                children: [
-                  Flexible(child: labelText),
-                  const SizedBox(width: 8),
-                  countText,
-                ],
-              );
-            },
-          ),
-        ),
-        const SizedBox(width: 12),
-        Icon(Icons.chevron_right_rounded, size: 17, color: colors.textTertiary),
-      ],
-    );
-  }
-}
-
-class _MomentDate extends StatelessWidget {
-  const _MomentDate({
-    required this.date,
-    required this.label,
-    this.labelKey,
-    this.leading,
-  });
-  final DateTime? date;
-  final String label;
-  final Key? labelKey;
-  final Widget? leading;
-
-  @override
-  Widget build(BuildContext context) {
-    if (date == null) return leading ?? const SizedBox.shrink();
-    final colors = context.appColors;
-    final labelText = Text(
-      label,
-      key: labelKey,
-      textAlign: leading != null ? TextAlign.right : TextAlign.start,
-      style: AppTextStyles.label.copyWith(
-        color: colors.textSecondary,
-        fontSize: 12,
-        height: 1.35,
-      ),
-    );
-    final value = Text(
-      DateFormat.yMMMd(context.strings.isZh ? 'zh' : 'en')
-          .format(date!.toLocal()),
-      key: const ValueKey('personal-travel-date'),
-      textAlign: TextAlign.right,
-      style: AppTextStyles.label.copyWith(
-        color: colors.textPrimary,
-        fontSize: 14,
-        fontWeight: FontWeight.w500,
-        height: 1.35,
-        fontFeatures: const [FontFeature.tabularFigures()],
-      ),
-    );
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final stacked =
-            constraints.maxWidth < 300 ||
-            MediaQuery.textScalerOf(context).scale(14) > 18;
-        if (leading != null && !stacked) {
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Row(
-                children: [
-                  const Expanded(child: SizedBox.shrink()),
-                  const SizedBox(width: 16),
-                  Expanded(child: labelText),
-                ],
-              ),
-              const SizedBox(height: 6),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.baseline,
-                textBaseline: TextBaseline.alphabetic,
-                children: [
-                  Expanded(child: leading!),
-                  const SizedBox(width: 16),
-                  Expanded(child: value),
-                ],
-              ),
-            ],
-          );
-        }
-        if (stacked) {
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              if (leading != null) ...[leading!, const SizedBox(height: 16)],
-              labelText,
-              const SizedBox(height: 6),
-              value,
-            ],
-          );
-        }
-        return Row(
-          crossAxisAlignment: CrossAxisAlignment.baseline,
-          textBaseline: TextBaseline.alphabetic,
-          children: [
-            Expanded(child: labelText),
-            const SizedBox(width: 16),
-            Expanded(flex: 2, child: value),
-          ],
         );
-      },
-    );
-  }
 }
 
 class _EmptyTravelMoment extends StatelessWidget {

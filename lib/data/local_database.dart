@@ -5,7 +5,7 @@ import 'package:sqflite/sqflite.dart';
 class LocalDatabase {
   LocalDatabase._();
 
-  static const schemaVersion = 4;
+  static const schemaVersion = 6;
   static const _databaseName = 'flight_footprint.db';
   static Database? _instance;
 
@@ -30,6 +30,7 @@ class LocalDatabase {
             departed_at INTEGER NOT NULL,
             arrived_at INTEGER,
             status TEXT NOT NULL DEFAULT 'completed',
+            is_transit_arrival INTEGER NOT NULL DEFAULT 0,
             airline TEXT,
             flight_number TEXT,
             cabin_class TEXT,
@@ -52,6 +53,7 @@ class LocalDatabase {
             visited_at INTEGER NOT NULL,
             country_code TEXT,
             note TEXT,
+            source TEXT NOT NULL DEFAULT 'unknown',
             created_at INTEGER NOT NULL,
             updated_at INTEGER NOT NULL
           )
@@ -71,28 +73,50 @@ class LocalDatabase {
           'value': '$schemaVersion',
         });
       },
-      onUpgrade: (database, oldVersion, newVersion) async {
-        if (oldVersion < 2) {
-          await database.execute(
-            "ALTER TABLE flights ADD COLUMN track_json TEXT NOT NULL DEFAULT '[]'",
-          );
-        }
-        if (oldVersion < 3) {
-          await database.execute(
-            "ALTER TABLE flights ADD COLUMN status TEXT NOT NULL DEFAULT 'completed'",
-          );
-        }
-        if (oldVersion < 4) {
-          await database.execute(
-            'ALTER TABLE flights ADD COLUMN arrived_at INTEGER',
-          );
-        }
-        if (oldVersion < newVersion) {
-          await database.update('app_meta', {'value': '$newVersion'});
-        }
-      },
+      onUpgrade: upgradeSchema,
     );
     return _instance!;
+  }
+
+  /// Upgrades an existing database using the same path as app startup.
+  static Future<void> upgradeSchema(
+    Database database,
+    int oldVersion,
+    int newVersion,
+  ) async {
+    if (oldVersion < 2) {
+      await database.execute(
+        "ALTER TABLE flights ADD COLUMN track_json TEXT NOT NULL DEFAULT '[]'",
+      );
+    }
+    if (oldVersion < 3) {
+      await database.execute(
+        "ALTER TABLE flights ADD COLUMN status TEXT NOT NULL DEFAULT 'completed'",
+      );
+    }
+    if (oldVersion < 4) {
+      await database.execute(
+        'ALTER TABLE flights ADD COLUMN arrived_at INTEGER',
+      );
+    }
+    if (oldVersion < 5) {
+      await database.execute(
+        "ALTER TABLE visited_places ADD COLUMN source TEXT NOT NULL DEFAULT 'unknown'",
+      );
+    }
+    if (oldVersion < 6) {
+      await database.execute(
+        'ALTER TABLE flights ADD COLUMN is_transit_arrival INTEGER NOT NULL DEFAULT 0',
+      );
+    }
+    if (oldVersion < newVersion) {
+      await database.update(
+        'app_meta',
+        {'value': '$newVersion'},
+        where: 'key = ?',
+        whereArgs: ['schema_version'],
+      );
+    }
   }
 
   static Future<void> closeForTesting() async {

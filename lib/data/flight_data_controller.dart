@@ -4,7 +4,9 @@ import 'package:flutter/foundation.dart';
 
 import '../domain/flight.dart';
 import '../domain/visited_place.dart';
+import '../domain/transfer_decision.dart';
 import 'flight_repository.dart';
+import '../domain/footprint_sources.dart';
 
 /// Thin UI-facing state holder; screens can listen to it with Listenable APIs.
 class FlightDataController extends ChangeNotifier {
@@ -13,9 +15,12 @@ class FlightDataController extends ChangeNotifier {
   final FlightRepository repository;
   List<Flight> flights = const [];
   List<VisitedPlace> visitedPlaces = const [];
+  List<TransferDecision> transferDecisions = const [];
+  bool countTransitArrivals = true;
   bool isLoading = false;
   Object? error;
   Timer? _statusRefreshTimer;
+  Future<void> _transferDecisionQueue = Future<void>.value();
 
   Future<void> refresh({DateTime? now}) async {
     final reference = (now ?? DateTime.now()).toLocal();
@@ -44,6 +49,9 @@ class FlightDataController extends ChangeNotifier {
       flights = List.unmodifiable(reconciled);
       if (matured.isNotEmpty) await repository.upsertFlights(matured);
       visitedPlaces = await repository.listVisitedPlaces();
+      transferDecisions = await repository.listTransferDecisions();
+      countTransitArrivals =
+          await repository.getMeta('count_transit_arrivals') != 'false';
       _scheduleStatusRefresh(reference);
     } catch (exception) {
       error = exception;
@@ -81,6 +89,69 @@ class FlightDataController extends ChangeNotifier {
     await refresh();
   }
 
+  TransferDecision? transferDecisionFor(Flight inbound, Flight outbound) {
+    for (final decision in transferDecisions) {
+      if (decision.matchesFlights(inbound, outbound)) return decision;
+    }
+    return null;
+  }
+
+  Future<void> decideTransfer(
+    Flight inbound,
+    Flight outbound,
+    TransferDecisionStatus status, {
+    DateTime? decidedAt,
+  }) {
+    final decision = TransferDecision.fromFlights(
+      inbound: inbound,
+      outbound: outbound,
+      status: status,
+      decidedAt: decidedAt,
+    );
+    final write = _transferDecisionQueue.then(
+      (_) => _persistTransferDecision(decision),
+    );
+    // Keep the queue usable after one failed write while returning that
+    // failure to the caller that requested it.
+    _transferDecisionQueue = write.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace _) {},
+    );
+    return write;
+  }
+
+  Future<void> _persistTransferDecision(TransferDecision decision) async {
+    final currentFlights = await repository.listFlights();
+    final byId = <String, Flight>{};
+    final counts = <String, int>{};
+    for (final flight in currentFlights) {
+      byId[flight.id] = flight;
+      counts.update(flight.id, (count) => count + 1, ifAbsent: () => 1);
+    }
+    final inbound = byId[decision.inboundFlightId];
+    final outbound = byId[decision.outboundFlightId];
+    if (inbound == null ||
+        outbound == null ||
+        counts[inbound.id] != 1 ||
+        counts[outbound.id] != 1 ||
+        !decision.matchesFlights(inbound, outbound)) {
+      throw const StaleTransferDecisionException();
+    }
+
+    final latestDecisions = await repository.listTransferDecisions();
+    if (hasConfirmedTransferEndpointConflict(
+      decision,
+      flights: currentFlights,
+      decisions: latestDecisions,
+    )) {
+      throw const TransferDecisionConflictException();
+    }
+
+    await repository.saveTransferDecision(decision);
+    transferDecisions = await repository.listTransferDecisions();
+    notifyListeners();
+  }
+
   Future<FlightImportSummary> previewImportFlights(Iterable<Flight> flights) =>
       repository.previewImportFlights(flights);
 
@@ -104,6 +175,12 @@ class FlightDataController extends ChangeNotifier {
   Future<void> saveVisitedPlace(VisitedPlace place) async {
     await repository.upsertVisitedPlace(place);
     await refresh();
+  }
+
+  Future<void> setCountTransitArrivals(bool value) async {
+    await repository.setMeta('count_transit_arrivals', value.toString());
+    countTransitArrivals = value;
+    notifyListeners();
   }
 
   Future<void> removeFlight(String id) async {

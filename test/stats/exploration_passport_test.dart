@@ -225,6 +225,14 @@ void main() {
           ),
         );
         await tester.pumpAndSettle();
+        final headerError = tester.takeException();
+        expect(
+          headerError,
+          isNull,
+          reason: headerError is FlutterError
+              ? headerError.toStringDeep()
+              : 'header grid at $locale scale=$scale: $headerError',
+        );
         final title = find.byKey(const ValueKey('farthest-footprint-heading'));
         final icon = find.byIcon(Icons.info_outline_rounded);
         final target = find.ancestor(
@@ -364,7 +372,7 @@ void main() {
         Theme.of(tester.element(farthest)).brightness,
         light ? Brightness.light : Brightness.dark,
       );
-      expect(surface.color, Colors.transparent);
+      expect(surface.color, tester.element(farthest).appColors.cardSurface);
       expect(date.hitTestable(), findsOneWidget);
       expect(
         tester.getRect(date).bottom,
@@ -449,38 +457,91 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets(
-    'a continent reveals real visits below its own row and toggles closed',
-    (tester) async {
-      _surface(tester, const Size(430, 1700));
-      await tester.pumpWidget(_host(_passport()));
+  testWidgets('a continent opens real visits in a dismissible bottom sheet', (
+    tester,
+  ) async {
+    _surface(tester, const Size(430, 1700));
+    await tester.pumpWidget(_host(_passport()));
+    await tester.pumpAndSettle();
+    final asia = find.byKey(const ValueKey('exploration-continent-asia'));
+    final nextRow = find.byKey(
+      const ValueKey('exploration-continent-northAmerica'),
+    );
+    final nextRowTop = tester.getRect(nextRow).top;
+    await tester.tap(asia);
+    await tester.pumpAndSettle();
+    final detail = find.byKey(const ValueKey('exploration-detail-asia'));
+    expect(
+      find.descendant(of: detail, matching: find.text('Singapore')),
+      findsAtLeastNWidgets(1),
+    );
+    expect(find.byType(BottomSheet), findsOneWidget);
+    expect(tester.getRect(nextRow).top, nextRowTop);
+    await tester.tap(find.byTooltip('Close'));
+    await tester.pumpAndSettle();
+    expect(detail, findsNothing);
+    await tester.tap(
+      find.byKey(const ValueKey('exploration-continent-antarctica')),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Locked'), findsOneWidget);
+    expect(
+      find.text('No recorded visits on this continent yet'),
+      findsOneWidget,
+    );
+    await tester.tapAt(const Offset(5, 5));
+    await tester.pumpAndSettle();
+    expect(find.byType(BottomSheet), findsNothing);
+    expect(tester.binding.transientCallbackCount, 0);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('continent sheet scrolls long visit lists with large text', (
+    tester,
+  ) async {
+    _surface(tester, const Size(320, 700));
+    final manyPlaces = [
+      for (var index = 0; index < 15; index++)
+        ExplorationPlace(
+          name: 'City $index',
+          countryCode: 'SG',
+          latitude: 1.35,
+          longitude: 103.82,
+        ),
+    ];
+    for (final light in [false, true]) {
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpWidget(
+        _host(
+          ExplorationPassport(
+            places: manyPlaces,
+            worldCount: 1,
+            home: null,
+            homeLoaded: true,
+            onChooseHome: () {},
+          ),
+          light: light,
+          scale: 2,
+        ),
+      );
       await tester.pumpAndSettle();
       final asia = find.byKey(const ValueKey('exploration-continent-asia'));
+      await tester.scrollUntilVisible(asia, 300);
+      await tester.pumpAndSettle();
       await tester.tap(asia);
       await tester.pumpAndSettle();
       final detail = find.byKey(const ValueKey('exploration-detail-asia'));
-      final nextRow = find.byKey(
-        const ValueKey('exploration-continent-northAmerica'),
+      final list = find.descendant(of: detail, matching: find.byType(ListView));
+      await tester.dragUntilVisible(
+        find.text('City 14'),
+        list,
+        const Offset(0, -300),
       );
-      expect(
-        find.descendant(of: detail, matching: find.text('Singapore')),
-        findsAtLeastNWidgets(1),
-      );
-      expect(
-        tester.getRect(detail).top,
-        greaterThanOrEqualTo(tester.getRect(asia).bottom),
-      );
-      expect(
-        tester.getRect(detail).bottom,
-        lessThanOrEqualTo(tester.getRect(nextRow).top),
-      );
-      await tester.tap(asia);
       await tester.pumpAndSettle();
-      expect(detail, findsNothing);
-      expect(tester.binding.transientCallbackCount, 0);
+      expect(find.text('City 14').hitTestable(), findsOneWidget);
       expect(tester.takeException(), isNull);
-    },
-  );
+    }
+  });
 
   testWidgets(
     'choosing home animates distance once without a map; saved home shows final distance',

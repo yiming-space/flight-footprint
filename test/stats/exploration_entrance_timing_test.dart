@@ -147,6 +147,11 @@ void main() {
     expect(tester.binding.transientCallbackCount, 0);
     await tester.binding.handlePopRoute();
     await tester.pumpAndSettle();
+    // The first back closes the continent sheet; the next closes the page.
+    expect(find.byType(ExplorationPassport), findsOneWidget);
+    expect(find.byType(BottomSheet), findsNothing);
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
     expect(find.byType(ExplorationPassport), findsNothing);
     expect(tester.widget<Opacity>(find.byKey(_source)).opacity, 1);
     expect(tester.binding.transientCallbackCount, 0);

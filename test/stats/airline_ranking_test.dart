@@ -36,6 +36,22 @@ void main() {
     expect(ranking.single.count, 5);
   });
 
+  test('recognizes common China Eastern and China Southern name variants', () {
+    final ranking = buildAirlineRanking([
+      flight('mu-short', airline: '东方航空'),
+      flight('mu-company', airline: '中国东方航空股份有限公司'),
+      flight('cz-short', airline: '南方航空'),
+      flight('cz-company', airline: '中国南方航空股份有限公司'),
+    ]);
+
+    final byCode = {for (final entry in ranking) entry.iataCode!: entry};
+    expect(byCode.keys, containsAll(['MU', 'CZ']));
+    expect(byCode['MU']!.name, '中国东方航空');
+    expect(byCode['MU']!.count, 2);
+    expect(byCode['CZ']!.name, '中国南方航空');
+    expect(byCode['CZ']!.count, 2);
+  });
+
   test(
     'recovers known IATA, ICAO and alphanumeric prefixes for blank names',
     () {

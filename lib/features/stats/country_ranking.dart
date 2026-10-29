@@ -1,5 +1,7 @@
 import '../../domain/airport.dart';
 import '../../domain/flight.dart';
+import '../../domain/footprint_sources.dart';
+import '../../domain/transfer_decision.dart';
 import '../../domain/visited_place.dart';
 
 class CountryRankingEntry {
@@ -20,13 +22,16 @@ class CountryRankingEntry {
 }
 
 /// ISO country/region codes keep names and translations out of identity.
-/// Each completed-flight endpoint and each saved footprint is one record.
+/// Both endpoints establish country presence; only arrivals contribute to the
+/// flight-arrival count. Saved footprints stay visible as separate records.
 /// Hong Kong and Macau retain their own HK/MO codes.
 List<CountryRankingEntry> buildCountryRanking(
   Iterable<Flight> flights, {
   required Airport? Function(String) airportFor,
   required String Function(String) countryNameForCode,
   Iterable<VisitedPlace> visitedPlaces = const [],
+  bool includeTransitArrivals = true,
+  Iterable<TransferDecision> confirmedTransfers = const [],
 }) {
   final aggregates = <String, _CountryAggregate>{};
   _CountryAggregate? aggregateFor(String? source) {
@@ -35,22 +40,26 @@ List<CountryRankingEntry> buildCountryRanking(
     return aggregates.putIfAbsent(code, () => _CountryAggregate(code));
   }
 
-  for (final flight in flights) {
-    if (!flight.isCompleted) continue;
-    for (final code in [flight.departureIata, flight.arrivalIata]) {
-      final country = aggregateFor(airportFor(code)?.countryCode);
-      if (country == null) continue;
-      country.count++;
-      country.flights[flight.id] = flight;
-    }
-  }
   final seenPlaceIds = <String>{};
-  for (final place in visitedPlaces) {
-    if (!seenPlaceIds.add(place.id)) continue;
-    final country = aggregateFor(place.countryCode);
-    if (country == null) continue;
-    country.count++;
-    country.visitedPlaces.add(place);
+  for (final source in buildFootprintSources(
+    flights: flights,
+    visitedPlaces: visitedPlaces,
+    airportFor: airportFor,
+    includeTransitArrivals: includeTransitArrivals,
+    confirmedTransfers: confirmedTransfers,
+  )) {
+    if (source.airport case final airport?) {
+      final flight = source.flight!;
+      final country = aggregateFor(airport.countryCode);
+      if (country == null) continue;
+      country.flights[flight.id] = flight;
+      if (source.isArrival) country.arrivalFlightIds.add(flight.id);
+    } else if (source.visitedPlace case final place?) {
+      if (!seenPlaceIds.add(place.id)) continue;
+      final country = aggregateFor(place.countryCode);
+      if (country == null) continue;
+      country.visitedPlaces.add(place);
+    }
   }
   final result =
       aggregates.values.map((aggregate) {
@@ -68,7 +77,7 @@ List<CountryRankingEntry> buildCountryRanking(
         return CountryRankingEntry(
           countryCode: aggregate.code,
           name: name.isEmpty ? aggregate.code : name,
-          count: aggregate.count,
+          count: aggregate.arrivalFlightIds.length,
           flights: associatedFlights,
           visitedPlaces: places,
         );
@@ -84,7 +93,7 @@ List<CountryRankingEntry> buildCountryRanking(
 class _CountryAggregate {
   _CountryAggregate(this.code);
   final String code;
-  int count = 0;
+  final Set<String> arrivalFlightIds = {};
   final Map<String, Flight> flights = {};
   final List<VisitedPlace> visitedPlaces = [];
 }

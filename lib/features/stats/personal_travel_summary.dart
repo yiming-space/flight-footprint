@@ -1,5 +1,7 @@
 import '../../domain/airport.dart';
 import '../../domain/flight.dart';
+import '../../domain/footprint_sources.dart';
+import '../../domain/transfer_decision.dart';
 import '../../data/flight_time_resolver.dart';
 import 'aircraft_collection.dart';
 
@@ -69,11 +71,16 @@ PersonalTravelSummary buildPersonalTravelSummary(
   required int year,
   required Airport? Function(String) airportFor,
   required String Function(Airport) cityNameFor,
+  bool includeTransitArrivals = true,
+  Iterable<TransferDecision> confirmedTransfers = const [],
 }) {
   final seen = <String>{};
   final history = flights
       .where((flight) => flight.isCompleted && seen.add(flight.id))
       .toList();
+  final excludedTransferEndpoints = includeTransitArrivals
+      ? const <({String flightId, bool isArrival})>{}
+      : confirmedTransitFootprintEndpoints(history, confirmedTransfers);
   final evidence = <String, _CityEvidence>{};
   final routes = <String, List<Flight>>{};
 
@@ -92,8 +99,18 @@ PersonalTravelSummary buildPersonalTravelSummary(
   }
 
   for (final flight in history) {
-    recordCity(flight, flight.departureIata, flight.departedAt, false);
-    recordCity(flight, flight.arrivalIata, _arrivalTime(flight), true);
+    if (!excludedTransferEndpoints.contains(
+      (flightId: flight.id, isArrival: false),
+    )) {
+      recordCity(flight, flight.departureIata, flight.departedAt, false);
+    }
+    if (includeTransitArrivals || !flight.isTransitArrival) {
+      if (!excludedTransferEndpoints.contains(
+        (flightId: flight.id, isArrival: true),
+      )) {
+        recordCity(flight, flight.arrivalIata, _arrivalTime(flight), true);
+      }
+    }
     final departureYear = FlightTimeResolver.calendarYearAtAirport(
       flight.departedAt,
       airportFor(flight.departureIata)?.timeZoneId,

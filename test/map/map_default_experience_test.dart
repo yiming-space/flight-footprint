@@ -1,22 +1,33 @@
 import 'package:flight_footprint/app/app_controller.dart';
 import 'package:flight_footprint/core/localization/app_strings.dart';
 import 'package:flight_footprint/domain/flight.dart';
+import 'package:flight_footprint/domain/airport.dart';
 import 'package:flight_footprint/domain/visited_place.dart';
 import 'package:flight_footprint/features/home/home_page.dart';
 import 'package:flight_footprint/features/map/detail_map.dart';
 import 'package:flight_footprint/features/map/map_explorer_controls.dart';
 import 'package:flight_footprint/features/map/globe_map.dart';
 import 'package:flight_footprint/features/map/offline_map.dart';
+import 'package:flight_footprint/features/stats/world_exploration.dart';
 import 'package:flight_footprint/ui/theme/app_theme.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 class _Controller extends ChangeNotifier implements AppController {
+  _Controller({this.records = const [], this.airportsByCode = const {}});
+  final List<Flight> records;
+  final Map<String, Airport> airportsByCode;
   @override
-  List<Flight> get flights => const [];
+  List<Flight> get flights => records;
+  @override
+  Airport? airportFor(String code) => airportsByCode[code];
   @override
   List<VisitedPlace> get visitedPlaces => const [];
+  @override
+  bool get countTransitArrivals => true;
+  @override
+  List<Never> get transferDecisions => const [];
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
@@ -35,6 +46,51 @@ Widget _app(Widget child) => MaterialApp(
 );
 
 void main() {
+  testWidgets('map and exploration retain a known endpoint independently', (
+    tester,
+  ) async {
+    const known = Airport(
+      iataCode: 'HKG',
+      latitude: 22.3,
+      longitude: 113.9,
+      name: 'Hong Kong',
+      city: 'Hong Kong',
+      countryCode: 'HK',
+    );
+    final date = DateTime(2025);
+    final flight = Flight(
+      id: 'partial',
+      departureIata: '???',
+      arrivalIata: 'HKG',
+      departedAt: date,
+      createdAt: date,
+      updatedAt: date,
+    );
+    final outbound = flight.copyWith(departureIata: 'HKG', arrivalIata: '???');
+    for (final record in [flight, outbound]) {
+      final controller = _Controller(
+        records: [record],
+        airportsByCode: {'HKG': known},
+      );
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(_app(HomePage(controller: controller)));
+      await tester.pump();
+      final map = tester.widget<DetailMap>(find.byType(DetailMap));
+      final exploration = buildExplorationPlaces(
+        flights: [record],
+        visitedPlaces: [],
+        airportFor: controller.airportFor,
+        isZh: false,
+      );
+      expect(map.places, hasLength(1));
+      expect(map.places.single.countryCode, exploration.single.countryCode);
+      expect(map.places.single.latitude, exploration.single.latitude);
+      expect(map.places.single.longitude, exploration.single.longitude);
+      expect(map.routes, isEmpty);
+      await tester.pumpWidget(const SizedBox.shrink());
+    }
+  });
+
   testWidgets('home defaults to detailed flat map without a basemap toggle', (
     tester,
   ) async {

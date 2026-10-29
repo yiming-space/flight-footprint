@@ -19,12 +19,19 @@ class FrostedGlassSurface extends StatefulWidget {
     this.adaptiveContrast = false,
     this.tintOpacity,
     this.highlightStrength = 1,
+    this.liquidRefraction = false,
+    this.environmentReflectionStrength = 1,
+    this.backgroundResponsiveHighlights = false,
     this.useLocalRefraction = false,
     this.tintColor = Colors.white,
     this.showRim = true,
   }) : assert(edgeThickness >= 1 && edgeThickness <= 2),
        assert(tintOpacity == null || (tintOpacity >= 0 && tintOpacity <= 1)),
-       assert(highlightStrength >= 0 && highlightStrength <= 2);
+       assert(highlightStrength >= 0 && highlightStrength <= 2),
+       assert(
+         environmentReflectionStrength >= 0 &&
+             environmentReflectionStrength <= 2,
+       );
 
   final ShapeBorder shape;
   final Widget child;
@@ -53,11 +60,21 @@ class FrostedGlassSurface extends StatefulWidget {
   /// Scales the refraction highlight and rim paint without changing the body.
   final double highlightStrength;
 
+  /// Gently changes the refracted edge while the surface is visible.
+  final bool liquidRefraction;
+
+  /// Controls how strongly surrounding colors appear in the glass edge.
+  final double environmentReflectionStrength;
+
+  /// Attenuates edge highlights when the surrounding background is dark.
+  final bool backgroundResponsiveHighlights;
+
   @override
   State<FrostedGlassSurface> createState() => _FrostedGlassSurfaceState();
 }
 
-class _FrostedGlassSurfaceState extends State<FrostedGlassSurface> {
+class _FrostedGlassSurfaceState extends State<FrostedGlassSurface>
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   static const bool _refractionEnabled =
       String.fromEnvironment('MENU_GLASS_REFRACTION', defaultValue: '1') != '0';
 
@@ -66,10 +83,39 @@ class _FrostedGlassSurfaceState extends State<FrostedGlassSurface> {
   ui.ImageFilter? _localFilter;
   Object? _localFilterKey;
   ScrollPosition? _scrollPosition;
+  AnimationController? _liquid;
+  bool _appActive = true;
+
+  void _repaintLiquid() =>
+      _clipKey.currentContext?.findRenderObject()?.markNeedsPaint();
+
+  void _syncLiquidMotion() {
+    final media = MediaQuery.maybeOf(context);
+    final enabled =
+        widget.liquidRefraction &&
+        widget.visible &&
+        _shader != null &&
+        _appActive &&
+        TickerMode.valuesOf(context).enabled &&
+        !(media?.disableAnimations ?? false) &&
+        !(media?.accessibleNavigation ?? false) &&
+        !(media?.highContrast ?? false);
+    if (enabled) {
+      final controller = _liquid ??= AnimationController(
+        vsync: this,
+        duration: const Duration(seconds: 8),
+      )..addListener(_repaintLiquid);
+      if (!controller.isAnimating) controller.repeat();
+    } else if (_liquid?.isAnimating ?? false) {
+      _liquid!.stop();
+      _repaintLiquid();
+    }
+  }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    _syncLiquidMotion();
     final position = Scrollable.maybeOf(context)?.position;
     if (position == _scrollPosition) return;
     _scrollPosition?.removeListener(_repaintForScroll);
@@ -78,6 +124,9 @@ class _FrostedGlassSurfaceState extends State<FrostedGlassSurface> {
   }
 
   void _repaintForScroll() {
+    // These lenses have no window-position uniforms to refresh. Their retained
+    // backdrop layers already sample the new background during compositing.
+    if (widget.useLocalRefraction) return;
     // Invalidate the retained card layer before painting the new scroll pose.
     // No setState/post-frame measurement, ticker, or idle repaint is needed.
     _clipKey.currentContext?.findRenderObject()?.markNeedsPaint();
@@ -86,7 +135,23 @@ class _FrostedGlassSurfaceState extends State<FrostedGlassSurface> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     unawaited(_loadShader());
+  }
+
+  @override
+  void didUpdateWidget(covariant FrostedGlassSurface oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.visible != widget.visible ||
+        oldWidget.liquidRefraction != widget.liquidRefraction) {
+      _syncLiquidMotion();
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _appActive = state == AppLifecycleState.resumed;
+    if (mounted) _syncLiquidMotion();
   }
 
   Future<void> _loadShader() async {
@@ -102,6 +167,7 @@ class _FrostedGlassSurfaceState extends State<FrostedGlassSurface> {
         return;
       }
       setState(() => _shader = shader);
+      _syncLiquidMotion();
     } catch (_) {
       // Native BackdropFilter remains the supported fallback.
     }
@@ -109,6 +175,8 @@ class _FrostedGlassSurfaceState extends State<FrostedGlassSurface> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _liquid?.dispose();
     _scrollPosition?.removeListener(_repaintForScroll);
     _shader?.dispose();
     super.dispose();
@@ -168,6 +236,8 @@ class _FrostedGlassSurfaceState extends State<FrostedGlassSurface> {
                 widget.refractionRadius,
                 widget.edgeThickness,
                 widget.highlightStrength,
+                widget.environmentReflectionStrength,
+                widget.backgroundResponsiveHighlights,
                 isLight,
                 widget.adaptiveContrast,
               );
@@ -183,7 +253,10 @@ class _FrostedGlassSurfaceState extends State<FrostedGlassSurface> {
                   ..setFloat(9, widget.edgeThickness)
                   ..setFloat(10, (isLight ? 1 : .45) * widget.highlightStrength)
                   ..setFloat(11, isLight && widget.adaptiveContrast ? 1 : 0)
-                  ..setFloat(12, 1);
+                  ..setFloat(12, 1)
+                  ..setFloat(13, 0)
+                  ..setFloat(14, widget.environmentReflectionStrength)
+                  ..setFloat(15, widget.backgroundResponsiveHighlights ? 1 : 0);
                 _localFilter = ui.ImageFilter.compose(
                   inner: blur,
                   outer: ui.ImageFilter.shader(shader),
@@ -216,7 +289,15 @@ class _FrostedGlassSurfaceState extends State<FrostedGlassSurface> {
               ..setFloat(9, widget.edgeThickness)
               ..setFloat(10, (isLight ? 1 : .45) * widget.highlightStrength)
               ..setFloat(11, isLight && widget.adaptiveContrast ? 1 : 0)
-              ..setFloat(12, widget.useLocalRefraction ? 1 : 0);
+              ..setFloat(12, widget.useLocalRefraction ? 1 : 0)
+              ..setFloat(
+                13,
+                widget.liquidRefraction && (_liquid?.isAnimating ?? false)
+                    ? 1 + _liquid!.value * math.pi * 2
+                    : 0,
+              )
+              ..setFloat(14, widget.environmentReflectionStrength)
+              ..setFloat(15, widget.backgroundResponsiveHighlights ? 1 : 0);
             // Construct a fresh filter after updating mutable shader uniforms.
             return ui.ImageFilter.compose(
               inner: blur,
@@ -276,6 +357,9 @@ class _FrostedGlassSurfaceState extends State<FrostedGlassSurface> {
                               shape: widget.shape,
                               light: isLight,
                               highlightStrength: widget.highlightStrength,
+                              backgroundResponsive:
+                                  widget.backgroundResponsiveHighlights &&
+                                  !highContrast,
                               depth:
                                   widget.edgeThickness *
                                   widget.highlightStrength,
@@ -335,6 +419,7 @@ class _GlassRimPainter extends CustomPainter {
     required this.highlightStrength,
     this.depth = 1,
     this.backdropHighlights = false,
+    this.backgroundResponsive = false,
   });
 
   final ShapeBorder shape;
@@ -342,11 +427,41 @@ class _GlassRimPainter extends CustomPainter {
   final double highlightStrength;
   final double depth;
   final bool backdropHighlights;
+  final bool backgroundResponsive;
 
   @override
   void paint(Canvas canvas, Size size) {
     final rect = Offset.zero & size;
     final path = shape.getOuterPath(rect.deflate(.5));
+    if (backgroundResponsive) {
+      // A quiet directional boundary follows the real clip path. The wider
+      // highlight is drawn by the shader from actual backdrop light and color.
+      canvas.drawPath(
+        path,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = .8
+          ..shader = ui.Gradient.sweep(
+            size.center(Offset.zero),
+            [
+              Colors.white.withValues(alpha: light ? .08 : .10),
+              Colors.white.withValues(alpha: light ? .28 : .30),
+              Colors.white.withValues(alpha: light ? .16 : .18),
+              Colors.white.withValues(alpha: light ? .05 : .07),
+              Colors.white.withValues(alpha: light ? .03 : .05),
+              Colors.white.withValues(alpha: light ? .18 : .20),
+              Colors.white.withValues(alpha: light ? .08 : .10),
+              Colors.white.withValues(alpha: light ? .04 : .06),
+              Colors.white.withValues(alpha: light ? .08 : .10),
+            ],
+            const [0, .12, .25, .37, .50, .62, .75, .88, 1],
+            TileMode.clamp,
+            -math.pi,
+            math.pi,
+          ),
+      );
+      return;
+    }
     if (backdropHighlights) {
       // Build a broken, directional reflection directly on the Flutter clip
       // path. The shader supplies the broad backdrop-responsive bevel.
@@ -559,5 +674,6 @@ class _GlassRimPainter extends CustomPainter {
       oldDelegate.light != light ||
       oldDelegate.highlightStrength != highlightStrength ||
       oldDelegate.depth != depth ||
-      oldDelegate.backdropHighlights != backdropHighlights;
+      oldDelegate.backdropHighlights != backdropHighlights ||
+      oldDelegate.backgroundResponsive != backgroundResponsive;
 }

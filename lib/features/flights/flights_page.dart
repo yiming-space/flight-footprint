@@ -6,12 +6,15 @@ import '../../data/airport_localization.dart';
 import '../../data/flight_time_resolver.dart';
 import '../../domain/flight.dart';
 import '../../domain/flight_query.dart';
+import '../../domain/record_health.dart';
 import '../../ui/theme/app_theme.dart';
 import '../../ui/widgets/frosted_glass_surface.dart';
 import '../../ui/widgets/widgets.dart';
 import '../add_flight/add_flight_page.dart';
 import '../add_flight/flight_entry_sheet.dart';
 import 'flight_card.dart';
+import 'record_issues_sheet.dart';
+import 'suspected_transit_panel.dart';
 
 class FlightsPage extends StatefulWidget {
   const FlightsPage({
@@ -163,7 +166,12 @@ class _FlightsPageState extends State<FlightsPage> {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: widget.controller,
+    builder: (context, _) => _buildPage(context),
+  );
+
+  Widget _buildPage(BuildContext context) {
     final s = context.strings;
     final allFlights = widget.controller.flights;
     final upcomingCount = allFlights
@@ -177,6 +185,11 @@ class _FlightsPageState extends State<FlightsPage> {
         : FlightStatus.completed;
     final flights = _filteredFlights();
     final years = _availableYears();
+    final recordHealth = inspectRecordHealth(
+      flights: allFlights,
+      places: widget.controller.visitedPlaces,
+      airportFor: widget.controller.airportFor,
+    );
     return SafeArea(
       bottom: false,
       top: false,
@@ -189,6 +202,13 @@ class _FlightsPageState extends State<FlightsPage> {
             controller: _ensureScrollController(),
             slivers: [
               SliverToBoxAdapter(child: _buildToolbar(s)),
+              if (recordHealth.count > 0)
+                SliverToBoxAdapter(
+                  child: _recordHealthNotice(recordHealth.count),
+                ),
+              SliverToBoxAdapter(
+                child: SuspectedTransitPanel(controller: widget.controller),
+              ),
               SliverToBoxAdapter(
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(
@@ -356,6 +376,74 @@ class _FlightsPageState extends State<FlightsPage> {
       ),
     );
   }
+
+  Widget _recordHealthNotice(int issueCount) {
+    final zh = context.strings.isZh;
+    final colors = context.appColors;
+    final hasIssues = issueCount > 0;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.page,
+        AppSpacing.md,
+        AppSpacing.page,
+        0,
+      ),
+      child: Material(
+        color: hasIssues
+            ? colors.danger.withValues(alpha: .09)
+            : colors.surface,
+        shape: AppShapes.medium,
+        child: InkWell(
+          customBorder: AppShapes.medium,
+          onTap: _openRecordIssues,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            child: Row(
+              children: [
+                Icon(
+                  hasIssues
+                      ? Icons.warning_amber_rounded
+                      : Icons.fact_check_outlined,
+                  color: hasIssues ? colors.danger : colors.textSecondary,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    hasIssues
+                        ? (zh
+                              ? '$issueCount 项需要查看或修正'
+                              : '$issueCount items need review or a fix')
+                        : (zh ? '记录检查 · 暂无需要修正' : 'Record check · All clear'),
+                    style: TextStyle(
+                      color: colors.textPrimary,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                Icon(Icons.chevron_right_rounded, color: colors.textSecondary),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openRecordIssues() => showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    useSafeArea: true,
+    requestFocus: false,
+    backgroundColor: Colors.transparent,
+    barrierColor: Colors.black.withValues(alpha: .68),
+    builder: (_) => FractionallySizedBox(
+      heightFactor: .9,
+      child: ClipPath(
+        clipper: ShapeBorderClipper(shape: AppShapes.sheet),
+        child: RecordIssuesSheet(controller: widget.controller),
+      ),
+    ),
+  );
 
   Widget _flightCard(Flight flight) {
     return FlightCard(

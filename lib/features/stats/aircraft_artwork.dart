@@ -14,13 +14,27 @@ String? aircraftArtworkAssetFor(String type) {
   model = _compactArtworkModel(model)
       .replaceFirst(RegExp(r'(?:FAMILY|系列)$'), '');
   model = _artworkAliases[model] ?? model;
-  if (RegExp(r'^(?:737|747|757|767|777|787)').hasMatch(model)) {
-    model = 'B$model';
-  } else if (brand == 'embraer' &&
-      RegExp(r'^(?:170|175|190|195)').hasMatch(model)) {
-    model = 'E$model';
-  }
+  final directMatch = _matchArtworkModel(model, brand);
+  if (directMatch != null) return directMatch;
 
+  // Some records omit the manufacturer letter. Try only numeric-leading
+  // labels, then let the existing exact/family model rules validate the whole
+  // candidate. This keeps registrations and malformed suffixes unmatched.
+  if (RegExp(r'^\d').hasMatch(model)) {
+    for (final prefix in _artworkNumericPrefixes) {
+      if (brand != null && brand != prefix.brand) continue;
+      final candidate = '${prefix.letter}$model';
+      final match = _matchArtworkModel(
+        _artworkAliases[candidate] ?? candidate,
+        prefix.brand,
+      );
+      if (match != null) return match;
+    }
+  }
+  return null;
+}
+
+String? _matchArtworkModel(String model, String? brand) {
   final exact = _exactArtwork[model];
   if (exact != null) {
     return brand == null || brand == exact.brand ? exact.asset : null;
@@ -36,6 +50,13 @@ String? aircraftArtworkAssetFor(String type) {
 
 String _compactArtworkModel(String value) =>
     value.replaceAll(RegExp(r'[\s-]'), '');
+
+const _artworkNumericPrefixes = [
+  (brand: 'airbus', letter: 'A'),
+  (brand: 'boeing', letter: 'B'),
+  (brand: 'embraer', letter: 'E'),
+  (brand: 'comac', letter: 'C'),
+];
 
 final _artworkBrandPrefixes = [
   (brand: 'airbus', pattern: RegExp(r'^(?:AIRBUS\s+|空中客车\s*|空客\s*)')),
@@ -101,128 +122,128 @@ final _artworkFamilies = [
   (
     brand: 'airbus',
     pattern: RegExp(r'^A220(?:100|300)?$'),
-    asset: 'assets/images/aircraft/a220-family-side-right-v2.png',
+    asset: 'assets/images/aircraft/a220-family-side-right-v2.webp',
   ),
   (
     brand: 'airbus',
     pattern: RegExp(r'^A321(?:NEO(?:LR|XLR)?|N|[12]\d{2}NX?|LR|XLR)$'),
-    asset: 'assets/images/aircraft/a321neo-side-right-v2.png',
+    asset: 'assets/images/aircraft/a321neo-side-right-v2.webp',
   ),
   (
     brand: 'airbus',
     pattern: RegExp(r'^A(?:319|320)(?:NEO|N|[12]\d{2}N)$'),
-    asset: 'assets/images/aircraft/a320neo-family-side-right-v2.png',
+    asset: 'assets/images/aircraft/a320neo-family-side-right-v2.webp',
   ),
   (
     brand: 'airbus',
     pattern: RegExp(r'^A321(?:[12]\d{2}|CEO)?$'),
-    asset: 'assets/images/aircraft/a321-family-side-right-v1.png',
+    asset: 'assets/images/aircraft/a321-family-side-right-v1.webp',
   ),
   (
     brand: 'airbus',
     pattern: RegExp(r'^A(?:318|319|320)(?:[12]\d{2}|CEO)?$'),
-    asset: 'assets/images/aircraft/a320-family-side-right-v1.png',
+    asset: 'assets/images/aircraft/a320-family-side-right-v1.webp',
   ),
   (
     brand: 'airbus',
     pattern: RegExp(r'^A330(?:NEO|(?:800|900)(?:NEO)?)$'),
-    asset: 'assets/images/aircraft/a330-900neo-side-right-v2.png',
+    asset: 'assets/images/aircraft/a330-900neo-side-right-v2.webp',
   ),
   (
     brand: 'airbus',
     pattern: RegExp(r'^A330(?:(?:200|300)(?:CEO)?|CEO)?$'),
-    asset: 'assets/images/aircraft/a330-family-side-right-v1.png',
+    asset: 'assets/images/aircraft/a330-family-side-right-v1.webp',
   ),
   (
     brand: 'airbus',
     pattern: RegExp(r'^A350(?:900(?:ULR)?)?$'),
-    asset: 'assets/images/aircraft/a350-900-side-right-v3.png',
+    asset: 'assets/images/aircraft/a350-900-side-right-v3.webp',
   ),
   (
     brand: 'airbus',
     pattern: RegExp(r'^A380(?:800)?$'),
-    asset: 'assets/images/aircraft/a380-800-side-right-v1.png',
+    asset: 'assets/images/aircraft/a380-800-side-right-v1.webp',
   ),
   (
     brand: 'boeing',
     pattern: RegExp(r'^B737MAX(?:[789]|10|8200)?$'),
-    asset: 'assets/images/aircraft/b737-max-8-side-right-v2.png',
+    asset: 'assets/images/aircraft/b737-max-8-side-right-v2.webp',
   ),
   (
     brand: 'boeing',
     pattern: RegExp(r'^B737(?:NG|[678]00|900(?:ER)?)?$'),
-    asset: 'assets/images/aircraft/b737-family-side-right-v1.png',
+    asset: 'assets/images/aircraft/b737-family-side-right-v1.webp',
   ),
   (
     brand: 'boeing',
     pattern: RegExp(r'^B747(?:[1234]00|8(?:I|INTERCONTINENTAL)?)?$'),
-    asset: 'assets/images/aircraft/b747-family-side-right-v1.png',
+    asset: 'assets/images/aircraft/b747-family-side-right-v1.webp',
   ),
   (
     brand: 'boeing',
     pattern: RegExp(r'^B757(?:[23]00)?$'),
-    asset: 'assets/images/aircraft/b757-family-side-right-v1.png',
+    asset: 'assets/images/aircraft/b757-family-side-right-v1.webp',
   ),
   (
     brand: 'boeing',
     pattern: RegExp(r'^B767(?:[234]00(?:ER)?)?$'),
-    asset: 'assets/images/aircraft/b767-family-side-right-v1.png',
+    asset: 'assets/images/aircraft/b767-family-side-right-v1.webp',
   ),
   (
     brand: 'boeing',
     pattern: RegExp(r'^B777(?:200(?:ER|LR)?|300(?:ER)?)?$'),
-    asset: 'assets/images/aircraft/b777-300er-side-right-v1.png',
+    asset: 'assets/images/aircraft/b777-300er-side-right-v1.webp',
   ),
   (
     brand: 'boeing',
     pattern: RegExp(r'^B787(?:8|9|10)?$'),
-    asset: 'assets/images/aircraft/b787-9-side-right-v1.png',
+    asset: 'assets/images/aircraft/b787-9-side-right-v1.webp',
   ),
   (
     brand: 'embraer',
     pattern: RegExp(r'^E(?:190|195)E2$'),
-    asset: 'assets/images/aircraft/e190-e2-side-right-v1.png',
+    asset: 'assets/images/aircraft/e190-e2-side-right-v1.webp',
   ),
   (
     brand: 'embraer',
     pattern: RegExp(r'^E(?:170|175|190|195)(?:E1|STD|LR|AR)?$'),
-    asset: 'assets/images/aircraft/ejet-e1-family-side-right-v1.png',
+    asset: 'assets/images/aircraft/ejet-e1-family-side-right-v1.webp',
   ),
   (
     brand: 'comac',
     pattern: RegExp(r'^C919(?:100|STD|ER)?$'),
-    asset: 'assets/images/aircraft/c919-family-side-right-v1.png',
+    asset: 'assets/images/aircraft/c919-family-side-right-v1.webp',
   ),
   (
     brand: 'comac',
     pattern: RegExp(r'^C909(?:700|STD|ER)?$'),
-    asset: 'assets/images/aircraft/c909-family-side-right-v1.png',
+    asset: 'assets/images/aircraft/c909-family-side-right-v1.webp',
   ),
 ];
 
 const _airbusArtwork = {
-  'A320-200': 'assets/images/aircraft/a320-200-side-right-v2.png',
-  'A321LR': 'assets/images/aircraft/a321lr-side-right-v1.png',
-  'A321NEO': 'assets/images/aircraft/a321neo-side-right-v2.png',
-  'A330-300': 'assets/images/aircraft/a330-300-side-right-v1.png',
-  'A330-900NEO': 'assets/images/aircraft/a330-900neo-side-right-v2.png',
-  'A350-900': 'assets/images/aircraft/a350-900-side-right-v3.png',
-  'A350-1000': 'assets/images/aircraft/a350-1000-side-right-v1.png',
-  'A380-800': 'assets/images/aircraft/a380-800-side-right-v1.png',
+  'A320-200': 'assets/images/aircraft/a320-200-side-right-v2.webp',
+  'A321LR': 'assets/images/aircraft/a321lr-side-right-v1.webp',
+  'A321NEO': 'assets/images/aircraft/a321neo-side-right-v2.webp',
+  'A330-300': 'assets/images/aircraft/a330-300-side-right-v1.webp',
+  'A330-900NEO': 'assets/images/aircraft/a330-900neo-side-right-v2.webp',
+  'A350-900': 'assets/images/aircraft/a350-900-side-right-v3.webp',
+  'A350-1000': 'assets/images/aircraft/a350-1000-side-right-v1.webp',
+  'A380-800': 'assets/images/aircraft/a380-800-side-right-v1.webp',
 };
 
 const _boeingArtwork = {
-  'B737 MAX 8': 'assets/images/aircraft/b737-max-8-side-right-v2.png',
-  'B737 MAX 9': 'assets/images/aircraft/b737-max-9-side-right-v2.png',
-  'B737-800': 'assets/images/aircraft/b737-800-side-right-v2.png',
-  'B777-300ER': 'assets/images/aircraft/b777-300er-side-right-v1.png',
-  'B787-8': 'assets/images/aircraft/b787-8-side-right-v1.png',
-  'B787-10': 'assets/images/aircraft/b787-10-side-right-v1.png',
-  'B787-9': 'assets/images/aircraft/b787-9-side-right-v1.png',
+  'B737 MAX 8': 'assets/images/aircraft/b737-max-8-side-right-v2.webp',
+  'B737 MAX 9': 'assets/images/aircraft/b737-max-9-side-right-v2.webp',
+  'B737-800': 'assets/images/aircraft/b737-800-side-right-v2.webp',
+  'B777-300ER': 'assets/images/aircraft/b777-300er-side-right-v1.webp',
+  'B787-8': 'assets/images/aircraft/b787-8-side-right-v1.webp',
+  'B787-10': 'assets/images/aircraft/b787-10-side-right-v1.webp',
+  'B787-9': 'assets/images/aircraft/b787-9-side-right-v1.webp',
 };
 
 const _embraerArtwork = {
-  'E190-E2': 'assets/images/aircraft/e190-e2-side-right-v1.png',
+  'E190-E2': 'assets/images/aircraft/e190-e2-side-right-v1.webp',
 };
 
 String aircraftArtworkHeroTag(String key) => 'aircraft-exhibit-$key';

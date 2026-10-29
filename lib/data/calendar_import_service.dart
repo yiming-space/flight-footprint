@@ -1,19 +1,27 @@
+import 'dart:convert';
+
 import 'package:flutter/services.dart';
 import 'package:uuid/uuid.dart';
 
 import '../domain/airport.dart';
 import '../domain/flight.dart';
 import 'airport_catalog.dart';
+import 'airport_localization.dart';
 import 'airline_catalog.dart';
 
 /// The result of one explicit system-calendar scan.
 enum CalendarScanStatus { available, unsupported, permissionDenied, failed }
+
+enum CalendarPermissionState { granted, denied, unsupported, failed }
 
 class CalendarImportResult {
   const CalendarImportResult({
     required this.status,
     required this.eventsRead,
     required this.flights,
+    this.reviewCandidates = 0,
+    this.reviewKeys = const [],
+    this.reviewTitles = const [],
     this.errorCode,
   });
 
@@ -21,11 +29,17 @@ class CalendarImportResult {
     : status = CalendarScanStatus.unsupported,
       eventsRead = 0,
       flights = const [],
+      reviewCandidates = 0,
+      reviewKeys = const [],
+      reviewTitles = const [],
       errorCode = null;
 
   final CalendarScanStatus status;
   final int eventsRead;
   final List<CalendarFlightDraft> flights;
+  final int reviewCandidates;
+  final List<String> reviewKeys;
+  final List<String> reviewTitles;
   final String? errorCode;
 
   bool get isAvailable => status == CalendarScanStatus.available;
@@ -48,6 +62,7 @@ class CalendarFlightDraft {
     required this.status,
     required this.distanceKm,
     required this.durationMinutes,
+    this.isAutoImportSafe = false,
   });
 
   final String eventId;
@@ -64,8 +79,21 @@ class CalendarFlightDraft {
   final double distanceKm;
   final int durationMinutes;
 
+  /// True only when the event has an id, explicit flight number and route,
+  /// and bounded timed start/end values. Manual import still previews every
+  /// parsed draft regardless of this flag.
+  final bool isAutoImportSafe;
+
   String get departureIata => departureAirport.iataCode;
   String get arrivalIata => arrivalAirport.iataCode;
+
+  String get autoImportEventPrefix =>
+      'event-revision:[${jsonEncode(eventId.trim())},';
+
+  /// A changed event needs a fresh review; its stable flight id remains the
+  /// event id so the repository can detect conflicts without overwriting.
+  String get autoImportRevisionKey =>
+      'event-revision:${jsonEncode([eventId.trim(), flightNumber.trim().toUpperCase(), departureIata, arrivalIata, departedAt.toUtc().toIso8601String(), arrivedAt.toUtc().toIso8601String()])}';
 
   /// Uses a deterministic id so importing the same calendar event again does
   /// not create another row. Repository identity matching still protects the
@@ -127,7 +155,29 @@ class CalendarImportService {
   final MethodChannel _channel;
   final DateTime Function() _clock;
 
-  Future<CalendarImportResult> scan({DateTime? start, DateTime? end}) async {
+  /// Checks permission without showing a system prompt. Startup automation
+  /// must never request access on its own.
+  Future<CalendarPermissionState> checkReadPermission() async {
+    try {
+      final granted =
+          await _channel.invokeMethod<bool>('hasReadPermission') ?? false;
+      return granted
+          ? CalendarPermissionState.granted
+          : CalendarPermissionState.denied;
+    } on MissingPluginException {
+      return CalendarPermissionState.unsupported;
+    } on PlatformException {
+      return CalendarPermissionState.failed;
+    } on Object {
+      return CalendarPermissionState.failed;
+    }
+  }
+
+  Future<CalendarImportResult> scan({
+    DateTime? start,
+    DateTime? end,
+    bool allowPermissionRequest = true,
+  }) async {
     final now = _clock();
     final from = (start ?? DateTime(now.year - 10, 1, 1)).toUtc();
     final until = (end ?? DateTime(now.year + 3, 12, 31, 23, 59, 59)).toUtc();
@@ -137,12 +187,15 @@ class CalendarImportService {
         <String, Object>{
           'startMillis': from.millisecondsSinceEpoch,
           'endMillis': until.millisecondsSinceEpoch,
+          'allowPermissionRequest': allowPermissionRequest,
         },
       );
       final rawEvents = response ?? const <dynamic>[];
       final flights = <CalendarFlightDraft>[];
       final seenEventIds = <String>{};
       final seenFlightKeys = <String>{};
+      final reviewKeys = <String>[];
+      final reviewTitles = <String>[];
       for (final raw in rawEvents) {
         if (raw is! Map) continue;
         final event = <String, dynamic>{
@@ -150,7 +203,17 @@ class CalendarImportService {
             if (entry.key != null) entry.key.toString(): entry.value,
         };
         final draft = parseEvent(event, now: now);
-        if (draft == null) continue;
+        if (draft == null) {
+          if (_looksFlightRelated(event)) {
+            reviewKeys.add(_reviewKey(event));
+            reviewTitles.add(
+              _string(event['title']).isEmpty
+                  ? _string(event['description'])
+                  : _string(event['title']),
+            );
+          }
+          continue;
+        }
         final eventId = draft.eventId.trim();
         final flightKey = _flightIdentityKey(draft);
         if (eventId.isNotEmpty && !seenEventIds.add(eventId)) continue;
@@ -164,6 +227,9 @@ class CalendarImportService {
         status: CalendarScanStatus.available,
         eventsRead: rawEvents.length,
         flights: List.unmodifiable(flights),
+        reviewCandidates: reviewKeys.length,
+        reviewKeys: List.unmodifiable(reviewKeys),
+        reviewTitles: List.unmodifiable(reviewTitles),
       );
     } on PlatformException catch (error) {
       final status = switch (error.code) {
@@ -187,6 +253,24 @@ class CalendarImportService {
         errorCode: 'calendar_query_failed',
       );
     }
+  }
+
+  static bool _looksFlightRelated(Map<String, dynamic> event) {
+    final text = _normalizeText([
+      _string(event['title']),
+      _string(event['location']),
+      _string(event['description']),
+    ]);
+    return _flightPattern.hasMatch(text) ||
+        RegExp(
+          r'航班|机票|登机|boarding\s*pass|flight\s*(?:to|from|no\.?|#)',
+          caseSensitive: false,
+        ).hasMatch(text);
+  }
+
+  static String _reviewKey(Map<String, dynamic> event) {
+    final id = _string(event['id']);
+    return 'review:${jsonEncode([id, _string(event['title']), _string(event['location']), _string(event['description']), _string(event['startMillis']), _string(event['endMillis'])])}';
   }
 
   /// Public for deterministic unit tests and for future provider adapters.
@@ -219,7 +303,8 @@ class CalendarImportService {
       clockPair: clockPair,
       marker: timeMarker,
     );
-    final route = _splitRoute(routeText) ?? _splitRoute(location);
+    final explicitRoute = _splitRoute(routeText) ?? _splitRoute(location);
+    final route = explicitRoute;
     if (route == null) return null;
     final departureAirport = _resolveAirport(route.$1);
     final arrivalAirport = _resolveAirport(route.$2);
@@ -260,6 +345,17 @@ class CalendarImportService {
       ),
       distanceKm: airportDistance,
       durationMinutes: duration,
+      isAutoImportSafe:
+          _string(event['id']).isNotEmpty &&
+          flightMatch != null &&
+          explicitRoute != null &&
+          _isUnambiguousAirportText(route.$1, departureAirport) &&
+          _isUnambiguousAirportText(route.$2, arrivalAirport) &&
+          eventStart != null &&
+          eventEnd != null &&
+          event['allDay'] != true &&
+          eventEnd.difference(eventStart).inMinutes > 0 &&
+          eventEnd.difference(eventStart).inMinutes <= 24 * 60,
     );
   }
 
@@ -387,6 +483,38 @@ class CalendarImportService {
     }
     return candidates.isEmpty ? null : candidates.first;
   }
+
+  bool _isUnambiguousAirportText(String raw, Airport resolved) {
+    final query = _normalizeAirportIdentity(raw);
+    if (query.isEmpty) return false;
+    final exactMatches = <String>{};
+    for (final airport in airports.values) {
+      final aliases = <String>{
+        airport.iataCode,
+        airport.icaoCode,
+        airport.name,
+        airport.city,
+        localizedAirportCity(airport),
+        localizedAirportName(airport),
+        ...localizedAirportSearchAliases(airport),
+      };
+      if (aliases.any((alias) => _normalizeAirportIdentity(alias) == query)) {
+        exactMatches.add(airport.iataCode.trim().toUpperCase());
+      }
+    }
+    return exactMatches.length == 1 &&
+        exactMatches.single == resolved.iataCode.trim().toUpperCase();
+  }
+
+  static String _normalizeAirportIdentity(String value) => value
+      .trim()
+      .replaceAll(
+        RegExp(r'(?:T|Terminal|航站楼|航站樓)\s*\d{1,2}$', caseSensitive: false),
+        '',
+      )
+      .toLowerCase()
+      .replaceAll(RegExp(r'(?:国际机场|國際機場|机场|機場)$'), '')
+      .replaceAll(RegExp(r'[\s\-·•_/.,，。:：()（）【】\[\]]'), '');
 
   static ({String prefix, String number, int end})? _namedFlight(String text) {
     for (final match in _standaloneFlightNumberPattern.allMatches(text)) {

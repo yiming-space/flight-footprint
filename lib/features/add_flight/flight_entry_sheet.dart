@@ -5,7 +5,7 @@ import '../../core/localization/app_strings.dart';
 import '../../ui/theme/app_theme.dart';
 import 'flight_import_actions.dart';
 
-enum FlightEntryMethod { manual, spreadsheet, calendar }
+enum FlightEntryMethod { manual, screenshot, spreadsheet, calendar }
 
 enum FlightEntryResult { manual, imported }
 
@@ -42,6 +42,18 @@ class FlightEntryOptions extends StatelessWidget {
           label: Text(s.t('entryManual'), textAlign: TextAlign.center),
         ),
         const SizedBox(height: 12),
+        _ImportOption(
+          method: FlightEntryMethod.screenshot,
+          icon: Icons.image_search_outlined,
+          title: s.isZh ? '识别航班截图' : 'Recognize flight screenshot',
+          description: s.isZh
+              ? '从图片识别并核对航班信息'
+              : 'Review flight information from an image',
+          onTap: enabled
+              ? () => onSelected(FlightEntryMethod.screenshot)
+              : null,
+        ),
+        Divider(height: 1, color: colors.border),
         _ImportOption(
           method: FlightEntryMethod.spreadsheet,
           icon: Icons.table_view_outlined,
@@ -171,9 +183,12 @@ class _FlightEntrySheetState extends State<FlightEntrySheet>
       Navigator.pop(context, FlightEntryResult.manual);
       return;
     }
-    final imported = method == FlightEntryMethod.spreadsheet
-        ? await importSpreadsheet(context)
-        : await importCalendar(context);
+    final imported = switch (method) {
+      FlightEntryMethod.screenshot => await importScreenshot(context),
+      FlightEntryMethod.spreadsheet => await importSpreadsheet(context),
+      FlightEntryMethod.calendar => await importCalendar(context),
+      FlightEntryMethod.manual => false,
+    };
     if (imported && mounted) Navigator.pop(context, FlightEntryResult.imported);
   }
 

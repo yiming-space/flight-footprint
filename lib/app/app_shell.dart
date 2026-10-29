@@ -8,6 +8,7 @@ import '../core/localization/app_strings.dart';
 import '../data/app_update_service.dart';
 import '../features/add_flight/add_flight_page.dart';
 import '../features/add_flight/flight_entry_sheet.dart';
+import '../features/add_flight/flight_import_actions.dart';
 import '../features/flights/flights_page.dart';
 import '../features/home/home_page.dart';
 import '../features/map/add_visited_place_sheet.dart';
@@ -28,7 +29,12 @@ class AppShell extends StatefulWidget {
 }
 
 class _AppShellState extends State<AppShell>
-    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
+    with
+        SingleTickerProviderStateMixin,
+        WidgetsBindingObserver,
+        FlightImportActions<AppShell> {
+  @override
+  AppController get controller => widget.controller;
   int _index = 0;
   MapMode _homeMapMode = MapMode.flight;
   late final AnimationController _addAnimation = AnimationController(
@@ -49,6 +55,83 @@ class _AppShellState extends State<AppShell>
     if (Platform.isAndroid || Platform.isIOS) {
       unawaited(SystemChrome.setPreferredOrientations(const []));
     }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_checkCalendarAutoImport());
+    });
+  }
+
+  Future<void> _checkCalendarAutoImport() async {
+    try {
+      final outcome = await widget.controller
+          .checkCalendarAutoImportOnStartup();
+      if (!mounted || outcome == null) return;
+      final strings = context.strings;
+      switch (outcome.state) {
+        case CalendarAutoImportState.completed:
+          break;
+        case CalendarAutoImportState.permissionRequired:
+          _showCalendarAutoImportNotice(
+            strings.t('calendarAutoImportPermissionNeeded'),
+            strings.t('calendarAutoImportOpenImport'),
+          );
+          return;
+        case CalendarAutoImportState.unsupported:
+          _showCalendarAutoImportNotice(
+            strings.t('calendarAutoImportUnsupported'),
+            strings.t('calendarAutoImportOpenImport'),
+          );
+          return;
+        case CalendarAutoImportState.failed:
+          _showCalendarAutoImportNotice(
+            strings.t('calendarAutoImportFailed'),
+            strings.t('calendarAutoImportOpenImport'),
+          );
+          return;
+      }
+      if (outcome.candidates case final candidates?) {
+        await reviewCalendarScan(context, candidates);
+        return;
+      }
+      final summary = outcome.summary;
+      if (summary.added == 0 && outcome.pendingConfirmationCount == 0) return;
+      final message = strings
+          .t('calendarAutoImportResult')
+          .replaceFirst('{added}', '${summary.added}')
+          .replaceFirst('{pending}', '${outcome.pendingConfirmationCount}');
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: Text(message),
+            action: outcome.pendingConfirmationCount == 0
+                ? null
+                : SnackBarAction(
+                    label: strings.t('calendarAutoImportReview'),
+                    onPressed: () => setState(() => _index = 3),
+                  ),
+          ),
+        );
+    } catch (_) {
+      if (!mounted) return;
+      _showCalendarAutoImportNotice(
+        context.strings.t('calendarAutoImportFailed'),
+        context.strings.t('calendarAutoImportOpenImport'),
+      );
+    }
+  }
+
+  void _showCalendarAutoImportNotice(String message, String actionLabel) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(message),
+          action: SnackBarAction(
+            label: actionLabel,
+            onPressed: () => setState(() => _index = 3),
+          ),
+        ),
+      );
   }
 
   @override
@@ -799,6 +882,15 @@ class _BottomBarState extends State<_BottomBar> {
               shape: glassShape,
               edgeThickness: 2,
               adaptiveContrast: true,
+              // Keep the interior more translucent while letting the existing
+              // backdrop-responsive bevel give the capsule a little more depth.
+              tintOpacity: Theme.of(context).brightness == Brightness.light
+                  ? .11
+                  : .07,
+              highlightStrength: 1.18,
+              liquidRefraction: true,
+              environmentReflectionStrength: 1.45,
+              backgroundResponsiveHighlights: true,
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 8),
                 child: Row(

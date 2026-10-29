@@ -7,7 +7,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 class _PaintProbe extends CustomPainter {
-  _PaintProbe(this.onPaint);
+  _PaintProbe(this.onPaint, {super.repaint});
   final VoidCallback onPaint;
   @override
   void paint(Canvas canvas, Size size) {
@@ -20,6 +20,90 @@ class _PaintProbe extends CustomPainter {
 }
 
 void main() {
+  testWidgets('covered stats page stops painting after exploration opens', (
+    tester,
+  ) async {
+    final changes = ValueNotifier(0);
+    addTearDown(changes.dispose);
+    var sourcePaints = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.dark(),
+        localizationsDelegates: const [AppStringsDelegate()],
+        home: Scaffold(
+          body: CustomPaint(
+            painter: _PaintProbe(() => sourcePaints++, repaint: changes),
+            child: Center(
+              child: SizedBox(
+                width: 350,
+                child: ExplorationOverviewCard(
+                  worldCount: 24,
+                  chinaCount: 20,
+                  pageBuilder: (_) => const Scaffold(body: Text('Details')),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.byKey(const ValueKey('world-exploration-source')));
+    await tester.pumpAndSettle();
+    final coveredPaints = sourcePaints;
+    changes.value++;
+    await tester.pump();
+    expect(sourcePaints, coveredPaints);
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(sourcePaints, greaterThan(coveredPaints));
+  });
+
+  testWidgets('flip caches changing detail paint then restores live content', (
+    tester,
+  ) async {
+    final changes = ValueNotifier(0);
+    addTearDown(changes.dispose);
+    var detailPaints = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.dark(),
+        localizationsDelegates: const [AppStringsDelegate()],
+        home: Scaffold(
+          body: Center(
+            child: SizedBox(
+              width: 350,
+              child: ExplorationOverviewCard(
+                worldCount: 24,
+                chinaCount: 20,
+                pageBuilder: (_) => CustomPaint(
+                  painter: _PaintProbe(() => detailPaints++, repaint: changes),
+                  child: const SizedBox.expand(),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.byKey(const ValueKey('world-exploration-source')));
+    await tester.pump();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 240));
+    final cachedPaints = detailPaints;
+    expect(cachedPaints, greaterThan(0));
+    for (var i = 0; i < 8; i++) {
+      changes.value++;
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    expect(detailPaints, cachedPaints);
+    await tester.pumpAndSettle();
+    final livePaints = detailPaints;
+    changes.value++;
+    await tester.pump();
+    expect(detailPaints, greaterThan(livePaints));
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
   testWidgets('flip reuses the static destination paint during movement', (
     tester,
   ) async {

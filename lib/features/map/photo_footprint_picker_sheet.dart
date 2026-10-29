@@ -11,7 +11,7 @@ import '../../data/photo_gallery.dart';
 import '../../domain/visited_place.dart';
 import '../../ui/theme/app_theme.dart';
 import '../../ui/widgets/widgets.dart';
-import 'map_models.dart';
+import 'photo_footprint_duplicate_index.dart';
 
 class PhotoFootprintDraft {
   const PhotoFootprintDraft({
@@ -90,6 +90,7 @@ class _PhotoFootprintPickerSheetState extends State<PhotoFootprintPickerSheet> {
   final _locationFutures = <String, Future<PhotoCoordinates?>>{};
   final _thumbnailFutures = <String, Future<Uint8List?>>{};
   bool _importing = false;
+  bool _scanCancelled = false;
   final _candidateKeys = <String>{};
   final _selectedCandidateKeys = <String>{};
   int _candidateTotal = 0;
@@ -103,6 +104,12 @@ class _PhotoFootprintPickerSheetState extends State<PhotoFootprintPickerSheet> {
   void initState() {
     super.initState();
     _scanFuture = _scanPhotos();
+  }
+
+  @override
+  void dispose() {
+    _scanCancelled = true;
+    super.dispose();
   }
 
   @override
@@ -439,6 +446,7 @@ class _PhotoFootprintPickerSheetState extends State<PhotoFootprintPickerSheet> {
         });
       },
     );
+    if (_scanCancelled) return _PhotoFootprintScan(gallery: gallery);
     if (gallery.status != PhotoGalleryStatus.ready || gallery.assets.isEmpty) {
       if (mounted) {
         setState(() {
@@ -460,17 +468,12 @@ class _PhotoFootprintPickerSheetState extends State<PhotoFootprintPickerSheet> {
         });
       }
       final catalog = await _cityCatalogFuture;
+      if (_scanCancelled) return _PhotoFootprintScan(gallery: gallery);
       final candidates = <String, _PhotoFootprintCandidate>{};
-      final existingCityKeys = <String>{
-        for (final place in widget.existingPlaces)
-          if (!isProvinceMapLabel(place.name))
-            catalog.canonicalCityKey(
-              place.name,
-              countryCode: place.countryCode,
-              latitude: place.latitude,
-              longitude: place.longitude,
-            ),
-      };
+      final existingPlaces = PhotoFootprintDuplicateIndex(
+        catalog: catalog,
+        places: widget.existingPlaces,
+      );
       var skippedNoLocation = 0;
       var skippedNoCity = 0;
       var skippedExisting = 0;
@@ -482,6 +485,10 @@ class _PhotoFootprintPickerSheetState extends State<PhotoFootprintPickerSheet> {
           setState(() => _scanPhase = _PhotoScanPhase.locating);
         }
         final locations = await Future.wait(batch.map(_locationFor));
+        for (final asset in batch) {
+          _locationFutures.remove(asset.id);
+        }
+        if (_scanCancelled) return _PhotoFootprintScan(gallery: gallery);
         if (mounted) {
           setState(() => _scanPhase = _PhotoScanPhase.matching);
         }
@@ -515,25 +522,12 @@ class _PhotoFootprintPickerSheetState extends State<PhotoFootprintPickerSheet> {
             longitude: location.longitude,
           );
           final duplicate =
-              existingCityKeys.contains(cityKey) ||
-              widget.existingPlaces.any((place) {
-                // A province row from an older version should not block the
-                // real city that the same photo resolves to.
-                if (isProvinceMapLabel(place.name)) return false;
-                final placeCountry = place.countryCode?.trim().toUpperCase();
-                if (placeCountry != null &&
-                    placeCountry.isNotEmpty &&
-                    placeCountry != cityCountry) {
-                  return false;
-                }
-                return CityCatalog.distanceKm(
-                      fromLatitude: place.latitude,
-                      fromLongitude: place.longitude,
-                      toLatitude: location.latitude,
-                      toLongitude: location.longitude,
-                    ) <=
-                    25;
-              });
+              existingPlaces.containsCityKey(cityKey) ||
+              existingPlaces.isNearExisting(
+                countryCode: cityCountry,
+                latitude: location.latitude,
+                longitude: location.longitude,
+              );
           if (duplicate) {
             skippedExisting++;
             continue;
@@ -674,6 +668,7 @@ class _PhotoFootprintPickerSheetState extends State<PhotoFootprintPickerSheet> {
   void _retry() {
     if (_importing) return;
     setState(() {
+      _scanCancelled = false;
       _candidateKeys.clear();
       _selectedCandidateKeys.clear();
       _candidateTotal = 0;

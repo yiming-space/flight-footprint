@@ -2,6 +2,8 @@ import '../../data/city_catalog.dart';
 import '../../domain/airport.dart';
 import '../../domain/flight.dart';
 import '../../domain/visited_place.dart';
+import '../../domain/transfer_decision.dart';
+import '../../domain/footprint_sources.dart';
 
 class CityRankingEntry {
   CityRankingEntry({
@@ -35,9 +37,15 @@ List<CityRankingEntry> buildCityRanking(
   Iterable<VisitedPlace> visitedPlaces = const [],
   CityCatalog? cityCatalog,
   String Function(String)? countryNameForCode,
+  bool includeTransitArrivals = true,
+  Iterable<TransferDecision> confirmedTransfers = const [],
 }) {
   final aggregates = <String, _CityAggregate>{};
-  final groupsByName = <String, List<_CityAggregate>>{};
+  final identityResolver = CityIdentityResolver(cityCatalog);
+  final flightList = flights.toList(growable: false);
+  final excludedTransferEndpoints = includeTransitArrivals
+      ? const <({String flightId, bool isArrival})>{}
+      : confirmedTransitFootprintEndpoints(flightList, confirmedTransfers);
 
   _CityAggregate? aggregateFor({
     required String name,
@@ -70,36 +78,25 @@ List<CityRankingEntry> buildCityRanking(
     var canonicalName = normalizedName;
     // Index exact aliases once per immutable catalogue. Repeated stats
     // rebuilds must not scan the worldwide catalogue for every endpoint.
-    final known = cityCatalog == null
-        ? null
-        : _aliasesFor(cityCatalog).match(
-            normalizedName,
-            countryCode: normalizedCountry,
-            latitude: latitude,
-            longitude: longitude,
-          );
+    final known = cityCatalog?.resolveCity(
+      normalizedName,
+      countryCode: normalizedCountry,
+      latitude: latitude,
+      longitude: longitude,
+      allowCoordinateFallback: false,
+    );
     if (known != null) {
       canonicalName = known.name;
       normalizedCountry = known.countryCode.trim().toUpperCase();
     }
-    final baseKey = '$normalizedCountry:${canonicalName.toLowerCase()}';
-    final candidates = groupsByName.putIfAbsent(baseKey, () => []);
-    for (final aggregate in candidates) {
-      // Exact same names in the same country can still be different cities.
-      // Group a city's airports and footprints only within a local area.
-      if (CityCatalog.distanceKm(
-            fromLatitude: latitude,
-            fromLongitude: longitude,
-            toLatitude: aggregate.latitude,
-            toLongitude: aggregate.longitude,
-          ) <=
-          120) {
-        return aggregate;
-      }
-    }
-    final key = candidates.isEmpty
-        ? baseKey
-        : '$baseKey:${latitude.toStringAsFixed(4)},${longitude.toStringAsFixed(4)}';
+    final key = identityResolver.keyFor(
+      name: canonicalName,
+      countryCode: normalizedCountry,
+      latitude: latitude,
+      longitude: longitude,
+    );
+    final existing = aggregates[key];
+    if (existing != null) return existing;
     final aggregate = _CityAggregate(
       key: key,
       name: normalizedName,
@@ -110,16 +107,26 @@ List<CityRankingEntry> buildCityRanking(
       latitude: latitude,
       longitude: longitude,
     );
-    candidates.add(aggregate);
     aggregates[key] = aggregate;
     return aggregate;
   }
 
-  for (final flight in flights) {
+  for (final flight in flightList) {
     if (flight.status != FlightStatus.completed) continue;
     final flightCities = <String>{};
-    for (final iata in [flight.departureIata, flight.arrivalIata]) {
-      final airport = airportFor(iata);
+    final flightEndpoints = <({String iata, bool isArrival})>[
+      (iata: flight.departureIata, isArrival: false),
+      if (includeTransitArrivals || !flight.isTransitArrival)
+        (iata: flight.arrivalIata, isArrival: true),
+    ];
+    for (final endpoint in flightEndpoints) {
+      if (excludedTransferEndpoints.contains((
+        flightId: flight.id,
+        isArrival: endpoint.isArrival,
+      ))) {
+        continue;
+      }
+      final airport = airportFor(endpoint.iata);
       if (airport == null) continue;
       final countryCode = airport.countryCode.trim().toUpperCase();
       if (countryCode.isEmpty) continue;
@@ -212,57 +219,3 @@ class _CityAggregate {
 
 String cityVisitSummary(int count, {required bool isZh}) =>
     isZh ? '到访 $count 座城市' : '$count ${count == 1 ? 'city' : 'cities'} visited';
-
-final _cityAliases = Expando<_CityAliasIndex>('stats-city-aliases');
-
-_CityAliasIndex _aliasesFor(CityCatalog catalog) =>
-    _cityAliases[catalog] ??= _CityAliasIndex(catalog);
-
-class _CityAliasIndex {
-  _CityAliasIndex(CityCatalog catalog) {
-    for (final city in catalog.cities) {
-      if (city.isAdministrativeRegion) continue;
-      final code = city.countryCode.trim().toUpperCase();
-      final names = <String>{
-        for (final name in [city.name, ...city.aliases]) ...[
-          CityCatalog.normalizeLookup(name),
-          CityCatalog.normalizeLookup(
-            normalizeMapCityName(name, countryCode: code),
-          ),
-        ],
-      }..remove('');
-      for (final name in names) {
-        _byName.putIfAbsent('$code|$name', () => []).add(city);
-        _byName.putIfAbsent('|$name', () => []).add(city);
-      }
-    }
-  }
-
-  final Map<String, List<CityCenter>> _byName = {};
-
-  CityCenter? match(
-    String name, {
-    required String countryCode,
-    required double latitude,
-    required double longitude,
-  }) {
-    final candidates =
-        _byName['$countryCode|${CityCatalog.normalizeLookup(name)}'];
-    if (candidates == null) return null;
-    CityCenter? match;
-    var closest = 120.0;
-    for (final city in candidates) {
-      final distance = CityCatalog.distanceKm(
-        fromLatitude: latitude,
-        fromLongitude: longitude,
-        toLatitude: city.latitude,
-        toLongitude: city.longitude,
-      );
-      if (distance <= closest) {
-        closest = distance;
-        match = city;
-      }
-    }
-    return match;
-  }
-}

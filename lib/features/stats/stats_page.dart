@@ -8,6 +8,7 @@ import '../../data/flight_time_resolver.dart';
 import '../../data/airport_localization.dart';
 import '../../data/city_catalog.dart';
 import '../../domain/flight.dart';
+import '../../domain/footprint_sources.dart';
 import '../../domain/visited_place.dart';
 import '../../ui/theme/app_theme.dart';
 import '../../ui/widgets/app_page_background.dart';
@@ -26,6 +27,7 @@ import 'city_ranking_page.dart';
 import 'country_ranking.dart';
 import 'country_stats_page.dart';
 import 'exploration_overview_card.dart';
+import 'footprint_record_card_content.dart';
 import 'flight_passport_card.dart';
 import 'ranking_expansion_card.dart';
 import 'world_exploration_page.dart';
@@ -94,6 +96,8 @@ class _StatsPageState extends State<StatsPage> {
       airportFor: widget.controller.airportFor,
       countryNameForCode: localizedCountryName,
       visitedPlaces: widget.controller.visitedPlaces,
+      includeTransitArrivals: widget.controller.countTransitArrivals,
+      confirmedTransfers: widget.controller.transferDecisions,
     );
     final passportAirports = _passportAirports(passportFlights);
     final passportRoutes = _passportRoutes(passportFlights);
@@ -109,6 +113,8 @@ class _StatsPageState extends State<StatsPage> {
       visitedPlaces: widget.controller.visitedPlaces,
       cityCatalog: _rankingCityCatalog,
       countryNameForCode: localizedCountryName,
+      includeTransitArrivals: widget.controller.countTransitArrivals,
+      confirmedTransfers: widget.controller.transferDecisions,
     );
     final footprintPlaces = _footprintPlaces(flights);
     final data = _StatsViewData(
@@ -334,7 +340,9 @@ class _StatsPageState extends State<StatsPage> {
             flights: data.flights,
             visitedPlaces: widget.controller.visitedPlaces,
             worldCount: countryCount,
+            cityCatalog: _rankingCityCatalog,
             memoryYear: data.selectedPassportYear,
+            includeTransitArrivals: widget.controller.countTransitArrivals,
           ),
         );
       },
@@ -369,6 +377,11 @@ class _StatsPageState extends State<StatsPage> {
           countryCodes: {
             for (final country in items) country.name: country.countryCode,
           },
+          savedPlaceCounts: {
+            for (final country in items)
+              country.name: country.visitedPlaces.length,
+          },
+          includeTransitArrivals: widget.controller.countTransitArrivals,
           onCountrySelected: (name) {
             final entry = items.firstWhere((entry) => entry.name == name);
             _openStatsFlights(
@@ -389,6 +402,7 @@ class _StatsPageState extends State<StatsPage> {
     pageBuilder: (_) => CityRankingPage(
       items: items,
       animateEntrance: true,
+      includeTransitArrivals: widget.controller.countTransitArrivals,
       onCitySelected: (entry) => _openStatsFlights(
         title: entry.name,
         flights: entry.flights,
@@ -457,52 +471,19 @@ class _StatsPageState extends State<StatsPage> {
   List<BoxShadow> _statsCardShadow(BuildContext context) =>
       AppShadows.card(context);
 
-  Widget _footprintRecord(VisitedPlace place) => SurfaceCard(
-    child: Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Icon(Icons.place_rounded, color: context.appColors.lime),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                place.name,
-                style: AppTextStyles.body.copyWith(
-                  color: context.appColors.textPrimary,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                '${context.strings.isZh ? '足迹' : 'Footprint'} · ${MaterialLocalizations.of(context).formatMediumDate(place.visitedAt.toLocal())}',
-                style: AppTextStyles.bodySecondary.copyWith(
-                  color: context.appColors.textSecondary,
-                ),
-              ),
-              if (place.note?.trim().isNotEmpty ?? false) ...[
-                const SizedBox(height: 8),
-                Text(
-                  place.note!,
-                  style: AppTextStyles.bodySecondary.copyWith(
-                    color: context.appColors.textSecondary,
-                  ),
-                ),
-              ],
-            ],
-          ),
-        ),
-      ],
-    ),
-  );
+  Widget _footprintRecord(VisitedPlace place) =>
+      SurfaceCard(child: FootprintRecordCardContent(place: place));
 
   List<MapPlace> _footprintPlaces(List<Flight> flights) {
     final places = <String, MapPlace>{};
-    for (final flight in flights) {
-      for (final code in [flight.departureIata, flight.arrivalIata]) {
-        final airport = widget.controller.airportFor(code);
-        if (airport == null) continue;
+    for (final source in buildFootprintSources(
+      flights: flights,
+      visitedPlaces: widget.controller.visitedPlaces,
+      airportFor: widget.controller.airportFor,
+      includeTransitArrivals: widget.controller.countTransitArrivals,
+      confirmedTransfers: widget.controller.transferDecisions,
+    )) {
+      if (source.airport case final airport?) {
         final name = localizedAirportCity(airport).trim();
         if (name.isEmpty) continue;
         places[airport.iataCode] = MapPlace(
@@ -511,18 +492,17 @@ class _StatsPageState extends State<StatsPage> {
           longitude: airport.longitude,
           countryCode: airport.countryCode,
         );
+      } else if (source.visitedPlace case final place?) {
+        places['visited:${place.id}'] = MapPlace(
+          name: place.name,
+          latitude: place.latitude,
+          longitude: place.longitude,
+          countryCode: place.countryCode,
+          id: place.id,
+          visitedAt: place.visitedAt,
+          isDeletable: true,
+        );
       }
-    }
-    for (final place in widget.controller.visitedPlaces) {
-      places['visited:${place.id}'] = MapPlace(
-        name: place.name,
-        latitude: place.latitude,
-        longitude: place.longitude,
-        countryCode: place.countryCode,
-        id: place.id,
-        visitedAt: place.visitedAt,
-        isDeletable: true,
-      );
     }
     return places.values.toList(growable: false);
   }

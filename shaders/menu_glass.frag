@@ -12,6 +12,9 @@ uniform float u_edge_scale;
 uniform float u_highlight_gain;
 uniform float u_adaptive_contrast;
 uniform float u_local_coordinates;
+uniform float u_liquid_phase;
+uniform float u_environment_strength;
+uniform float u_background_responsive;
 out vec4 frag_color;
 
 float capsule_sdf(vec2 point, vec2 half_size, float radius) {
@@ -47,9 +50,6 @@ void main() {
   // Large cards pass their actual corner radius instead of a vertical capsule.
   float radius = u_corner_radius_px;
   float sdf = capsule_sdf(local, half_size, radius);
-  float rim_width = 6.5 * u_device_pixel_ratio * u_edge_scale;
-  float rim = 1.0 - smoothstep(0.0, rim_width, max(-sdf, 0.0));
-
   vec2 gradient = vec2(
     capsule_sdf(local + vec2(1.0, 0.0), half_size, radius) -
         capsule_sdf(local - vec2(1.0, 0.0), half_size, radius),
@@ -57,12 +57,41 @@ void main() {
         capsule_sdf(local - vec2(0.0, 1.0), half_size, radius)
   );
   vec2 normal = gradient / max(length(gradient), 0.0001);
+  // The visible bevel grows with real backdrop light and varies smoothly
+  // around the curved surface. On black it remains a restrained edge.
+  float backdrop_light = original.a > 0.0001
+      ? clamp(dot(original.rgb / original.a, vec3(0.2126, 0.7152, 0.0722)), 0.0, 1.0)
+      : 0.0;
+  float scene_light = smoothstep(0.025, 0.55, backdrop_light);
+  float rim_width = 6.5 * u_device_pixel_ratio * u_edge_scale;
+  float lens_strength = 1.0;
+  if (u_background_responsive > 0.5) {
+    float surface_angle = 0.82 + 0.25 * max(-normal.y, 0.0)
+        + 0.12 * max(normal.x, 0.0);
+    rim_width = 9.5 * u_device_pixel_ratio * u_edge_scale
+        * mix(0.65, 1.35, scene_light) * surface_angle;
+    lens_strength = mix(0.70, 1.25, scene_light);
+  }
+  float rim = 1.0 - smoothstep(0.0, rim_width, max(-sdf, 0.0));
   float displacement =
-      5.0 * u_device_pixel_ratio * u_edge_scale * clamp(rim, 0.0, 1.0);
+      5.0 * u_device_pixel_ratio * u_edge_scale
+      * clamp(rim, 0.0, 1.0) * lens_strength;
+
+  // Slow, low-amplitude lens movement at the edge, independent of taps.
+  // Other glass surfaces pass zero and keep their existing static refraction.
+  float liquid = 0.0;
+  if (u_liquid_phase > 0.0 && rim > 0.001) {
+    float along_edge = atan(normal.y, normal.x) * 2.0
+        + local.x / max(panel_size.x, 1.0) * 6.0;
+    liquid = sin(u_liquid_phase - 1.0 + along_edge) * rim;
+    displacement += liquid * 1.4 * u_device_pixel_ratio;
+  }
 
   // Pull the edge sample inward. The center has zero displacement, preserving
   // the native blurred image there while bending only the glass rim.
-  frag_color = sample_texture(physical_px - normal * displacement);
+  vec2 liquid_tangent = vec2(-normal.y, normal.x);
+  frag_color = sample_texture(physical_px - normal * displacement
+      + liquid_tangent * liquid * 0.55 * u_device_pixel_ratio);
   if (u_edge_scale > 1.0) {
     // A continuous rounded bevel, with no inset line or projected shadow.
     // The default control path above is unchanged when edge scale is one.
@@ -113,10 +142,24 @@ void main() {
     vec3 environment = environment_alpha > 0.0001
         ? environment_sample.rgb / environment_alpha
         : vec3(0.0);
-    vec3 reflection_tint = mix(vec3(1.0), environment, 0.42);
+    if (u_background_responsive > 0.5) {
+      float environment_light = dot(environment, vec3(0.2126, 0.7152, 0.0722));
+      float local_light = max(background_light, environment_light);
+      // A dark, uniform background yields only a restrained edge; highlights
+      // strengthen continuously where brighter content is actually present.
+      float illumination = smoothstep(0.025, 0.40, local_light);
+      highlight *= mix(0.1, 1.45, illumination);
+      // A softer, wider highlight gives the edge visible depth without an
+      // extra outline. It only appears when real background light is present.
+      highlight += 0.35 * u_highlight_gain * illumination
+          * max(facing, 0.0) * pow(clamp(rim, 0.0, 1.0), 0.7);
+    }
+    vec3 reflection_tint = mix(vec3(1.0), environment,
+        clamp(0.42 * u_environment_strength, 0.0, 0.8));
+    float reflection_strength = u_background_responsive > 0.5 ? 0.30 : 0.20;
     glass_color = mix(glass_color, environment,
-        0.20 * bevel * u_highlight_gain);
-    glass_color = mix(glass_color, reflection_tint, highlight);
+        clamp(reflection_strength * bevel * u_highlight_gain * u_environment_strength, 0.0, 1.0));
+    glass_color = mix(glass_color, reflection_tint, clamp(highlight, 0.0, 0.8));
     // A faint neutral absorption distinguishes glass laid over white cards.
     // It fades out over darker/colorful content; foreground icons stay sharp.
     glass_color *= 1.0 - 0.05 * bright_backdrop;

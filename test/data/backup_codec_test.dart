@@ -19,6 +19,7 @@ void main() {
         createdAt: createdAt,
         updatedAt: updatedAt,
         status: FlightStatus.upcoming,
+        isTransitArrival: true,
         airline: 'MU',
         aircraftType: 'Airbus A330-300',
         durationMinutes: 145,
@@ -35,6 +36,7 @@ void main() {
         visitedAt: DateTime.utc(2026, 8, 2),
         createdAt: createdAt,
         updatedAt: updatedAt,
+        source: FootprintRecordSource.photo,
       ),
     ],
     journeys: [
@@ -47,6 +49,7 @@ void main() {
       ),
     ],
     containsJourneys: true,
+    countTransitArrivals: false,
   );
 
   test('backup v1 survives a JSON round trip', () {
@@ -59,10 +62,20 @@ void main() {
     expect(decoded.flights.single.durationMinutes, 145);
     expect(decoded.flights.single.seat, '18A');
     expect(decoded.flights.single.status, FlightStatus.upcoming);
+    expect(decoded.flights.single.isTransitArrival, isTrue);
     expect(decoded.visitedPlaces.single.name, 'The Bund');
+    expect(decoded.visitedPlaces.single.source, FootprintRecordSource.photo);
+    expect(decoded.visitedPlaces.single.hasSourceAnnotation, isTrue);
     expect(decoded.visitedPlaces.single.visitedAt, DateTime.utc(2026, 8, 2));
     expect(decoded.containsJourneys, isTrue);
+    expect(decoded.countTransitArrivals, isFalse);
     expect(decoded.journeys.single.flightIds, ['flight-1', 'missing-flight']);
+  });
+
+  test('cloud snapshot keeps transit marks and preference', () {
+    final decoded = BackupCodec.decodeCloudSnapshot(BackupCodec.encode(data));
+    expect(decoded.flights.single.isTransitArrival, isTrue);
+    expect(decoded.countTransitArrivals, isFalse);
   });
 
   test('legacy v1 backups keep journeys absent instead of implying empty', () {
@@ -106,6 +119,84 @@ void main() {
       '"updatedAt":"2024-01-01T08:00:00Z"}],"visitedPlaces":[]}',
     );
     expect(decoded.flights.single.status, FlightStatus.completed);
+    expect(decoded.flights.single.isTransitArrival, isFalse);
+    expect(decoded.flights.single.hasTransitArrivalAnnotation, isFalse);
+    expect(
+      decoded.flights.single
+          .withImportedTransitAnnotation(existingValue: true)
+          .isTransitArrival,
+      isTrue,
+    );
+    expect(decoded.countTransitArrivals, isNull);
+    expect(decoded.visitedPlaces, isEmpty);
+  });
+
+  test(
+    'new backup can explicitly clear a transit mark and mark source unknown',
+    () {
+      const recordTime = '2024-01-01T08:00:00Z';
+      final decoded = BackupCodec.decode(
+        '{"format":"flight-footprint-backup","version":1,"flights":['
+        '{"id":"flight","departureIata":"PVG","arrivalIata":"SZX",'
+        '"departedAt":"$recordTime","createdAt":"$recordTime",'
+        '"updatedAt":"$recordTime","isTransitArrival":false}],'
+        '"visitedPlaces":[{"id":"place","name":"深圳",'
+        '"latitude":22.54,"longitude":114.06,"visitedAt":"$recordTime",'
+        '"createdAt":"$recordTime","updatedAt":"$recordTime",'
+        '"source":"unknown"}]}',
+      );
+      expect(decoded.flights.single.isTransitArrival, isFalse);
+      expect(decoded.flights.single.hasTransitArrivalAnnotation, isTrue);
+      expect(
+        decoded.flights.single
+            .withImportedTransitAnnotation(existingValue: true)
+            .isTransitArrival,
+        isFalse,
+      );
+      expect(
+        decoded.visitedPlaces.single.source,
+        FootprintRecordSource.unknown,
+      );
+      expect(decoded.visitedPlaces.single.hasSourceAnnotation, isTrue);
+      expect(
+        decoded.visitedPlaces.single
+            .withImportedSource(existingSource: FootprintRecordSource.photo)
+            .source,
+        FootprintRecordSource.unknown,
+      );
+    },
+  );
+
+  test('old backup with no place source stays distinguishable', () {
+    const time = '2024-01-01T08:00:00Z';
+    final decoded = BackupCodec.decode(
+      '{"format":"flight-footprint-backup","version":1,"flights":[],"visitedPlaces":['
+      '{"id":"legacy-place","name":"上海","latitude":31.2,"longitude":121.5,'
+      '"visitedAt":"$time","createdAt":"$time","updatedAt":"$time"}]}',
+    );
+    expect(decoded.visitedPlaces.single.source, FootprintRecordSource.unknown);
+    expect(decoded.visitedPlaces.single.hasSourceAnnotation, isFalse);
+    expect(
+      decoded.visitedPlaces.single
+          .withImportedSource(existingSource: FootprintRecordSource.manual)
+          .source,
+      FootprintRecordSource.manual,
+    );
+  });
+
+  test('legacy cloud decode and encode retain missing annotation fields', () {
+    const time = '2024-01-01T08:00:00Z';
+    final cloud = BackupCodec.decodeCloudSnapshot(
+      '{"format":"flight-footprint-backup","version":1,"flights":['
+      '{"id":"legacy-flight","departureIata":"PVG","arrivalIata":"SZX",'
+      '"departedAt":"$time","createdAt":"$time","updatedAt":"$time"}],'
+      '"visitedPlaces":[{"id":"legacy-place","name":"上海",'
+      '"latitude":31.2,"longitude":121.5,"visitedAt":"$time",'
+      '"createdAt":"$time","updatedAt":"$time"}]}',
+    );
+    final roundTripped = BackupCodec.decode(BackupCodec.encode(cloud));
+    expect(roundTripped.flights.single.hasTransitArrivalAnnotation, isFalse);
+    expect(roundTripped.visitedPlaces.single.hasSourceAnnotation, isFalse);
   });
 
   test('backup rejects unsupported versions before import', () {

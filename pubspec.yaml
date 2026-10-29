@@ -1,7 +1,7 @@
 name: flight_footprint
 description: "A local-first, offline flight and travel footprint journal."
 publish_to: 'none'
-version: 1.5.0+18
+version: 1.6.0+19
 
 environment:
   sdk: ^3.13.1
@@ -35,6 +35,7 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
+  sqflite_common_ffi: ^2.4.5
 
 flutter:
   uses-material-design: true
@@ -42,35 +43,35 @@ flutter:
     - shaders/globe_surface.frag
     - shaders/menu_glass.frag
   assets:
-    - assets/images/aircraft/a320-200-side-right-v2.png
-    - assets/images/aircraft/a321lr-side-right-v1.png
-    - assets/images/aircraft/a321neo-side-right-v2.png
-    - assets/images/aircraft/a330-300-side-right-v1.png
-    - assets/images/aircraft/a330-900neo-side-right-v2.png
-    - assets/images/aircraft/a350-900-side-right-v3.png
-    - assets/images/aircraft/a350-1000-side-right-v1.png
-    - assets/images/aircraft/a380-800-side-right-v1.png
-    - assets/images/aircraft/b737-max-8-side-right-v2.png
-    - assets/images/aircraft/b737-max-9-side-right-v2.png
-    - assets/images/aircraft/b737-800-side-right-v2.png
-    - assets/images/aircraft/b777-300er-side-right-v1.png
-    - assets/images/aircraft/b787-8-side-right-v1.png
-    - assets/images/aircraft/b787-10-side-right-v1.png
-    - assets/images/aircraft/b787-9-side-right-v1.png
-    - assets/images/aircraft/e190-e2-side-right-v1.png
-    - assets/images/aircraft/a320neo-family-side-right-v2.png
-    - assets/images/aircraft/a220-family-side-right-v2.png
-    - assets/images/aircraft/b747-family-side-right-v1.png
-    - assets/images/aircraft/b757-family-side-right-v1.png
-    - assets/images/aircraft/b767-family-side-right-v1.png
-    - assets/images/aircraft/c919-family-side-right-v1.png
-    - assets/images/aircraft/c909-family-side-right-v1.png
-    - assets/images/aircraft/ejet-e1-family-side-right-v1.png
-    - assets/images/aircraft/a330-family-side-right-v1.png
-    - assets/images/aircraft/a321-family-side-right-v1.png
-    - assets/images/aircraft/a320-family-side-right-v1.png
-    - assets/images/aircraft/b737-family-side-right-v1.png
-    - assets/images/aircraft/aircraft-generic-side-right-v4.png
+    - assets/images/aircraft/a320-200-side-right-v2.webp
+    - assets/images/aircraft/a321lr-side-right-v1.webp
+    - assets/images/aircraft/a321neo-side-right-v2.webp
+    - assets/images/aircraft/a330-300-side-right-v1.webp
+    - assets/images/aircraft/a330-900neo-side-right-v2.webp
+    - assets/images/aircraft/a350-900-side-right-v3.webp
+    - assets/images/aircraft/a350-1000-side-right-v1.webp
+    - assets/images/aircraft/a380-800-side-right-v1.webp
+    - assets/images/aircraft/b737-max-8-side-right-v2.webp
+    - assets/images/aircraft/b737-max-9-side-right-v2.webp
+    - assets/images/aircraft/b737-800-side-right-v2.webp
+    - assets/images/aircraft/b777-300er-side-right-v1.webp
+    - assets/images/aircraft/b787-8-side-right-v1.webp
+    - assets/images/aircraft/b787-10-side-right-v1.webp
+    - assets/images/aircraft/b787-9-side-right-v1.webp
+    - assets/images/aircraft/e190-e2-side-right-v1.webp
+    - assets/images/aircraft/a320neo-family-side-right-v2.webp
+    - assets/images/aircraft/a220-family-side-right-v2.webp
+    - assets/images/aircraft/b747-family-side-right-v1.webp
+    - assets/images/aircraft/b757-family-side-right-v1.webp
+    - assets/images/aircraft/b767-family-side-right-v1.webp
+    - assets/images/aircraft/c919-family-side-right-v1.webp
+    - assets/images/aircraft/c909-family-side-right-v1.webp
+    - assets/images/aircraft/ejet-e1-family-side-right-v1.webp
+    - assets/images/aircraft/a330-family-side-right-v1.webp
+    - assets/images/aircraft/a321-family-side-right-v1.webp
+    - assets/images/aircraft/a320-family-side-right-v1.webp
+    - assets/images/aircraft/b737-family-side-right-v1.webp
+    - assets/images/aircraft/aircraft-generic-side-right-v4.webp
     - assets/data/airport-coordinates.json
     - assets/data/airport-timezones.json
     - assets/data/natural-earth-ii.jpg

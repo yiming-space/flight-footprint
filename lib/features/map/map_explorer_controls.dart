@@ -14,6 +14,7 @@ class MapExplorerControls extends StatelessWidget {
     required this.onModeChanged,
     required this.onOrientation,
     required this.onReset,
+    this.showProjectionControl = true,
     this.onPlayback,
     this.playbackLabel,
     this.playbackIcon = Icons.play_arrow_rounded,
@@ -28,6 +29,7 @@ class MapExplorerControls extends StatelessWidget {
   final ValueChanged<bool> onModeChanged;
   final VoidCallback? onOrientation;
   final VoidCallback onReset;
+  final bool showProjectionControl;
   final VoidCallback? onPlayback;
   final String? playbackLabel;
   final IconData playbackIcon;
@@ -56,18 +58,20 @@ class MapExplorerControls extends StatelessWidget {
         : colors.border.withValues(alpha: .88);
     final progressText = colors.textPrimary;
     final actions = <Widget>[
-      MapExplorerButton(
-        label: zh ? '平面地图' : 'Flat map',
-        icon: Icons.map_outlined,
-        selected: !globeMode,
-        onPressed: () => onModeChanged(false),
-      ),
-      MapExplorerButton(
-        label: zh ? '地球模式' : 'Globe mode',
-        icon: Icons.public_rounded,
-        selected: globeMode,
-        onPressed: () => onModeChanged(true),
-      ),
+      if (showProjectionControl) ...[
+        MapExplorerButton(
+          label: zh ? '平面地图' : 'Flat map',
+          icon: Icons.map_outlined,
+          selected: !globeMode,
+          onPressed: () => onModeChanged(false),
+        ),
+        MapExplorerButton(
+          label: zh ? '地球模式' : 'Globe mode',
+          icon: Icons.public_rounded,
+          selected: globeMode,
+          onPressed: () => onModeChanged(true),
+        ),
+      ],
       if (onPlayback != null)
         MapExplorerButton(
           label: playbackLabel!,

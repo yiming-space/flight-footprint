@@ -63,6 +63,8 @@ class Flight {
     this.note,
     this.distanceKm,
     this.track = const [],
+    this.isTransitArrival = false,
+    this.hasTransitArrivalAnnotation = true,
   });
 
   final String id;
@@ -83,6 +85,12 @@ class Flight {
   final double? distanceKm;
   final List<FlightTrackPoint> track;
 
+  /// Explicit user annotation; never inferred from route/time patterns.
+  final bool isTransitArrival;
+
+  /// False only when a legacy interchange format omitted the field entirely.
+  final bool hasTransitArrivalAnnotation;
+
   Flight copyWith({
     String? departureIata,
     String? arrivalIata,
@@ -99,6 +107,8 @@ class Flight {
     List<FlightTrackPoint>? track,
     DateTime? updatedAt,
     FlightStatus? status,
+    bool? isTransitArrival,
+    bool? hasTransitArrivalAnnotation,
   }) => Flight(
     id: id,
     departureIata: departureIata ?? this.departureIata,
@@ -117,6 +127,17 @@ class Flight {
     note: note ?? this.note,
     distanceKm: distanceKm ?? this.distanceKm,
     track: track ?? this.track,
+    isTransitArrival: isTransitArrival ?? this.isTransitArrival,
+    hasTransitArrivalAnnotation:
+        hasTransitArrivalAnnotation ?? this.hasTransitArrivalAnnotation,
+  );
+
+  /// Merge an imported annotation without treating a missing legacy field as
+  /// an instruction to clear the locally confirmed value.
+  Flight withImportedTransitAnnotation({bool? existingValue}) => copyWith(
+    isTransitArrival: hasTransitArrivalAnnotation
+        ? isTransitArrival
+        : existingValue ?? isTransitArrival,
   );
 
   /// Completed records stay completed; upcoming records automatically mature

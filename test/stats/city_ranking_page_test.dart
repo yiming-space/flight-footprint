@@ -197,6 +197,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('到访 1 座城市'), findsOneWidget);
+    expect(find.text('次数含完成航班的起飞与抵达端点，以及已保存足迹。'), findsOneWidget);
     expect(find.text('4 次'), findsOneWidget);
     expect(find.byType(BottomSheet), findsNothing);
     await tester.tap(find.text('上海'));

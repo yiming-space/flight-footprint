@@ -1,9 +1,12 @@
 import 'dart:math' as math;
 
 import '../../data/airport_localization.dart';
+import '../../data/city_catalog.dart';
 import '../../domain/airport.dart';
 import '../../domain/flight.dart';
+import '../../domain/footprint_sources.dart';
 import '../../domain/visited_place.dart';
+import '../../domain/transfer_decision.dart';
 
 enum TravelContinent {
   asia,
@@ -56,7 +59,7 @@ const continentCountryGroups = <TravelContinent, String>{
   TravelContinent.southAmerica: 'AR BO BR CL CO EC GY PY PE SR UY VE GF FK',
   TravelContinent.oceania:
       'AU FJ KI MH FM NR NZ PW PG WS SB TO TV VU NC PF CK NU TK WF CC CX '
-      'NF WS AS GU MP UM',
+      'NF AS GU MP UM',
   TravelContinent.antarctica: 'AQ BV GS HM TF',
 };
 
@@ -79,6 +82,9 @@ TravelContinent? continentForLocation({
   final code = countryCode.trim().toUpperCase();
   // Countries spanning the Europe/Asia boundary follow the actual recorded
   // airport or footprint coordinate instead of lighting two continents.
+  // The bundled country polygons have no ISO attributes and the map does not
+  // include an authoritative continent boundary dataset, so these established
+  // meridian rules remain approximations rather than precise border checks.
   switch (code) {
     case 'RU':
       return longitude < 60 ? TravelContinent.europe : TravelContinent.asia;
@@ -135,50 +141,39 @@ List<ExplorationPlace> buildExplorationPlaces({
   required List<VisitedPlace> visitedPlaces,
   required Airport? Function(String) airportFor,
   required bool isZh,
+  bool includeTransitArrivals = true,
+  Iterable<TransferDecision> confirmedTransfers = const [],
 }) {
   final result = <ExplorationPlace>[];
-  for (final flight in flights.where((flight) => flight.isCompleted)) {
-    final departure = airportFor(flight.departureIata);
-    if (departure != null) {
+  for (final source in buildFootprintSources(
+    flights: flights,
+    visitedPlaces: visitedPlaces,
+    airportFor: airportFor,
+    includeTransitArrivals: includeTransitArrivals,
+    confirmedTransfers: confirmedTransfers,
+  )) {
+    final airport = source.airport;
+    if (airport != null) {
       result.add(
         ExplorationPlace(
-          name: _airportCity(departure, isZh),
-          countryCode: departure.countryCode,
-          latitude: departure.latitude,
-          longitude: departure.longitude,
-          visitedAt: flight.departedAt,
+          name: _airportCity(airport, isZh),
+          countryCode: airport.countryCode,
+          latitude: airport.latitude,
+          longitude: airport.longitude,
+          visitedAt: source.visitedAt,
+        ),
+      );
+    } else if (source.visitedPlace case final place?) {
+      result.add(
+        ExplorationPlace(
+          name: place.name,
+          countryCode: place.countryCode ?? '',
+          latitude: place.latitude,
+          longitude: place.longitude,
+          visitedAt: place.visitedAt,
         ),
       );
     }
-    final arrival = airportFor(flight.arrivalIata);
-    if (arrival != null) {
-      result.add(
-        ExplorationPlace(
-          name: _airportCity(arrival, isZh),
-          countryCode: arrival.countryCode,
-          latitude: arrival.latitude,
-          longitude: arrival.longitude,
-          visitedAt:
-              flight.arrivedAt ??
-              (flight.durationMinutes == null
-                  ? flight.departedAt
-                  : flight.departedAt.add(
-                      Duration(minutes: flight.durationMinutes!),
-                    )),
-        ),
-      );
-    }
-  }
-  for (final place in visitedPlaces) {
-    result.add(
-      ExplorationPlace(
-        name: place.name,
-        countryCode: place.countryCode ?? '',
-        latitude: place.latitude,
-        longitude: place.longitude,
-        visitedAt: place.visitedAt,
-      ),
-    );
   }
   return List.unmodifiable(result.where(_hasValidCoordinate));
 }
@@ -204,7 +199,10 @@ FarthestFootprint? farthestFromHome({
   return farthest;
 }
 
-List<ContinentVisits> buildContinentVisits(Iterable<ExplorationPlace> places) {
+List<ContinentVisits> buildContinentVisits(
+  Iterable<ExplorationPlace> places, {
+  CityCatalog? cityCatalog,
+}) {
   final countries = {
     for (final continent in TravelContinent.values) continent: <String>{},
   };
@@ -212,6 +210,7 @@ List<ContinentVisits> buildContinentVisits(Iterable<ExplorationPlace> places) {
     for (final continent in TravelContinent.values)
       continent: <String, ExplorationPlace>{},
   };
+  final identityResolver = CityIdentityResolver(cityCatalog);
   for (final place in places) {
     final continent = continentForLocation(
       countryCode: place.countryCode,
@@ -221,11 +220,12 @@ List<ContinentVisits> buildContinentVisits(Iterable<ExplorationPlace> places) {
     if (continent == null) continue;
     final country = place.countryCode.trim().toUpperCase();
     if (country.isNotEmpty) countries[continent]!.add(country);
-    final nameKey = place.name.trim().toLowerCase().replaceAll(
-      RegExp(r'[\s\-·•_/.,，。:：()（）【】\[\]]'),
-      '',
+    final locationKey = identityResolver.keyFor(
+      name: place.name,
+      countryCode: country,
+      latitude: place.latitude,
+      longitude: place.longitude,
     );
-    final locationKey = '$country|$nameKey';
     final previous = groupedPlaces[continent]![locationKey];
     if (previous == null ||
         (place.visitedAt != null &&

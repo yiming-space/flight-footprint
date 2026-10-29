@@ -11,7 +11,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/intl.dart';
 
-const _a350Asset = 'assets/images/aircraft/a350-900-side-right-v3.png';
+const _a350Asset = 'assets/images/aircraft/a350-900-side-right-v3.webp';
 
 Flight _flight(
   String id,

@@ -1,4 +1,5 @@
 import 'package:flight_footprint/domain/flight.dart';
+import 'package:flight_footprint/domain/transfer_decision.dart';
 import 'package:flight_footprint/features/stats/travel_milestones.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -46,5 +47,27 @@ void main() {
     expect(result.firstArrival, isNull);
     expect(result.latestNewCities, isNull);
     expect(result.routes.single.label, 'Hong Kong — XXX');
+  });
+
+  test('confirmed transfer excludes both endpoint visits but keeps routes', () {
+    final inbound = flight('in', 'HKG', 'NRT', '2025-01-01T08:00:00Z')
+        .copyWith(arrivedAt: DateTime.parse('2025-01-01T10:00:00Z'));
+    final outbound = flight('out', 'NRT', 'ICN', '2025-01-01T12:00:00Z');
+    final decision = TransferDecision.fromFlights(
+      inbound: inbound,
+      outbound: outbound,
+      status: TransferDecisionStatus.confirmed,
+      decidedAt: DateTime.parse('2025-01-01T11:00:00Z'),
+    );
+    final result = TravelMilestones.fromFlights(
+      [inbound, outbound],
+      cityNameFor: (code) => cities[code],
+      includeTransitArrivals: false,
+      confirmedTransfers: [decision],
+    );
+
+    expect(result.firstArrival?.city, 'Seoul');
+    expect(result.latestNewCities?.cities, ['Seoul']);
+    expect(result.routes, hasLength(2));
   });
 }

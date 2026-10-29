@@ -68,6 +68,8 @@ android {
 
 dependencies {
     implementation("androidx.core:core:1.13.1")
+    implementation(project(":ppocr-sdk"))
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
 }
 
 kotlin {

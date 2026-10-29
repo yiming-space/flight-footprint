@@ -73,12 +73,12 @@ void main() {
       'JP',
     });
     final china = result.singleWhere((entry) => entry.countryCode == 'CN');
-    expect(china.count, 2);
+    expect(china.count, 0);
     expect(china.flights, [completed]);
     expect(china.visitedPlaces, [manual]);
     expect(() => china.visitedPlaces.clear(), throwsUnsupportedError);
-    expect(result.singleWhere((entry) => entry.countryCode == 'HK').count, 2);
-    expect(result.singleWhere((entry) => entry.countryCode == 'MO').count, 1);
+    expect(result.singleWhere((entry) => entry.countryCode == 'HK').count, 1);
+    expect(result.singleWhere((entry) => entry.countryCode == 'MO').count, 0);
   });
 
   test('country totals are available for footprints without any flight', () {
@@ -91,19 +91,34 @@ void main() {
     );
     expect(result, hasLength(1));
     expect(result.single.name, 'Japan');
-    expect(result.single.count, 1);
+    expect(result.single.count, 0);
     expect(result.single.flights, isEmpty);
     expect(result.single.visitedPlaces, [saved]);
   });
 
-  test('domestic endpoints count separately but associate one flight', () {
+  test('domestic flight counts one arrival and associates one flight', () {
     final domestic = flight('domestic').copyWith(arrivalIata: 'SHA');
     final result = buildCountryRanking(
       [domestic],
       airportFor: (iata) => airports[iata],
       countryNameForCode: countryName,
     );
-    expect(result.single.count, 2);
+    expect(result.single.count, 1);
     expect(result.single.flights, [domestic]);
+  });
+
+  test('known arrival counts even when departure airport is missing', () {
+    final inbound = flight('inbound').copyWith(departureIata: '???');
+    final outbound = flight('outbound').copyWith(arrivalIata: '???');
+    final result = buildCountryRanking(
+      [inbound, inbound, outbound],
+      airportFor: (iata) => airports[iata],
+      countryNameForCode: countryName,
+    );
+    expect(result.singleWhere((e) => e.countryCode == 'HK').count, 1);
+    expect(result.singleWhere((e) => e.countryCode == 'CN').count, 0);
+    expect(result.singleWhere((e) => e.countryCode == 'CN').flights, [
+      outbound,
+    ]);
   });
 }

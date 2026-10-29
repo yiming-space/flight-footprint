@@ -9,7 +9,6 @@ import '../../ui/widgets/country_flag.dart';
 import '../../ui/widgets/widgets.dart';
 import 'world_exploration.dart';
 import 'exploration_memory_layout.dart';
-import '../../ui/widgets/frosted_glass_surface.dart';
 
 /// A memento of the farthest recorded place from the selected home city.
 class FarthestFootprintCard extends StatefulWidget {
@@ -104,96 +103,90 @@ class _FarthestFootprintCardState extends State<FarthestFootprintCard>
     final farthest = _usableFarthest;
 
     return LayoutBuilder(
-      builder: (context, constraints) => FrostedGlassSurface(
-        shape: RoundedSuperellipseBorder(borderRadius: AppRadii.medium),
-        refractionRadius: AppRadii.medium.topLeft.x,
-        edgeThickness: 2,
-        useLocalRefraction: true,
-        adaptiveContrast: true,
-        highlightStrength: Theme.of(context).brightness == Brightness.light
-            ? 1.5
-            : 1.35,
-        tintOpacity: Theme.of(context).brightness == Brightness.light
-            ? .055
-            : .035,
-        child: SurfaceCard(
-          padding: ExplorationMemoryLayout.padding,
-          color: Colors.transparent,
-          borderRadius: AppRadii.medium,
-          child: ExplorationMemoryLayout(
-            minHeight: constraints.minHeight,
-            heading: _CardHeading(
-              showEdit: home != null,
-              onChooseHome: widget.onChooseHome,
-              coordinateNote: home == null
-                  ? null
-                  : '${strings.t('homeDistanceNote')}\n${_coordinateNote(home, strings.isZh, strings.t('homeAirportCoordinate'))}',
-            ),
-            body: home != null && farthest != null
-                ? _PlaceConnection(
-                    home: home,
-                    destination: farthest.place,
-                    metric: AnimatedBuilder(
-                      animation: _routeController,
-                      builder: (context, _) => _DistanceMetric(
-                        distanceKm: farthest.distanceKm,
-                        progress: Curves.easeOutCubic.transform(
-                          _routeController.value,
-                        ),
+      builder: (context, constraints) {
+        final content = ExplorationMemoryLayout(
+          minHeight: constraints.hasBoundedHeight
+              ? constraints.maxHeight
+              : constraints.minHeight,
+          heading: _CardHeading(
+            showEdit: home != null,
+            onChooseHome: widget.onChooseHome,
+            coordinateNote: home == null
+                ? null
+                : '${strings.t('homeDistanceNote')}\n${_coordinateNote(home, strings.isZh, strings.t('homeAirportCoordinate'))}',
+          ),
+          body: home != null && farthest != null
+              ? _PlaceConnection(
+                  home: home,
+                  destination: farthest.place,
+                  metric: AnimatedBuilder(
+                    animation: _routeController,
+                    builder: (context, _) => _DistanceMetric(
+                      distanceKm: farthest.distanceKm,
+                      progress: Curves.easeOutCubic.transform(
+                        _routeController.value,
                       ),
                     ),
-                  )
-                : Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      if (!widget.homeLoaded)
-                        Text(
-                          strings.t('homeCityLoading'),
-                          style: AppTextStyles.bodySecondary.copyWith(
-                            color: colors.textSecondary,
-                          ),
-                        )
-                      else if (home == null) ...[
-                        Text(
-                          strings.t('homeCityHint'),
-                          style: AppTextStyles.bodySecondary.copyWith(
-                            color: colors.textSecondary,
-                          ),
-                        ),
-                        const SizedBox(height: 14),
-                        FilledButton.tonalIcon(
-                          onPressed: widget.onChooseHome,
-                          icon: const Icon(Icons.home_outlined, size: 20),
-                          label: Text(strings.t('setHomeCity')),
-                          style: FilledButton.styleFrom(
-                            minimumSize: const Size(0, 48),
-                            foregroundColor: colors.textPrimary,
-                            backgroundColor: colors.lime.withValues(alpha: .13),
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 16,
-                              vertical: 12,
-                            ),
-                          ),
-                        ),
-                      ] else ...[
-                        Text(
-                          strings.t('noExplorationPlaces'),
-                          style: AppTextStyles.bodySecondary.copyWith(
-                            color: colors.textSecondary,
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        _CoordinateNote(home: home),
-                      ],
-                    ],
                   ),
-            footer: home != null && farthest != null
-                ? _VisitDate(destination: farthest.place)
-                : null,
-          ),
-        ),
-      ),
+                )
+              : Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (!widget.homeLoaded)
+                      Text(
+                        strings.t('homeCityLoading'),
+                        style: AppTextStyles.bodySecondary.copyWith(
+                          color: colors.textSecondary,
+                        ),
+                      )
+                    else if (home == null) ...[
+                      Text(
+                        strings.t('homeCityHint'),
+                        style: AppTextStyles.bodySecondary.copyWith(
+                          color: colors.textSecondary,
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      FilledButton.tonalIcon(
+                        onPressed: widget.onChooseHome,
+                        icon: const Icon(Icons.home_outlined, size: 20),
+                        label: Text(strings.t('setHomeCity')),
+                        style: FilledButton.styleFrom(
+                          minimumSize: const Size(0, 48),
+                          foregroundColor: colors.textPrimary,
+                          backgroundColor: colors.lime.withValues(alpha: .13),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 12,
+                          ),
+                        ),
+                      ),
+                    ] else ...[
+                      Text(
+                        strings.t('noExplorationPlaces'),
+                        style: AppTextStyles.bodySecondary.copyWith(
+                          color: colors.textSecondary,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      _CoordinateNote(home: home),
+                    ],
+                  ],
+                ),
+          footer: home != null && farthest != null
+              ? _VisitDate(home: home, destination: farthest.place)
+              : null,
+        );
+        return SurfaceCard(
+          padding: ExplorationMemoryLayout.padding,
+          color: colors.cardSurface,
+          borderRadius: AppRadii.medium,
+          child: constraints.hasBoundedHeight
+              ? SingleChildScrollView(child: content)
+              : content,
+        );
+      },
     );
   }
 }
@@ -394,7 +387,7 @@ class _PlaceConnection extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         metric,
-        const SizedBox(height: 28),
+        const SizedBox(height: 12),
         LayoutBuilder(
           builder: (context, constraints) {
             final largeText =
@@ -643,8 +636,9 @@ class _PlaceConnectionPainter extends CustomPainter {
 }
 
 class _VisitDate extends StatelessWidget {
-  const _VisitDate({required this.destination});
+  const _VisitDate({required this.home, required this.destination});
 
+  final Airport home;
   final ExplorationPlace destination;
 
   @override
@@ -658,7 +652,8 @@ class _VisitDate extends StatelessWidget {
           : DateFormat.yMMMd(strings.isZh ? 'zh' : 'en')
                 .format(visitedAt.toLocal()),
       key: const ValueKey('farthest-footprint-date'),
-      textAlign: TextAlign.right,
+      maxLines: 2,
+      overflow: TextOverflow.clip,
       style: AppTextStyles.label.copyWith(
         color: colors.textPrimary,
         fontSize: 14,
@@ -666,36 +661,24 @@ class _VisitDate extends StatelessWidget {
         height: 1.35,
       ),
     );
-    return Padding(
-      padding: const EdgeInsets.only(top: 12),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.baseline,
-        textBaseline: TextBaseline.alphabetic,
-        children: [
-          if (visitedAt != null) ...[
-            ExcludeSemantics(
-              child: Icon(
-                Icons.calendar_today_outlined,
-                size: 14,
-                color: colors.textSecondary,
-              ),
-            ),
-            const SizedBox(width: 6),
-            Expanded(
-              child: Text(
-                strings.t('visitedOn'),
-                style: AppTextStyles.label.copyWith(
-                  fontSize: 12,
-                  color: colors.textSecondary,
-                  height: 1.5,
-                ),
-              ),
-            ),
-            const SizedBox(width: 16),
-          ],
-          Expanded(flex: 2, child: date),
-        ],
+    return ExplorationMemoryFooter(
+      leftLabel: strings.isZh ? '常住地' : 'Home',
+      leftValue: Text(
+        home.iataCode,
+        key: const ValueKey('farthest-footprint-home-footer'),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: AppTextStyles.label.copyWith(
+          color: colors.textPrimary,
+          fontSize: 14,
+          fontWeight: FontWeight.w500,
+          height: 1.35,
+        ),
       ),
+      rightLabel: visitedAt == null
+          ? (strings.isZh ? '到访日期' : 'Visited')
+          : strings.t('visitedOn'),
+      rightValue: Align(alignment: AlignmentDirectional.centerEnd, child: date),
     );
   }
 }

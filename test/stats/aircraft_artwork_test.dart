@@ -2,22 +2,22 @@ import 'package:flight_footprint/features/stats/aircraft_artwork.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 const _specificAssets = {
-  'A320-200': 'assets/images/aircraft/a320-200-side-right-v2.png',
-  'A321LR': 'assets/images/aircraft/a321lr-side-right-v1.png',
-  'A321NEO': 'assets/images/aircraft/a321neo-side-right-v2.png',
-  'A330-300': 'assets/images/aircraft/a330-300-side-right-v1.png',
-  'A330-900NEO': 'assets/images/aircraft/a330-900neo-side-right-v2.png',
-  'A350-900': 'assets/images/aircraft/a350-900-side-right-v3.png',
-  'A350-1000': 'assets/images/aircraft/a350-1000-side-right-v1.png',
-  'A380-800': 'assets/images/aircraft/a380-800-side-right-v1.png',
-  'B737 MAX 8': 'assets/images/aircraft/b737-max-8-side-right-v2.png',
-  'B737 MAX 9': 'assets/images/aircraft/b737-max-9-side-right-v2.png',
-  'B737-800': 'assets/images/aircraft/b737-800-side-right-v2.png',
-  'B777-300ER': 'assets/images/aircraft/b777-300er-side-right-v1.png',
-  'B787-8': 'assets/images/aircraft/b787-8-side-right-v1.png',
-  'B787-9': 'assets/images/aircraft/b787-9-side-right-v1.png',
-  'B787-10': 'assets/images/aircraft/b787-10-side-right-v1.png',
-  'E190-E2': 'assets/images/aircraft/e190-e2-side-right-v1.png',
+  'A320-200': 'assets/images/aircraft/a320-200-side-right-v2.webp',
+  'A321LR': 'assets/images/aircraft/a321lr-side-right-v1.webp',
+  'A321NEO': 'assets/images/aircraft/a321neo-side-right-v2.webp',
+  'A330-300': 'assets/images/aircraft/a330-300-side-right-v1.webp',
+  'A330-900NEO': 'assets/images/aircraft/a330-900neo-side-right-v2.webp',
+  'A350-900': 'assets/images/aircraft/a350-900-side-right-v3.webp',
+  'A350-1000': 'assets/images/aircraft/a350-1000-side-right-v1.webp',
+  'A380-800': 'assets/images/aircraft/a380-800-side-right-v1.webp',
+  'B737 MAX 8': 'assets/images/aircraft/b737-max-8-side-right-v2.webp',
+  'B737 MAX 9': 'assets/images/aircraft/b737-max-9-side-right-v2.webp',
+  'B737-800': 'assets/images/aircraft/b737-800-side-right-v2.webp',
+  'B777-300ER': 'assets/images/aircraft/b777-300er-side-right-v1.webp',
+  'B787-8': 'assets/images/aircraft/b787-8-side-right-v1.webp',
+  'B787-9': 'assets/images/aircraft/b787-9-side-right-v1.webp',
+  'B787-10': 'assets/images/aircraft/b787-10-side-right-v1.webp',
+  'E190-E2': 'assets/images/aircraft/e190-e2-side-right-v1.webp',
 };
 
 void main() {
@@ -62,29 +62,29 @@ void main() {
 
   test('known passenger variants fall back only within their family', () {
     const families = {
-      'A318': 'a320-family-side-right-v1.png',
-      'A319-115': 'a320-family-side-right-v1.png',
-      'A320-214': 'a320-family-side-right-v1.png',
-      'A321-231': 'a321-family-side-right-v1.png',
-      'A319NEO': 'a320neo-family-side-right-v2.png',
-      'A320-251N': 'a320neo-family-side-right-v2.png',
-      'A321XLR': 'a321neo-side-right-v2.png',
-      'A321-271NX': 'a321neo-side-right-v2.png',
-      'A330-200': 'a330-family-side-right-v1.png',
-      'A330-800': 'a330-900neo-side-right-v2.png',
-      'A350-900 ULR': 'a350-900-side-right-v3.png',
-      'A350系列': 'a350-900-side-right-v3.png',
-      'A380': 'a380-800-side-right-v1.png',
-      '737 NG': 'b737-family-side-right-v1.png',
-      'B737-900ER': 'b737-family-side-right-v1.png',
-      '737 MAX 10': 'b737-max-8-side-right-v2.png',
-      'B737 MAX 8-200': 'b737-max-8-side-right-v2.png',
-      'B777-200LR': 'b777-300er-side-right-v1.png',
-      'B777 FAMILY': 'b777-300er-side-right-v1.png',
-      'B787': 'b787-9-side-right-v1.png',
-      'E175': 'ejet-e1-family-side-right-v1.png',
-      'Embraer 190 LR': 'ejet-e1-family-side-right-v1.png',
-      'E195-E2': 'e190-e2-side-right-v1.png',
+      'A318': 'a320-family-side-right-v1.webp',
+      'A319-115': 'a320-family-side-right-v1.webp',
+      'A320-214': 'a320-family-side-right-v1.webp',
+      'A321-231': 'a321-family-side-right-v1.webp',
+      'A319NEO': 'a320neo-family-side-right-v2.webp',
+      'A320-251N': 'a320neo-family-side-right-v2.webp',
+      'A321XLR': 'a321neo-side-right-v2.webp',
+      'A321-271NX': 'a321neo-side-right-v2.webp',
+      'A330-200': 'a330-family-side-right-v1.webp',
+      'A330-800': 'a330-900neo-side-right-v2.webp',
+      'A350-900 ULR': 'a350-900-side-right-v3.webp',
+      'A350系列': 'a350-900-side-right-v3.webp',
+      'A380': 'a380-800-side-right-v1.webp',
+      '737 NG': 'b737-family-side-right-v1.webp',
+      'B737-900ER': 'b737-family-side-right-v1.webp',
+      '737 MAX 10': 'b737-max-8-side-right-v2.webp',
+      'B737 MAX 8-200': 'b737-max-8-side-right-v2.webp',
+      'B777-200LR': 'b777-300er-side-right-v1.webp',
+      'B777 FAMILY': 'b777-300er-side-right-v1.webp',
+      'B787': 'b787-9-side-right-v1.webp',
+      'E175': 'ejet-e1-family-side-right-v1.webp',
+      'Embraer 190 LR': 'ejet-e1-family-side-right-v1.webp',
+      'E195-E2': 'e190-e2-side-right-v1.webp',
     };
     for (final entry in families.entries) {
       expect(
@@ -96,20 +96,52 @@ void main() {
   });
 
   test(
+    'number-only model labels resolve through anchored manufacturer families',
+    () {
+      const known = {
+        '737-800': 'b737-800-side-right-v2.webp',
+        '737800': 'b737-800-side-right-v2.webp',
+        '737': 'b737-family-side-right-v1.webp',
+        '737NG': 'b737-family-side-right-v1.webp',
+        '320-200': 'a320-200-side-right-v2.webp',
+        '320200': 'a320-200-side-right-v2.webp',
+        '320': 'a320-family-side-right-v1.webp',
+        'Airbus 320-214': 'a320-family-side-right-v1.webp',
+        'Airbus 320-251N': 'a320neo-family-side-right-v2.webp',
+        'Boeing 737MAX9': 'b737-max-9-side-right-v2.webp',
+        '350-900': 'a350-900-side-right-v3.webp',
+        '3501000': 'a350-1000-side-right-v1.webp',
+        '330-300': 'a330-300-side-right-v1.webp',
+        '380': 'a380-800-side-right-v1.webp',
+        '220-300': 'a220-family-side-right-v2.webp',
+        '738': 'b737-800-side-right-v2.webp',
+        '359': 'a350-900-side-right-v3.webp',
+      };
+      for (final entry in known.entries) {
+        expect(
+          aircraftArtworkAssetFor(entry.key),
+          'assets/images/aircraft/${entry.value}',
+          reason: entry.key,
+        );
+      }
+    },
+  );
+
+  test(
     'new mainstream families resolve to their independent side profiles',
     () {
       const families = {
-        'Airbus A320neo': 'a320neo-family-side-right-v2.png',
-        'A220-100': 'a220-family-side-right-v2.png',
-        'A220-300': 'a220-family-side-right-v2.png',
-        'B747-400': 'b747-family-side-right-v1.png',
-        'Boeing 747-8I': 'b747-family-side-right-v1.png',
-        'B757-300': 'b757-family-side-right-v1.png',
-        'B767-300ER': 'b767-family-side-right-v1.png',
-        '中国商飞C919': 'c919-family-side-right-v1.png',
-        'COMAC C909': 'c909-family-side-right-v1.png',
-        'ARJ21-700ER': 'c909-family-side-right-v1.png',
-        'E190-E1': 'ejet-e1-family-side-right-v1.png',
+        'Airbus A320neo': 'a320neo-family-side-right-v2.webp',
+        'A220-100': 'a220-family-side-right-v2.webp',
+        'A220-300': 'a220-family-side-right-v2.webp',
+        'B747-400': 'b747-family-side-right-v1.webp',
+        'Boeing 747-8I': 'b747-family-side-right-v1.webp',
+        'B757-300': 'b757-family-side-right-v1.webp',
+        'B767-300ER': 'b767-family-side-right-v1.webp',
+        '中国商飞C919': 'c919-family-side-right-v1.webp',
+        'COMAC C909': 'c909-family-side-right-v1.webp',
+        'ARJ21-700ER': 'c909-family-side-right-v1.webp',
+        'E190-E1': 'ejet-e1-family-side-right-v1.webp',
       };
       for (final entry in families.entries) {
         expect(
@@ -124,10 +156,10 @@ void main() {
 
   test('core family labels have four independent representatives', () {
     const families = {
-      'A330': 'a330-family-side-right-v1.png',
-      'A321': 'a321-family-side-right-v1.png',
-      'A320': 'a320-family-side-right-v1.png',
-      'B737': 'b737-family-side-right-v1.png',
+      'A330': 'a330-family-side-right-v1.webp',
+      'A321': 'a321-family-side-right-v1.webp',
+      'A320': 'a320-family-side-right-v1.webp',
+      'B737': 'b737-family-side-right-v1.webp',
     };
     for (final entry in families.entries) {
       final expected = 'assets/images/aircraft/${entry.value}';
@@ -229,6 +261,17 @@ void main() {
       'Embraer A320neo',
       'Boeing C919',
       'COMAC B737',
+      '73700',
+      '737XYZ',
+      '3200',
+      '320ISH',
+      'Flight 737',
+      'N737800',
+      'Airbus 737',
+      'Boeing 320',
+      '3509000',
+      'Flight 737',
+      'N737800',
       '空客E190',
       '波音BCS3',
     ]) {

@@ -210,8 +210,8 @@ class _DetailMapState extends State<DetailMap> {
           kind: 'airport',
           index: i,
           label: widget.airports[i].name,
-        )
-    else
+        ),
+    if (widget.mode == MapMode.travelFootprint)
       for (var i = 0; i < widget.places.length; i++)
         if (widget.places[i].isVisited)
           detailPointFeature(
@@ -235,7 +235,6 @@ class _DetailMapState extends State<DetailMap> {
     if (widget.userLocation case final location?)
       detailPointFeature(location, kind: 'location', index: 0, label: ''),
   ]);
-
   String _style(bool light, bool chinese) => jsonEncode(
     buildDetailMapStyle(
       jsonDecode(jsonEncode(_base)) as Map<String, dynamic>,
@@ -306,6 +305,9 @@ class _DetailMapState extends State<DetailMap> {
         return;
       }
       await _updateSource(style, id: 'ff-regions', data: encoded);
+      if (!mounted || revision != _recordsRevision || style != _activeStyle) {
+        return;
+      }
     } catch (_) {
       // A style switch may destroy the previous sources mid-update. The new
       // onStyleLoaded callback reapplies the current records.

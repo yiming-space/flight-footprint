@@ -13,11 +13,15 @@ class CountryStatsPage extends StatelessWidget {
     required this.items,
     required this.countryCodes,
     required this.onCountrySelected,
+    this.savedPlaceCounts = const {},
+    this.includeTransitArrivals = true,
   });
 
   final List<(String, int)> items;
   final Map<String, String> countryCodes;
+  final Map<String, int> savedPlaceCounts;
   final ValueChanged<String> onCountrySelected;
+  final bool includeTransitArrivals;
 
   @override
   Widget build(BuildContext context) {
@@ -45,13 +49,28 @@ class CountryStatsPage extends StatelessWidget {
                   SliverPadding(
                     padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
                     sliver: SliverToBoxAdapter(
-                      child: Text(
-                        s.isZh
-                            ? '到访 ${items.length} 个国家／地区'
-                            : '${items.length} ${items.length == 1 ? 'country/region' : 'countries/regions'} visited',
-                        style: AppTextStyles.bodySecondary.copyWith(
-                          color: colors.textSecondary,
-                        ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            s.isZh
+                                ? '到访 ${items.length} 个国家／地区'
+                                : '${items.length} ${items.length == 1 ? 'country/region' : 'countries/regions'} visited',
+                            style: AppTextStyles.bodySecondary.copyWith(
+                              color: colors.textSecondary,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            s.isZh
+                                ? '数字为航班抵达次数${includeTransitArrivals ? '（含中转抵达）' : ''}；其他足迹单独记录'
+                                : 'Numbers show flight arrivals${includeTransitArrivals ? ', including transfers' : ''}; other footprints are recorded separately',
+                            style: AppTextStyles.label.copyWith(
+                              color: colors.textSecondary,
+                              fontWeight: FontWeight.w400,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ),
@@ -99,6 +118,7 @@ class CountryStatsPage extends StatelessWidget {
                                 name: item.$1,
                                 countryCode: countryCodes[item.$1] ?? '',
                                 count: item.$2,
+                                savedPlaceCount: savedPlaceCounts[item.$1] ?? 0,
                                 flagSize: flagSize,
                                 onTap: () => onCountrySelected(item.$1),
                               );
@@ -123,6 +143,7 @@ class CountryStatsTile extends StatelessWidget {
     required this.name,
     required this.countryCode,
     required this.count,
+    this.savedPlaceCount = 0,
     required this.flagSize,
     required this.onTap,
   });
@@ -130,6 +151,7 @@ class CountryStatsTile extends StatelessWidget {
   final String name;
   final String countryCode;
   final int count;
+  final int savedPlaceCount;
   final double flagSize;
   final VoidCallback onTap;
 
@@ -137,8 +159,8 @@ class CountryStatsTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = context.appColors;
     final label = context.strings.isZh
-        ? '$name，$count 次到访'
-        : '$name, $count ${count == 1 ? 'visit' : 'visits'}';
+        ? '$name，$count 次航班抵达${savedPlaceCount > 0 ? '，$savedPlaceCount 条其他足迹' : ''}'
+        : '$name, $count flight ${count == 1 ? 'arrival' : 'arrivals'}${savedPlaceCount > 0 ? ', $savedPlaceCount other ${savedPlaceCount == 1 ? 'footprint' : 'footprints'}' : ''}';
     return Semantics(
       button: true,
       label: label,

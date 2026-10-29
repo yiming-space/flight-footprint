@@ -1,6 +1,7 @@
 import 'package:flight_footprint/data/flight_data_controller.dart';
 import 'package:flight_footprint/data/flight_repository.dart';
 import 'package:flight_footprint/domain/flight.dart';
+import 'package:flight_footprint/domain/transfer_decision.dart';
 import 'package:flight_footprint/domain/visited_place.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -94,6 +95,51 @@ void main() {
     expect(repository.saved.single.departedAt, departure);
     expect(repository.saved.single.arrivedAt, arrival);
   });
+
+  test('serializes confirmations and rejects a shared endpoint', () async {
+    final firstDeparture = DateTime.utc(2026, 9, 1, 8);
+    final inbound = _flight(
+      id: 'inbound',
+      status: FlightStatus.completed,
+      departedAt: firstDeparture,
+      arrivedAt: firstDeparture.add(const Duration(hours: 2)),
+    );
+    final outboundOne = _flight(
+      id: 'out-one',
+      status: FlightStatus.completed,
+      departedAt: firstDeparture.add(const Duration(hours: 4)),
+      arrivedAt: firstDeparture.add(const Duration(hours: 6)),
+    ).copyWith(departureIata: 'PEK', arrivalIata: 'HND');
+    final outboundTwo = _flight(
+      id: 'out-two',
+      status: FlightStatus.completed,
+      departedAt: firstDeparture.add(const Duration(hours: 5)),
+      arrivedAt: firstDeparture.add(const Duration(hours: 7)),
+    ).copyWith(departureIata: 'PEK', arrivalIata: 'NRT');
+    final repository = _FakeRepository([inbound, outboundOne, outboundTwo]);
+    final controller = FlightDataController(repository);
+    addTearDown(controller.dispose);
+    await controller.refresh(now: DateTime.utc(2026, 9, 10));
+
+    final first = controller.decideTransfer(
+      inbound,
+      outboundOne,
+      TransferDecisionStatus.confirmed,
+    );
+    final conflicting = controller.decideTransfer(
+      inbound,
+      outboundTwo,
+      TransferDecisionStatus.confirmed,
+    );
+
+    await first;
+    await expectLater(
+      conflicting,
+      throwsA(isA<TransferDecisionConflictException>()),
+    );
+    expect(repository.decisions, hasLength(1));
+    expect(repository.decisions.single.outboundFlightId, 'out-one');
+  });
 }
 
 class _FakeRepository extends FlightRepository {
@@ -101,12 +147,24 @@ class _FakeRepository extends FlightRepository {
 
   List<Flight> stored;
   final List<Flight> saved = [];
+  final List<TransferDecision> decisions = [];
 
   @override
   Future<List<Flight>> listFlights() async => List.of(stored);
 
   @override
   Future<List<VisitedPlace>> listVisitedPlaces() async => const [];
+
+  @override
+  Future<List<TransferDecision>> listTransferDecisions() async =>
+      List.unmodifiable(decisions);
+
+  @override
+  Future<void> saveTransferDecision(TransferDecision decision) async {
+    decisions
+      ..removeWhere((item) => item.id == decision.id)
+      ..add(decision);
+  }
 
   @override
   Future<void> upsertFlights(Iterable<Flight> flights) async {

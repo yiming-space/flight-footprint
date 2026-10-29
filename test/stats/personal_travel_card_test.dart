@@ -115,21 +115,21 @@ void main() {
         findsNothing,
       );
       final count = tester.widget<Text>(
-        find.byKey(const ValueKey('personal-travel-count')),
+        find.byKey(const ValueKey('personal-travel-new-city-count')),
       );
-      expect(count.textSpan!.toPlainText(), contains('1'));
-      expect(count.textSpan!.toPlainText(), contains('座'));
-      expect(find.text('本年新增城市'), findsOneWidget);
+      expect(count.data, '1');
+      expect(find.text('座'), findsOneWidget);
+      expect(find.text('本年新增'), findsOneWidget);
       expect(find.text('首次抵达'), findsOneWidget);
       expect(find.text('2026年8月11日'), findsOneWidget);
       expect(
         tester
-            .getBottomLeft(find.byKey(const ValueKey('personal-travel-date')))
+            .getTopLeft(find.byKey(const ValueKey('personal-travel-date')))
             .dy,
-        lessThan(
+        greaterThan(
           tester
-              .getTopLeft(
-                find.byKey(const ValueKey('personal-travel-city-count-label')),
+              .getBottomLeft(
+                find.byKey(const ValueKey('personal-travel-new-city-count')),
               )
               .dy,
         ),
@@ -168,13 +168,13 @@ void main() {
     final count = tester.widget<Text>(
       find.byKey(const ValueKey('personal-travel-count')),
     );
-    expect(count.textSpan!.toPlainText(), contains('2'));
+    expect(count.data, contains('2'));
     expect(find.text('Aug 11, 2026'), findsOneWidget);
     expect(
       tester
           .getBottomLeft(find.byKey(const ValueKey('personal-travel-count')))
           .dy,
-      lessThan(tester.getTopLeft(find.text('PVG')).dy),
+      greaterThan(tester.getBottomLeft(find.text('PVG')).dy),
     );
     final connector = tester.getRect(
       find.byKey(const ValueKey('personal-travel-route-connector')),
@@ -211,8 +211,8 @@ void main() {
     final count = tester.widget<Text>(
       find.byKey(const ValueKey('personal-travel-count')),
     );
-    expect(count.textSpan!.toPlainText(), contains('1'));
-    expect(find.text('New types this year'), findsOneWidget);
+    expect(count.data, 'A350-900');
+    expect(find.text('Aircraft'), findsOneWidget);
     expect(find.text('First recorded'), findsOneWidget);
     expect(find.text('Aug 11, 2026'), findsOneWidget);
     await tester.tap(find.byType(SurfaceCard));

@@ -1,3 +1,11 @@
+enum FootprintRecordSource { unknown, manual, photo }
+
+FootprintRecordSource footprintRecordSourceFromStorage(Object? value) =>
+    FootprintRecordSource.values.firstWhere(
+      (source) => source.name == value?.toString(),
+      orElse: () => FootprintRecordSource.unknown,
+    );
+
 class VisitedPlace {
   const VisitedPlace({
     required this.id,
@@ -9,6 +17,8 @@ class VisitedPlace {
     required this.updatedAt,
     this.countryCode,
     this.note,
+    this.source = FootprintRecordSource.unknown,
+    this.hasSourceAnnotation = true,
   });
 
   final String id;
@@ -21,6 +31,12 @@ class VisitedPlace {
   final String? countryCode;
   final String? note;
 
+  /// Unknown is intentional for legacy/imported records without provenance.
+  final FootprintRecordSource source;
+
+  /// False only when a legacy interchange format omitted provenance.
+  final bool hasSourceAnnotation;
+
   VisitedPlace copyWith({
     String? name,
     double? latitude,
@@ -28,6 +44,8 @@ class VisitedPlace {
     DateTime? visitedAt,
     String? countryCode,
     String? note,
+    FootprintRecordSource? source,
+    bool? hasSourceAnnotation,
     DateTime? updatedAt,
   }) => VisitedPlace(
     id: id,
@@ -39,5 +57,13 @@ class VisitedPlace {
     updatedAt: updatedAt ?? this.updatedAt,
     countryCode: countryCode ?? this.countryCode,
     note: note ?? this.note,
+    source: source ?? this.source,
+    hasSourceAnnotation: hasSourceAnnotation ?? this.hasSourceAnnotation,
   );
+
+  /// Preserve locally known provenance when an older backup omitted it.
+  VisitedPlace withImportedSource({FootprintRecordSource? existingSource}) =>
+      copyWith(
+        source: hasSourceAnnotation ? source : existingSource ?? source,
+      );
 }

@@ -17,6 +17,7 @@ class RankingExpansionCard extends StatefulWidget {
     this.overviewBuilder,
     this.flipOnOpen = false,
     this.flipSourceRadius = 28,
+    this.snapshotDuringTransition = false,
     this.semanticsLabel,
   }) : assert(onTap != null || pageBuilder != null);
 
@@ -28,6 +29,7 @@ class RankingExpansionCard extends StatefulWidget {
   final WidgetBuilder? pageBuilder;
   final bool flipOnOpen;
   final double flipSourceRadius;
+  final bool snapshotDuringTransition;
   final String? semanticsLabel;
   final Widget Function(BuildContext context, VoidCallback onTap)?
   overviewBuilder;
@@ -75,6 +77,7 @@ class _RankingExpansionCardState extends State<RankingExpansionCard> {
       builder: builder,
       flipFront: widget.flipOnOpen ? _overview(context, () {}) : null,
       flipSourceRadius: widget.flipSourceRadius,
+      snapshotDuringTransition: widget.snapshotDuringTransition,
     );
     final custom = route is PageRouteBuilder<void> && !_reduced;
     Animation<double>? animation;

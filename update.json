@@ -1,9 +1,9 @@
 {
-  "version": "1.5.0",
-  "build": 18,
-  "releaseUrl": "https://github.com/yiming-space/flight-footprint/releases/tag/v1.5.0",
-  "apkUrl": "https://github.com/yiming-space/flight-footprint/releases/download/v1.5.0/app-release.apk",
-  "apkSize": 134383420,
-  "apkSha256": "56df0b2bc8b32535ee632a5eaafecf6e5e8d7c60ad70634bd4f24c090568391a",
-  "notes": "新版冰川蓝与雾紫主题、厚磨砂玻璃导航与飞行护照；探索世界四张记忆卡支持循环切换，优化机型插画与卡片排版。首页和全屏地图增加随缩放调整的实色航线箭头，暗色足迹板块使用雾紫色。优化机场当地时间、夏令时处理与跨时区年度统计。正式包保留常规航班补全和手动填写。"
+  "version": "1.6.0",
+  "build": 19,
+  "releaseUrl": "https://github.com/yiming-space/flight-footprint/releases/tag/v1.6.0",
+  "apkUrl": "https://github.com/yiming-space/flight-footprint/releases/download/v1.6.0/app-release.apk",
+  "apkSize": 285293228,
+  "apkSha256": "378445707f43bf05f1cf2fe33efefdb7c3ec847d050c545004b6dc6089bb91b7",
+  "notes": "新增航班截图本地识别、批量核对与日历航班确认；优化足迹、中转记录、城市统计、相册去重及探索世界体验。"
 }

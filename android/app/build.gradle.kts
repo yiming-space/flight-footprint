@@ -41,6 +41,9 @@ android {
         versionName = flutter.versionName
     }
 
+    // Compress native libraries in the universal APK for faster downloads.
+    packaging { jniLibs.useLegacyPackaging = true }
+
     signingConfigs {
         create("release") {
             keyAlias = releaseKeystoreProperties.getProperty("keyAlias")

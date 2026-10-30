@@ -1,9 +1,9 @@
 {
-  "version": "1.6.2",
-  "build": 21,
-  "releaseUrl": "https://github.com/yiming-space/flight-footprint/releases/tag/v1.6.2",
-  "apkUrl": "https://github.com/yiming-space/flight-footprint/releases/download/v1.6.2/app-release.apk",
-  "apkSize": 147186568,
-  "apkSha256": "5068458801a874ec1d8f087d193eef42cf6cbabae3a35422fa58334460256579",
-  "notes": "优化启动速度和详细地图缓存，修复机型插画匹配及中转确认显示。"
+  "version": "1.6.3",
+  "build": 22,
+  "releaseUrl": "https://github.com/yiming-space/flight-footprint/releases/tag/v1.6.3",
+  "apkUrl": "https://github.com/yiming-space/flight-footprint/releases/download/v1.6.3/app-release.apk",
+  "apkSize": 147185476,
+  "apkSha256": "9993979f6e0aa3c54fdaa4ab4eb8c3c44947c7a35eed7fae93d72826281bf02f",
+  "notes": "优化统计页面加载与切换，调整启动画面，修复已处理中转记录的显示与冲突提示。"
 }

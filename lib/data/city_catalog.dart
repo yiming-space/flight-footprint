@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import 'airport_catalog.dart';
@@ -299,7 +300,7 @@ class CityCatalog {
   /// progress without parsing the much larger worldwide airport file.
   static Future<CityCatalog> loadChina({AssetBundle? bundle}) async {
     final source = await (bundle ?? rootBundle).loadString(assetPath);
-    return CityCatalog.fromJsonString(source);
+    return compute(CityCatalog.fromJsonString, source);
   }
 
   /// Load Chinese cities plus a deduplicated worldwide airport-city index.
@@ -320,10 +321,9 @@ class CityCatalog {
     bool includeWorld = true,
   }) async {
     final chinaSource = await assetBundle.loadString(assetPath);
-    final china = CityCatalog.fromJsonString(chinaSource);
-    if (!includeWorld) return china;
+    if (!includeWorld) return compute(CityCatalog.fromJsonString, chinaSource);
     final airportSource = await assetBundle.loadString(_airportAssetPath);
-    return china.withAirports(AirportCatalog.fromJsonString(airportSource));
+    return compute(_parseWorldCatalog, (chinaSource, airportSource));
   }
 
   CityCatalog withAirports(AirportCatalog catalog) {
@@ -717,3 +717,7 @@ class CityCatalog {
       normalizeLookup(normalizeMapCityName(value, countryCode: 'CN'))
           .replaceAll(RegExp(r'(地区|自治州)$'), '');
 }
+
+CityCatalog _parseWorldCatalog((String, String) sources) =>
+    CityCatalog.fromJsonString(sources.$1)
+        .withAirports(AirportCatalog.fromJsonString(sources.$2));

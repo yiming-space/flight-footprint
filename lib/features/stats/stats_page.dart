@@ -44,6 +44,14 @@ class _StatsPageState extends State<StatsPage> {
   int? _passportYear;
   late final Future<CityCatalog> _chinaCatalog = CityCatalog.loadChina();
   CityCatalog? _rankingCityCatalog;
+  _StatsViewData? _cachedStats;
+  Object? _cachedController;
+  Object? _cachedFlights;
+  Object? _cachedPlaces;
+  Object? _cachedTransfers;
+  CityCatalog? _cachedCatalog;
+  int? _cachedYear;
+  bool? _cachedTransitSetting;
 
   @override
   void initState() {
@@ -53,9 +61,8 @@ class _StatsPageState extends State<StatsPage> {
 
   Future<void> _loadRankingCities() async {
     try {
-      final china = await _chinaCatalog;
+      final catalog = await CityCatalog.load();
       if (!mounted) return;
-      final catalog = china.withAirports(widget.controller.airports);
       setState(() => _rankingCityCatalog = catalog);
     } catch (_) {
       // Exact saved names and country codes remain usable if a catalogue
@@ -63,8 +70,19 @@ class _StatsPageState extends State<StatsPage> {
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
+  _StatsViewData _statsData() {
+    final controller = widget.controller;
+    final cached = _cachedStats;
+    if (cached != null &&
+        identical(_cachedController, controller) &&
+        identical(_cachedFlights, controller.flights) &&
+        identical(_cachedPlaces, controller.visitedPlaces) &&
+        identical(_cachedTransfers, controller.transferDecisions) &&
+        identical(_cachedCatalog, _rankingCityCatalog) &&
+        _cachedYear == _passportYear &&
+        _cachedTransitSetting == controller.countTransitArrivals) {
+      return cached;
+    }
     final hasAnyFlights = widget.controller.flights.isNotEmpty;
     final flights = widget.controller.flights
         .where((flight) => flight.isCompleted)
@@ -134,6 +152,19 @@ class _StatsPageState extends State<StatsPage> {
       citySummaries: citySummaries,
       footprintPlaces: footprintPlaces,
     );
+    _cachedController = controller;
+    _cachedFlights = controller.flights;
+    _cachedPlaces = controller.visitedPlaces;
+    _cachedTransfers = controller.transferDecisions;
+    _cachedCatalog = _rankingCityCatalog;
+    _cachedYear = _passportYear;
+    _cachedTransitSetting = controller.countTransitArrivals;
+    return _cachedStats = data;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final data = _statsData();
     return SafeArea(
       top: false,
       bottom: false,

@@ -233,35 +233,64 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('rejecting a pair explains that its old manual mark remains', (
+  testWidgets('completed confirmations and rejections hide the panel', (
     tester,
   ) async {
-    final inbound = _flight('in', 'AAA', 'BBB', 0, 2, transit: true);
-    final outbound = _flight('out', 'BBB', 'CCC', 3, 5);
-    final controller = _Controller([inbound, outbound])
-      ..countTransitArrivals = false
+    final first = _flight('in', 'AAA', 'BBB', 0, 2, transit: true);
+    final second = _flight('out', 'BBB', 'CCC', 3, 5);
+    final third = _flight('in2', 'DDD', 'EEE', 30, 32);
+    final fourth = _flight('out2', 'EEE', 'FFF', 33, 35);
+    final controller = _Controller([first, second, third, fourth])
       ..transferDecisions = [
         TransferDecision.fromFlights(
-          inbound: inbound,
-          outbound: outbound,
+          inbound: first,
+          outbound: second,
           status: TransferDecisionStatus.rejected,
+          decidedAt: _base,
+        ),
+        TransferDecision.fromFlights(
+          inbound: third,
+          outbound: fourth,
+          status: TransferDecisionStatus.confirmed,
           decidedAt: _base,
         ),
       ];
     addTearDown(controller.dispose);
-
     await tester.pumpWidget(_host(controller));
     await tester.pumpAndSettle();
+    expect(find.textContaining('个已处理'), findsNothing);
+    expect(find.textContaining('待核对'), findsNothing);
+    expect(controller.transferDecisions, hasLength(2));
+    expect(first.isTransitArrival, isTrue);
+  });
 
-    await tester.tap(find.text('中转记录 · 1 个已处理'));
+  testWidgets('unrelated incomplete times do not reveal reviewed records', (
+    tester,
+  ) async {
+    final inbound = _flight('in', 'AAA', 'BBB', 0, 2);
+    final outbound = _flight('out', 'BBB', 'CCC', 3, 5);
+    final controller =
+        _Controller([
+            inbound,
+            outbound,
+            _flight('missing', 'DDD', 'EEE', 30, 29),
+          ])
+          ..transferDecisions = [
+            TransferDecision.fromFlights(
+              inbound: inbound,
+              outbound: outbound,
+              status: TransferDecisionStatus.confirmed,
+              decidedAt: _base,
+            ),
+          ];
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(_host(controller));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('已确认 / 已拒绝 · 1 条'));
+    await tester.tap(find.text('中转记录说明'));
     await tester.pumpAndSettle();
-
-    expect(find.text('原手动标记仍保留'), findsOneWidget);
-    expect(find.textContaining('不会清除抵达航班原有的手动标记'), findsOneWidget);
-    expect(find.textContaining('该抵达仍不计入足迹'), findsOneWidget);
-    expect(tester.takeException(), isNull);
+    expect(find.textContaining('缺少有效抵达时间'), findsOneWidget);
+    expect(find.textContaining('已确认 / 已拒绝'), findsNothing);
+    expect(find.textContaining('个已处理'), findsNothing);
   });
 
   testWidgets('conflicting imported confirmations are shown for review', (
@@ -290,7 +319,7 @@ void main() {
     await tester.pumpWidget(_host(controller));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('中转记录 · 2 个已处理'));
+    await tester.tap(find.text('中转记录 · 2 个冲突待核对'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('已确认 / 已拒绝 · 2 条'));
     await tester.pumpAndSettle();

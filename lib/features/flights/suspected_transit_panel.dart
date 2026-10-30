@@ -81,14 +81,11 @@ class _SuspectedTransitPanelState extends State<SuspectedTransitPanel> {
     // Keep conflicting saved choices available for correction, while a fully
     // resolved set of confirmations no longer occupies the review panel.
     final needsSavedReview = decidedPairs.any(
-      (pair) =>
-          pair.hasSavedDecisionConflict ||
-          widget.controller
-                  .transferDecisionFor(pair.inbound, pair.outbound)
-                  ?.status ==
-              TransferDecisionStatus.rejected,
+      (pair) => pair.hasSavedDecisionConflict,
     );
-    final otherDecidedPairs = decidedPairs;
+    final otherDecidedPairs = pendingPairs.isNotEmpty
+        ? decidedPairs
+        : decidedPairs.where((pair) => pair.hasSavedDecisionConflict).toList();
     final confirmedCount = decidedPairs
         .where(
           (pair) =>
@@ -125,11 +122,11 @@ class _SuspectedTransitPanelState extends State<SuspectedTransitPanel> {
             childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
             leading: Icon(Icons.alt_route_rounded, color: colors.lime),
             title: Text(
-              pendingPairs.isEmpty && decidedPairs.isNotEmpty
+              pendingPairs.isEmpty && needsSavedReview
                   ? (zh
-                        ? '中转记录 · ${decidedPairs.length} 个已处理'
-                        : 'Transfer records · ${decidedPairs.length} reviewed')
-                  : pairs.isEmpty && hasNearbyDifferentAirportPair
+                        ? '中转记录 · ${otherDecidedPairs.length} 个冲突待核对'
+                        : 'Transfer records · ${otherDecidedPairs.length} conflicts to review')
+                  : pendingPairs.isEmpty && !needsSavedReview
                   ? (zh ? '中转记录说明' : 'Transfer review note')
                   : zh
                   ? '疑似中转 · ${pendingPairs.length} 个待核对'
@@ -140,11 +137,11 @@ class _SuspectedTransitPanelState extends State<SuspectedTransitPanel> {
               ),
             ),
             subtitle: Text(
-              pendingPairs.isEmpty && decidedPairs.isNotEmpty
+              pendingPairs.isEmpty && needsSavedReview
                   ? (zh
                         ? '已确认 $confirmedCount · 已拒绝 $rejectedCount'
                         : '$confirmedCount confirmed · $rejectedCount rejected')
-                  : pairs.isEmpty && hasNearbyDifferentAirportPair
+                  : pendingPairs.isEmpty && !needsSavedReview
                   ? (zh
                         ? '需要时请手动核对不同机场的行程'
                         : 'Review different-airport itineraries manually when needed')

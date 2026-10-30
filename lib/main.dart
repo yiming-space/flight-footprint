@@ -31,10 +31,8 @@ class _AppStartupState extends State<AppStartup> {
 
   void _start() {
     final current = _controller;
-    Future.sync(widget.createController ?? AppController.create).then(
-      current.complete,
-      onError: current.completeError,
-    );
+    Future.sync(widget.createController ?? AppController.create)
+        .then(current.complete, onError: current.completeError);
   }
 
   @override
@@ -57,23 +55,11 @@ class _AppStartupState extends State<AppStartup> {
         darkTheme: AppTheme.dark(),
         themeMode: ThemeMode.system,
         home: Scaffold(
-          body: Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  Icons.flight_takeoff_rounded,
-                  size: 42,
-                  color: Theme.of(context).colorScheme.primary,
-                ),
-                const SizedBox(height: 16),
-                const Text(
-                  'Flight Footprint',
-                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600),
-                ),
-                const SizedBox(height: 20),
-                if (snapshot.hasError)
-                  TextButton(
+          // Match the Android launch window until saved app preferences load.
+          backgroundColor: const Color(0xFF0B0E12),
+          body: snapshot.hasError
+              ? Center(
+                  child: TextButton(
                     onPressed: () => setState(() {
                       _controller = Completer<AppController>();
                       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -81,12 +67,9 @@ class _AppStartupState extends State<AppStartup> {
                       });
                     }),
                     child: const Text('加载失败，重试 / Retry'),
-                  )
-                else
-                  const CircularProgressIndicator(),
-              ],
-            ),
-          ),
+                  ),
+                )
+              : const SizedBox.expand(),
         ),
       );
     },

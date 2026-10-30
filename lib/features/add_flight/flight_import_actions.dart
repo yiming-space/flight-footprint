@@ -50,14 +50,6 @@ mixin FlightImportActions<T extends StatefulWidget> on State<T> {
   Future<bool> importCalendar(BuildContext context) =>
       _runImport(context, () => _runCalendarImport(context));
 
-  Future<bool> reviewCalendarScan(
-    BuildContext context,
-    CalendarImportResult scanned,
-  ) => _runImport(
-    context,
-    () => _reviewCalendarScan(context, scanned, startup: true),
-  );
-
   Future<bool> importScreenshot(BuildContext context) =>
       _runImport(context, () => _runScreenshotImport(context));
 
@@ -424,9 +416,8 @@ mixin FlightImportActions<T extends StatefulWidget> on State<T> {
 
   Future<bool> _reviewCalendarScan(
     BuildContext context,
-    CalendarImportResult scanned, {
-    bool startup = false,
-  }) async {
+    CalendarImportResult scanned,
+  ) async {
     switch (scanned.status) {
       case CalendarScanStatus.permissionDenied:
         _message(context, context.strings.t('calendarPermissionDenied'));
@@ -442,70 +433,6 @@ mixin FlightImportActions<T extends StatefulWidget> on State<T> {
         return false;
       case CalendarScanStatus.available:
         break;
-    }
-    if (startup && scanned.reviewKeys.isNotEmpty) {
-      final ignored = <String>{};
-      final confirmed = await showDialog<bool>(
-        context: context,
-        builder: (dialogContext) => StatefulBuilder(
-          builder: (context, update) => AlertDialog(
-            title: Text(
-              context.strings.isZh ? '待核对的日历日程' : 'Calendar events to review',
-            ),
-            content: SizedBox(
-              width: double.maxFinite,
-              child: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      context.strings.isZh ? '这些日程信息不完整，可勾选不再提醒的日程。' : 'Some events are incomplete. Select events to ignore.',
-                    ),
-                    for (var i = 0; i < scanned.reviewKeys.length; i++)
-                      CheckboxListTile(
-                        contentPadding: EdgeInsets.zero,
-                        title: Text(
-                          i < scanned.reviewTitles.length &&
-                                  scanned.reviewTitles[i].isNotEmpty
-                              ? scanned.reviewTitles[i]
-                              : (context.strings.isZh
-                                    ? '未命名日程'
-                                    : 'Untitled event'),
-                        ),
-                        value: ignored.contains(scanned.reviewKeys[i]),
-                        onChanged: (value) => update(() {
-                          if (value == true) {
-                            ignored.add(scanned.reviewKeys[i]);
-                          } else {
-                            ignored.remove(scanned.reviewKeys[i]);
-                          }
-                        }),
-                      ),
-                  ],
-                ),
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(dialogContext, false),
-                child: Text(context.strings.isZh ? '稍后提醒' : 'Remind me later'),
-              ),
-              TextButton(
-                onPressed: ignored.isEmpty
-                    ? null
-                    : () => Navigator.pop(dialogContext, true),
-                child: Text(context.strings.isZh ? '忽略选中' : 'Ignore selected'),
-              ),
-            ],
-          ),
-        ),
-      );
-      if (!context.mounted) return false;
-      if (confirmed == true && ignored.isNotEmpty)
-        await controller.ignoreCalendarRevisions(ignored);
-      if (!context.mounted) return false;
-      if (scanned.flights.isEmpty) return false;
     }
     if (scanned.flights.isEmpty) {
       if (scanned.reviewCandidates > 0) {
@@ -539,14 +466,7 @@ mixin FlightImportActions<T extends StatefulWidget> on State<T> {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => _CalendarPreviewSheet(
-        result: scanned,
-        onIgnore: startup
-            ? (draft) => controller.ignoreCalendarRevisions([
-                draft.autoImportRevisionKey,
-              ])
-            : null,
-      ),
+      builder: (_) => _CalendarPreviewSheet(result: scanned),
     );
     if (selected == null || !context.mounted) return false;
     if (selected.isEmpty) {
@@ -1020,10 +940,9 @@ class _CalendarReadingNotice extends StatelessWidget {
 }
 
 class _CalendarPreviewSheet extends StatefulWidget {
-  const _CalendarPreviewSheet({required this.result, this.onIgnore});
+  const _CalendarPreviewSheet({required this.result});
 
   final CalendarImportResult result;
-  final Future<void> Function(CalendarFlightDraft)? onIgnore;
 
   @override
   State<_CalendarPreviewSheet> createState() => _CalendarPreviewSheetState();
@@ -1031,7 +950,6 @@ class _CalendarPreviewSheet extends StatefulWidget {
 
 class _CalendarPreviewSheetState extends State<_CalendarPreviewSheet> {
   late Set<String> _selected;
-  final Set<String> _ignored = {};
 
   @override
   void initState() {
@@ -1040,11 +958,7 @@ class _CalendarPreviewSheetState extends State<_CalendarPreviewSheet> {
   }
 
   List<CalendarFlightDraft> get _selectedDrafts => widget.result.flights
-      .where(
-        (draft) =>
-            _selected.contains(_draftKey(draft)) &&
-            !_ignored.contains(_draftKey(draft)),
-      )
+      .where((draft) => _selected.contains(_draftKey(draft)))
       .toList(growable: false);
 
   @override
@@ -1133,8 +1047,6 @@ class _CalendarPreviewSheetState extends State<_CalendarPreviewSheet> {
                     separatorBuilder: (_, _) => const SizedBox(height: 8),
                     itemBuilder: (context, index) {
                       final draft = widget.result.flights[index];
-                      if (_ignored.contains(_draftKey(draft)))
-                        return const SizedBox.shrink();
                       final selected = _selected.contains(_draftKey(draft));
                       final departureName = localizedAirportCardName(
                         draft.departureAirport,
@@ -1265,60 +1177,6 @@ class _CalendarPreviewSheetState extends State<_CalendarPreviewSheet> {
                                     activeColor: colors.actionFill,
                                     checkColor: colors.onPrimary,
                                   ),
-                                  if (widget.onIgnore != null)
-                                    IconButton(
-                                      tooltip: s.isZh
-                                          ? '忽略此日程'
-                                          : 'Ignore this event',
-                                      icon: const Icon(
-                                        Icons.notifications_off_outlined,
-                                      ),
-                                      onPressed: () async {
-                                        final confirmed = await showDialog<bool>(
-                                          context: context,
-                                          builder: (dialogContext) =>
-                                              AlertDialog(
-                                                title: Text(
-                                                  s.isZh
-                                                      ? '忽略此日程？'
-                                                      : 'Ignore this event?',
-                                                ),
-                                                content: Text(
-                                                  s.isZh ? '此日程发生变化后仍会提醒。' : 'You will be reminded if this event changes.',
-                                                ),
-                                                actions: [
-                                                  TextButton(
-                                                    onPressed: () =>
-                                                        Navigator.pop(
-                                                          dialogContext,
-                                                          false,
-                                                        ),
-                                                    child: Text(s.t('cancel')),
-                                                  ),
-                                                  TextButton(
-                                                    onPressed: () =>
-                                                        Navigator.pop(
-                                                          dialogContext,
-                                                          true,
-                                                        ),
-                                                    child: Text(
-                                                      s.isZh ? '忽略' : 'Ignore',
-                                                    ),
-                                                  ),
-                                                ],
-                                              ),
-                                        );
-                                        if (confirmed != true ||
-                                            !context.mounted)
-                                          return;
-                                        await widget.onIgnore!(draft);
-                                        if (mounted)
-                                          setState(() {
-                                            _ignored.add(_draftKey(draft));
-                                            _selected.remove(_draftKey(draft));
-                                          });
-                                      },
-                                    ),
                                 ],
                               ),
                             ),

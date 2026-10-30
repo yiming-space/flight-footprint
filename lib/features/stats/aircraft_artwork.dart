@@ -2,7 +2,20 @@
 /// aircraft family. This is presentation-only: collection keys and flight data
 /// retain the recorded model. Unknown labels and conflicting brands do not match.
 String? aircraftArtworkAssetFor(String type) {
-  var model = type.trim().toUpperCase();
+  var model = type
+      .trim()
+      .toUpperCase()
+      .replaceAll(RegExp(r'[－–—−]'), '-')
+      .replaceAll('（', '(')
+      .replaceAll('）', ')');
+  // Some airline and imported records add only a cabin-size annotation.
+  // Strip known descriptors, not arbitrary model or aircraft registrations.
+  model = model.replaceFirst(
+    RegExp(
+      r'\s*\((?:大|中|小|宽体|窄体|大型|中型|小型|WIDEBODY|NARROWBODY|SL|SHARKLET|SHARKLETS|WL|WINGLETS)\)\s*$',
+    ),
+    '',
+  );
   String? brand;
   for (final prefix in _artworkBrandPrefixes) {
     final match = prefix.pattern.firstMatch(model);
@@ -14,7 +27,9 @@ String? aircraftArtworkAssetFor(String type) {
   model = _compactArtworkModel(model)
       .replaceFirst(RegExp(r'(?:FAMILY|系列)$'), '');
   model = _artworkAliases[model] ?? model;
-  final directMatch = _matchArtworkModel(model, brand);
+  final directMatch =
+      _matchArtworkModel(model, brand) ??
+      _matchArtworkKnownVariant(model, brand);
   if (directMatch != null) return directMatch;
 
   // Some records omit the manufacturer letter. Try only numeric-leading
@@ -24,10 +39,10 @@ String? aircraftArtworkAssetFor(String type) {
     for (final prefix in _artworkNumericPrefixes) {
       if (brand != null && brand != prefix.brand) continue;
       final candidate = '${prefix.letter}$model';
-      final match = _matchArtworkModel(
-        _artworkAliases[candidate] ?? candidate,
-        prefix.brand,
-      );
+      final normalized = _artworkAliases[candidate] ?? candidate;
+      final match =
+          _matchArtworkModel(normalized, prefix.brand) ??
+          _matchArtworkKnownVariant(normalized, prefix.brand);
       if (match != null) return match;
     }
   }
@@ -48,6 +63,57 @@ String? _matchArtworkModel(String model, String? brand) {
   return null;
 }
 
+// Customer and engine suffixes often differ from the commonly marketed model
+// (e.g. 737-8L9 or A350-941). Match only structurally plausible variants,
+// keeping unrelated strings, registrations and incompatible brands unmatched.
+String? _matchArtworkKnownVariant(String model, String? brand) {
+  for (final family in _knownVariantFamilies) {
+    if ((brand == null || brand == family.brand) &&
+        family.pattern.hasMatch(model)) {
+      return family.asset;
+    }
+  }
+  return null;
+}
+
+final _knownVariantFamilies = [
+  (
+    brand: 'airbus',
+    pattern: RegExp(r'^A330[23]\d{2}$'),
+    asset: 'assets/images/aircraft/a330-family-side-right-v1.webp',
+  ),
+  (
+    brand: 'airbus',
+    pattern: RegExp(r'^A3509\d{2}$'),
+    asset: 'assets/images/aircraft/a350-900-side-right-v3.webp',
+  ),
+  (
+    brand: 'boeing',
+    pattern: RegExp(r'^B737(?:[1-9]|[1-9][0-9A-Z]{2}(?:ER|WL)?)$'),
+    asset: 'assets/images/aircraft/b737-family-side-right-v1.webp',
+  ),
+  (
+    brand: 'boeing',
+    pattern: RegExp(r'^B747[1-4][0-9A-Z]{2}$'),
+    asset: 'assets/images/aircraft/b747-family-side-right-v1.webp',
+  ),
+  (
+    brand: 'boeing',
+    pattern: RegExp(r'^B757[23][0-9A-Z]{2}$'),
+    asset: 'assets/images/aircraft/b757-family-side-right-v1.webp',
+  ),
+  (
+    brand: 'boeing',
+    pattern: RegExp(r'^B767[234][0-9A-Z]{2}(?:ER)?$'),
+    asset: 'assets/images/aircraft/b767-family-side-right-v1.webp',
+  ),
+  (
+    brand: 'boeing',
+    pattern: RegExp(r'^B777[23][0-9A-Z]{2}(?:ER|LR)?$'),
+    asset: 'assets/images/aircraft/b777-300er-side-right-v1.webp',
+  ),
+];
+
 String _compactArtworkModel(String value) =>
     value.replaceAll(RegExp(r'[\s-]'), '');
 
@@ -59,8 +125,11 @@ const _artworkNumericPrefixes = [
 ];
 
 final _artworkBrandPrefixes = [
-  (brand: 'airbus', pattern: RegExp(r'^(?:AIRBUS\s+|空中客车\s*|空客\s*)')),
-  (brand: 'boeing', pattern: RegExp(r'^(?:BOEING\s+|波音\s*)')),
+  (
+    brand: 'airbus',
+    pattern: RegExp(r'^(?:AIRBUS(?=\s|[A0-9])\s*|空中客车\s*|空客\s*)'),
+  ),
+  (brand: 'boeing', pattern: RegExp(r'^(?:BOEING(?=\s|[B0-9])\s*|波音\s*)')),
   (brand: 'embraer', pattern: RegExp(r'^(?:EMBRAER\s+|巴西航空工业\s*|巴航\s*)')),
   (brand: 'comac', pattern: RegExp(r'^(?:COMAC\s+|中国商飞\s*|商飞\s*)')),
 ];

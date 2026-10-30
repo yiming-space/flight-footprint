@@ -40,6 +40,7 @@ class _Controller extends ChangeNotifier implements AppController {
   final AirportCatalog airports;
   @override
   List<TransferDecision> transferDecisions = [];
+  bool failDecision = false;
   @override
   bool countTransitArrivals = true;
 
@@ -57,6 +58,7 @@ class _Controller extends ChangeNotifier implements AppController {
     Flight outbound,
     TransferDecisionStatus status,
   ) async {
+    if (failDecision) throw StateError('write failed');
     final decision = TransferDecision.fromFlights(
       inbound: inbound,
       outbound: outbound,
@@ -93,46 +95,58 @@ Widget _host(_Controller controller) => MaterialApp(
 
 void main() {
   testWidgets(
-    'each connection requires a decision and a saved choice can change',
+    'failed save keeps candidate pending and does not show confirmed',
     (tester) async {
       final controller = _Controller([
         _flight('in', 'AAA', 'BBB', 0, 2),
         _flight('out', 'BBB', 'CCC', 3, 5),
-      ]);
+      ])..failDecision = true;
       addTearDown(controller.dispose);
       await tester.pumpWidget(_host(controller));
       await tester.pumpAndSettle();
-
-      expect(find.text('待核对'), findsOneWidget);
       await tester.tap(find.text('确认中转'));
-      await tester.pumpAndSettle();
-      expect(
-        controller
-            .transferDecisionFor(controller.flights[0], controller.flights[1])
-            ?.status,
-        TransferDecisionStatus.confirmed,
-      );
-      expect(find.text('中转记录 · 1 个已处理'), findsOneWidget);
-      expect(find.text('已确认 / 已拒绝 · 1 条'), findsOneWidget);
+      await tester.pump();
+      expect(find.text('保存失败，请重试'), findsOneWidget);
+      expect(find.text('待核对'), findsOneWidget);
       expect(find.text('已确认 · 可更改'), findsNothing);
-      await tester.tap(find.text('已确认 / 已拒绝 · 1 条'));
-      await tester.pumpAndSettle();
-      expect(find.text('已确认 · 可更改'), findsOneWidget);
-
-      await tester.tap(find.text('不是中转'));
-      await tester.pumpAndSettle();
-      expect(
-        controller
-            .transferDecisionFor(controller.flights[0], controller.flights[1])
-            ?.status,
-        TransferDecisionStatus.rejected,
-      );
-      expect(find.text('已拒绝 · 可更改'), findsOneWidget);
-      expect(tester.takeException(), isNull);
+      expect(controller.transferDecisions, isEmpty);
     },
   );
 
-  testWidgets('reviewed-only candidates stay collapsed but remain editable', (
+  testWidgets('confirmed connection is saved and disappears from review', (
+    tester,
+  ) async {
+    final controller = _Controller([
+      _flight('in', 'AAA', 'BBB', 0, 2),
+      _flight('out', 'BBB', 'CCC', 3, 5),
+    ]);
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(_host(controller));
+    await tester.pumpAndSettle();
+
+    expect(find.text('待核对'), findsOneWidget);
+    await tester.tap(find.text('确认中转'));
+    await tester.pumpAndSettle();
+    expect(
+      controller
+          .transferDecisionFor(controller.flights[0], controller.flights[1])
+          ?.status,
+      TransferDecisionStatus.confirmed,
+    );
+    expect(find.text('中转记录 · 1 个已处理'), findsNothing);
+    expect(find.text('已确认 · 可更改'), findsNothing);
+    expect(find.text('待核对'), findsNothing);
+    await tester.pumpWidget(_host(controller));
+    await tester.pumpAndSettle();
+    expect(find.text('中转记录 · 1 个已处理'), findsNothing);
+    expect(
+      controller.transferDecisions.single.status,
+      TransferDecisionStatus.confirmed,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('confirmed-only candidates do not show a review panel', (
     tester,
   ) async {
     final inbound = _flight('in', 'AAA', 'BBB', 0, 2);
@@ -150,17 +164,12 @@ void main() {
     await tester.pumpWidget(_host(controller));
     await tester.pumpAndSettle();
 
-    expect(find.text('中转记录 · 1 个已处理'), findsOneWidget);
-    expect(find.text('已确认 / 已拒绝 · 1 条'), findsNothing);
+    expect(find.text('中转记录 · 1 个已处理'), findsNothing);
     expect(find.text('确认中转'), findsNothing);
-    await tester.tap(find.text('中转记录 · 1 个已处理'));
-    await tester.pumpAndSettle();
-    expect(find.text('已确认 / 已拒绝 · 1 条'), findsOneWidget);
-    expect(find.text('已确认 · 可更改'), findsNothing);
-    await tester.tap(find.text('已确认 / 已拒绝 · 1 条'));
-    await tester.pumpAndSettle();
-    expect(find.text('已确认 · 可更改'), findsOneWidget);
-    expect(find.text('不是中转'), findsOneWidget);
+    expect(
+      controller.transferDecisions.single.status,
+      TransferDecisionStatus.confirmed,
+    );
   });
 
   testWidgets('ambiguous options and legacy manual marks stay explicit', (

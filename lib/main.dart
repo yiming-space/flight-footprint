@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -12,10 +13,84 @@ import 'ui/theme/app_theme.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   if (Platform.isAndroid || Platform.isIOS) {
-    await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    unawaited(SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge));
   }
-  final controller = await AppController.create();
-  runApp(FlightFootprintApp(controller: controller));
+  runApp(const AppStartup());
+}
+
+/// Draw a loading surface before beginning potentially expensive local setup.
+class AppStartup extends StatefulWidget {
+  const AppStartup({super.key, this.createController});
+  final Future<AppController> Function()? createController;
+  @override
+  State<AppStartup> createState() => _AppStartupState();
+}
+
+class _AppStartupState extends State<AppStartup> {
+  Completer<AppController> _controller = Completer<AppController>();
+
+  void _start() {
+    final current = _controller;
+    Future.sync(widget.createController ?? AppController.create).then(
+      current.complete,
+      onError: current.completeError,
+    );
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _start();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) => FutureBuilder<AppController>(
+    future: _controller.future,
+    builder: (context, snapshot) {
+      if (snapshot.hasData)
+        return FlightFootprintApp(controller: snapshot.requireData);
+      return MaterialApp(
+        debugShowCheckedModeBanner: false,
+        theme: AppTheme.light(),
+        darkTheme: AppTheme.dark(),
+        themeMode: ThemeMode.system,
+        home: Scaffold(
+          body: Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.flight_takeoff_rounded,
+                  size: 42,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  'Flight Footprint',
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 20),
+                if (snapshot.hasError)
+                  TextButton(
+                    onPressed: () => setState(() {
+                      _controller = Completer<AppController>();
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        if (mounted) _start();
+                      });
+                    }),
+                    child: const Text('加载失败，重试 / Retry'),
+                  )
+                else
+                  const CircularProgressIndicator(),
+              ],
+            ),
+          ),
+        ),
+      );
+    },
+  );
 }
 
 class FlightFootprintApp extends StatelessWidget {

@@ -73,6 +73,21 @@ class DetailMap extends StatefulWidget {
 }
 
 class _DetailMapState extends State<DetailMap> {
+  static Future<void>? _ambientCacheSetup;
+
+  static Future<void> _configureAmbientCache() async {
+    if (!ml.OfflineManager.isSupported) return;
+    ml.OfflineManager? manager;
+    try {
+      manager = await ml.OfflineManager.createInstance();
+      await manager.setMaximumAmbientCacheSize(bytes: 96 * 1024 * 1024);
+    } catch (_) {
+      // The map remains usable if the platform cache cannot be configured.
+    } finally {
+      manager?.dispose();
+    }
+  }
+
   Map<String, dynamic>? _base;
   ml.MapController? _controller;
   ml.StyleController? _activeStyle;
@@ -462,6 +477,8 @@ class _DetailMapState extends State<DetailMap> {
   }
 
   void _onStyleLoaded(ml.StyleController style) {
+    // Let native map resources persist without delaying the visible map.
+    unawaited(_ambientCacheSetup ??= _configureAmbientCache());
     // Native style-loaded can precede onMapCreated. Use the supplied style
     // directly so first-entry highlighting does not depend on a later toggle.
     _activeStyle = style;
@@ -470,7 +487,7 @@ class _DetailMapState extends State<DetailMap> {
     _readinessCheck?.cancel();
     if (!_ready && !_failed) {
       _readinessCheck = Timer.periodic(
-        const Duration(milliseconds: 500),
+        const Duration(milliseconds: 200),
         (_) => _checkBasemapReady(),
       );
     }
@@ -604,10 +621,10 @@ class _DetailMapState extends State<DetailMap> {
               );
             },
           ),
-        // Do not briefly display a different map projection on every open.
-        // Wait for real detailed tiles over a quiet surface; the local map
-        // appears only on failure. Native readiness queries still work below.
-        if (!_ready && !_failed)
+        // Once the native map is available, show tiles as they arrive instead
+        // of covering a rendered map until the next readiness check. The
+        // offline projection still only appears on failure.
+        if (_base == null && !_failed)
           AbsorbPointer(child: ColoredBox(color: colors.background)),
         if (_failed) widget.fallback,
         if (!_ready || _failed)

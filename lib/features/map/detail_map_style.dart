@@ -1,6 +1,10 @@
+import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:http/http.dart' as http;
 
 import '../../ui/theme/app_theme.dart';
@@ -8,22 +12,81 @@ import 'detail_map_footprint.dart';
 
 /// Only the public style is requested here. Personal records stay on-device.
 class DetailMapStyleLoader {
+  DetailMapStyleLoader({
+    this.client,
+    Future<Directory> Function()? cacheDirectory,
+  }) : _cacheDirectory = cacheDirectory ?? getTemporaryDirectory;
+
+  final http.Client? client;
+  final Future<Directory> Function() _cacheDirectory;
   static Map<String, dynamic>? _cached;
+  static const _cacheName = 'detail-map-style-v1.json';
+  static const _maxAge = Duration(days: 7);
+
+  @visibleForTesting
+  static void clearMemoryCacheForTesting() => _cached = null;
 
   Future<Map<String, dynamic>> load() async {
-    if (_cached case final cached?) {
-      return jsonDecode(jsonEncode(cached)) as Map<String, dynamic>;
+    if (_cached case final cached?) return _copy(cached);
+    File? file;
+    if (!kIsWeb) {
+      try {
+        file = File('${(await _cacheDirectory()).path}/$_cacheName');
+        if (await file.exists()) {
+          final style = _parse(await file.readAsString());
+          _cached = style;
+          final modified = await file.lastModified();
+          if (DateTime.now().difference(modified) > _maxAge) {
+            unawaited(_refreshInBackground(file));
+          }
+          return _copy(style);
+        }
+      } catch (_) {
+        // Missing, inaccessible, or corrupt cache falls back to the network.
+      }
     }
-    final response = await http
-        .get(Uri.parse('https://tiles.openfreemap.org/styles/positron'))
-        .timeout(const Duration(seconds: 12));
+    final style = await _fetch();
+    _cached = style;
+    if (file != null) unawaited(_writeCache(file, style));
+    return _copy(style);
+  }
+
+  Future<Map<String, dynamic>> _fetch() async {
+    final uri = Uri.parse('https://tiles.openfreemap.org/styles/positron');
+    final response = await (client?.get(uri) ?? http.get(uri)).timeout(
+      const Duration(seconds: 12),
+    );
     if (response.statusCode != 200) throw StateError('Map style unavailable');
-    final style = jsonDecode(response.body) as Map<String, dynamic>;
+    return _parse(response.body);
+  }
+
+  static Map<String, dynamic> _parse(String source) {
+    final style = jsonDecode(source) as Map<String, dynamic>;
     if (style['version'] != 8 || style['layers'] is! List) {
       throw const FormatException('Invalid map style');
     }
-    _cached = style;
-    return jsonDecode(jsonEncode(style)) as Map<String, dynamic>;
+    return style;
+  }
+
+  static Map<String, dynamic> _copy(Map<String, dynamic> style) =>
+      jsonDecode(jsonEncode(style)) as Map<String, dynamic>;
+
+  Future<void> _writeCache(File file, Map<String, dynamic> style) async {
+    try {
+      await file.writeAsString(jsonEncode(style), flush: true);
+    } catch (_) {
+      // Cache is optional; keep the freshly loaded style in memory.
+    }
+  }
+
+  Future<void> _refreshInBackground(File file) async {
+    try {
+      final fresh = await _fetch();
+      _cached = fresh;
+      await _writeCache(file, fresh);
+    } catch (_) {
+      // Continue using the validated cached style if the network is down.
+    }
   }
 }
 

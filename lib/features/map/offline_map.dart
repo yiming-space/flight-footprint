@@ -543,7 +543,7 @@ class _MapFullscreenPageState extends State<MapFullscreenPage>
                         enabled: !_globeMode,
                         child: IgnorePointer(
                           ignoring: _globeMode,
-                          child: _detailedMap && !_globeMode
+                          child: _detailedMap
                               ? DetailMap(
                                   key: ValueKey('detail-$_viewReset'),
                                   headerTopOffset: 56,

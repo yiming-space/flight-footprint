@@ -78,8 +78,30 @@ class _SuspectedTransitPanelState extends State<SuspectedTransitPanel> {
         decidedPairs.add(pair);
       }
     }
+    // Keep conflicting saved choices available for correction, while a fully
+    // resolved set of confirmations no longer occupies the review panel.
+    final needsSavedReview = decidedPairs.any(
+      (pair) =>
+          pair.hasSavedDecisionConflict ||
+          widget.controller
+                  .transferDecisionFor(pair.inbound, pair.outbound)
+                  ?.status ==
+              TransferDecisionStatus.rejected,
+    );
+    final otherDecidedPairs = decidedPairs;
+    final confirmedCount = decidedPairs
+        .where(
+          (pair) =>
+              widget.controller
+                  .transferDecisionFor(pair.inbound, pair.outbound)
+                  ?.status ==
+              TransferDecisionStatus.confirmed,
+        )
+        .length;
+    final rejectedCount = decidedPairs.length - confirmedCount;
 
-    if (pairs.isEmpty &&
+    if (pendingPairs.isEmpty &&
+        !needsSavedReview &&
         unresolvedCompleted.isEmpty &&
         !hasNearbyDifferentAirportPair) {
       return const SizedBox.shrink();
@@ -120,8 +142,8 @@ class _SuspectedTransitPanelState extends State<SuspectedTransitPanel> {
             subtitle: Text(
               pendingPairs.isEmpty && decidedPairs.isNotEmpty
                   ? (zh
-                        ? '已处理记录已折叠收起，可展开后继续修改'
-                        : 'Reviewed records are collapsed; expand to change them')
+                        ? '已确认 $confirmedCount · 已拒绝 $rejectedCount'
+                        : '$confirmedCount confirmed · $rejectedCount rejected')
                   : pairs.isEmpty && hasNearbyDifferentAirportPair
                   ? (zh
                         ? '需要时请手动核对不同机场的行程'
@@ -135,7 +157,7 @@ class _SuspectedTransitPanelState extends State<SuspectedTransitPanel> {
               if (pendingPairs.isNotEmpty)
                 for (final pair in pendingPairs)
                   _buildPair(context, pair, zh, colors),
-              if (decidedPairs.isNotEmpty)
+              if (otherDecidedPairs.isNotEmpty)
                 Theme(
                   data: Theme.of(context)
                       .copyWith(dividerColor: Colors.transparent),
@@ -145,15 +167,15 @@ class _SuspectedTransitPanelState extends State<SuspectedTransitPanel> {
                     childrenPadding: const EdgeInsets.only(left: 4, right: 4),
                     title: Text(
                       zh
-                          ? '已确认 / 已拒绝 · ${decidedPairs.length} 条'
-                          : 'Confirmed / rejected · ${decidedPairs.length}',
+                          ? '已确认 / 已拒绝 · ${otherDecidedPairs.length} 条'
+                          : 'Confirmed / rejected · ${otherDecidedPairs.length}',
                       style: TextStyle(
                         color: colors.textSecondary,
                         fontWeight: FontWeight.w600,
                       ),
                     ),
                     children: [
-                      for (final pair in decidedPairs)
+                      for (final pair in otherDecidedPairs)
                         _buildPair(context, pair, zh, colors),
                     ],
                   ),
@@ -391,6 +413,7 @@ class _SuspectedTransitPanelState extends State<SuspectedTransitPanel> {
     if (status == TransferDecisionStatus.confirmed &&
         _hasConfirmedEndpointConflict(pair)) {
       final zh = Localizations.localeOf(context).languageCode == 'zh';
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
@@ -408,6 +431,23 @@ class _SuspectedTransitPanelState extends State<SuspectedTransitPanel> {
         pair.outbound,
         status,
       );
+      if (mounted) {
+        final zh = Localizations.localeOf(context).languageCode == 'zh';
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              zh
+                  ? (status == TransferDecisionStatus.confirmed
+                        ? '已保存：确认中转'
+                        : '已保存：不是中转')
+                  : (status == TransferDecisionStatus.confirmed
+                        ? 'Saved: confirmed transfer'
+                        : 'Saved: not a transfer'),
+            ),
+          ),
+        );
+      }
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(

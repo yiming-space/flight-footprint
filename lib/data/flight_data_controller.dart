@@ -21,6 +21,7 @@ class FlightDataController extends ChangeNotifier {
   Object? error;
   Timer? _statusRefreshTimer;
   Future<void> _transferDecisionQueue = Future<void>.value();
+  int _transferDecisionRevision = 0;
 
   Future<void> refresh({DateTime? now}) async {
     final reference = (now ?? DateTime.now()).toLocal();
@@ -49,7 +50,11 @@ class FlightDataController extends ChangeNotifier {
       flights = List.unmodifiable(reconciled);
       if (matured.isNotEmpty) await repository.upsertFlights(matured);
       visitedPlaces = await repository.listVisitedPlaces();
-      transferDecisions = await repository.listTransferDecisions();
+      final decisionRevision = _transferDecisionRevision;
+      final loadedDecisions = await repository.listTransferDecisions();
+      if (decisionRevision == _transferDecisionRevision) {
+        transferDecisions = loadedDecisions;
+      }
       countTransitArrivals =
           await repository.getMeta('count_transit_arrivals') != 'false';
       _scheduleStatusRefresh(reference);
@@ -149,6 +154,7 @@ class FlightDataController extends ChangeNotifier {
 
     await repository.saveTransferDecision(decision);
     transferDecisions = await repository.listTransferDecisions();
+    _transferDecisionRevision++;
     notifyListeners();
   }
 

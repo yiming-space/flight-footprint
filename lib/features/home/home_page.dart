@@ -43,6 +43,7 @@ class _HomePageState extends State<HomePage> {
   // Flat map is the practical daily view; globe remains the immersive
   // presentation behind the second round control.
   bool _globeMode = false;
+  bool _globeInitialized = false;
   // Online detail is the normal flat map; the local renderer is automatic
   // fallback (and remains the native desktop renderer).
   bool get _detailedMap => DetailMap.supported;
@@ -172,6 +173,7 @@ class _HomePageState extends State<HomePage> {
                 },
                 onToggleProjection: () => setState(() {
                   _globeMode = !_globeMode;
+                  if (_globeMode) _globeInitialized = true;
                 }),
                 onLocate: _locateUser,
                 locating: _locating,
@@ -212,11 +214,7 @@ class _HomePageState extends State<HomePage> {
               enabled: !_globeMode,
               child: IgnorePointer(
                 ignoring: _globeMode,
-                child:
-                    _detailedMap &&
-                        !_globeMode &&
-                        widget.isActive &&
-                        !_openingHorizontalMap
+                child: _detailedMap
                     ? DetailMap(
                         mode: _mode,
                         showRouteArrows: true,
@@ -262,19 +260,21 @@ class _HomePageState extends State<HomePage> {
               enabled: _globeMode,
               child: IgnorePointer(
                 ignoring: !_globeMode,
-                child: GlobeMap(
-                  key: const ValueKey('home-globe'),
-                  showRouteArrows: true,
-                  active: _globeMode,
-                  mode: _mode,
-                  routes: mapRoutes,
-                  airports: airports,
-                  places: places,
-                  userLocation: userLocation,
-                  focusCoordinate: userLocation,
-                  focusSignal: _focusSignal,
-                  onSelection: _handleMapSelection,
-                ),
+                child: !_globeInitialized
+                    ? const SizedBox.shrink()
+                    : GlobeMap(
+                        key: const ValueKey('home-globe'),
+                        showRouteArrows: true,
+                        active: _globeMode,
+                        mode: _mode,
+                        routes: mapRoutes,
+                        airports: airports,
+                        places: places,
+                        userLocation: userLocation,
+                        focusCoordinate: userLocation,
+                        focusSignal: _focusSignal,
+                        onSelection: _handleMapSelection,
+                      ),
               ),
             ),
           ),

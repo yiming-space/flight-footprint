@@ -8,7 +8,6 @@ import '../core/localization/app_strings.dart';
 import '../data/app_update_service.dart';
 import '../features/add_flight/add_flight_page.dart';
 import '../features/add_flight/flight_entry_sheet.dart';
-import '../features/add_flight/flight_import_actions.dart';
 import '../features/flights/flights_page.dart';
 import '../features/home/home_page.dart';
 import '../features/map/add_visited_place_sheet.dart';
@@ -29,13 +28,9 @@ class AppShell extends StatefulWidget {
 }
 
 class _AppShellState extends State<AppShell>
-    with
-        SingleTickerProviderStateMixin,
-        WidgetsBindingObserver,
-        FlightImportActions<AppShell> {
-  @override
-  AppController get controller => widget.controller;
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   int _index = 0;
+  final Set<int> _visitedPages = {0};
   MapMode _homeMapMode = MapMode.flight;
   late final AnimationController _addAnimation = AnimationController(
     vsync: this,
@@ -55,83 +50,6 @@ class _AppShellState extends State<AppShell>
     if (Platform.isAndroid || Platform.isIOS) {
       unawaited(SystemChrome.setPreferredOrientations(const []));
     }
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      unawaited(_checkCalendarAutoImport());
-    });
-  }
-
-  Future<void> _checkCalendarAutoImport() async {
-    try {
-      final outcome = await widget.controller
-          .checkCalendarAutoImportOnStartup();
-      if (!mounted || outcome == null) return;
-      final strings = context.strings;
-      switch (outcome.state) {
-        case CalendarAutoImportState.completed:
-          break;
-        case CalendarAutoImportState.permissionRequired:
-          _showCalendarAutoImportNotice(
-            strings.t('calendarAutoImportPermissionNeeded'),
-            strings.t('calendarAutoImportOpenImport'),
-          );
-          return;
-        case CalendarAutoImportState.unsupported:
-          _showCalendarAutoImportNotice(
-            strings.t('calendarAutoImportUnsupported'),
-            strings.t('calendarAutoImportOpenImport'),
-          );
-          return;
-        case CalendarAutoImportState.failed:
-          _showCalendarAutoImportNotice(
-            strings.t('calendarAutoImportFailed'),
-            strings.t('calendarAutoImportOpenImport'),
-          );
-          return;
-      }
-      if (outcome.candidates case final candidates?) {
-        await reviewCalendarScan(context, candidates);
-        return;
-      }
-      final summary = outcome.summary;
-      if (summary.added == 0 && outcome.pendingConfirmationCount == 0) return;
-      final message = strings
-          .t('calendarAutoImportResult')
-          .replaceFirst('{added}', '${summary.added}')
-          .replaceFirst('{pending}', '${outcome.pendingConfirmationCount}');
-      ScaffoldMessenger.of(context)
-        ..hideCurrentSnackBar()
-        ..showSnackBar(
-          SnackBar(
-            content: Text(message),
-            action: outcome.pendingConfirmationCount == 0
-                ? null
-                : SnackBarAction(
-                    label: strings.t('calendarAutoImportReview'),
-                    onPressed: () => setState(() => _index = 3),
-                  ),
-          ),
-        );
-    } catch (_) {
-      if (!mounted) return;
-      _showCalendarAutoImportNotice(
-        context.strings.t('calendarAutoImportFailed'),
-        context.strings.t('calendarAutoImportOpenImport'),
-      );
-    }
-  }
-
-  void _showCalendarAutoImportNotice(String message, String actionLabel) {
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        SnackBar(
-          content: Text(message),
-          action: SnackBarAction(
-            label: actionLabel,
-            onPressed: () => setState(() => _index = 3),
-          ),
-        ),
-      );
   }
 
   @override
@@ -343,6 +261,7 @@ class _AppShellState extends State<AppShell>
     final addLabel = _index == 0 && _homeMapMode == MapMode.travelFootprint
         ? strings.t('addPlace')
         : strings.t('addFlight');
+    _visitedPages.add(_index);
     final pages = [
       HomePage(
         controller: widget.controller,
@@ -350,12 +269,18 @@ class _AppShellState extends State<AppShell>
         onMapModeChanged: _setHomeMapMode,
         onRecord: _openAdd,
       ),
-      FlightsPage(
-        controller: widget.controller,
-        onAdd: _openAdd,
-        onRecord: _openAdd,
-      ),
-      StatsPage(controller: widget.controller),
+      if (_visitedPages.contains(1))
+        FlightsPage(
+          controller: widget.controller,
+          onAdd: _openAdd,
+          onRecord: _openAdd,
+        )
+      else
+        const SizedBox.shrink(),
+      if (_visitedPages.contains(2))
+        StatsPage(controller: widget.controller)
+      else
+        const SizedBox.shrink(),
       ProfilePage(
         controller: widget.controller,
         isActive: _index == 3,

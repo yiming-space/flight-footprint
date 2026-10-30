@@ -279,6 +279,33 @@ void main() {
     }
   });
 
+  test(
+    'real device labels and manufacturer customer codes use family artwork',
+    () {
+      const examples = {
+        '空客321-231（sl）': 'a321-family-side-right-v1.webp',
+        '空客 A321-231 (SL)': 'a321-family-side-right-v1.webp',
+        'AIRBUS321-231（sharklets）': 'a321-family-side-right-v1.webp',
+        '波音737－8L9（中型）': 'b737-family-side-right-v1.webp',
+        '737-87l（wl）': 'b737-family-side-right-v1.webp',
+        'Boeing737-8MG': 'b737-family-side-right-v1.webp',
+        '空客330-343': 'a330-family-side-right-v1.webp',
+        '空客350-941': 'a350-900-side-right-v3.webp',
+        '波音777-36N': 'b777-300er-side-right-v1.webp',
+        '波音737-800（WL）': 'b737-800-side-right-v2.webp',
+      };
+      for (final entry in examples.entries) {
+        expect(
+          aircraftArtworkAssetFor(entry.key),
+          'assets/images/aircraft/${entry.value}',
+          reason: entry.key,
+        );
+      }
+      expect(aircraftArtworkAssetFor('波音321-231（SL）'), isNull);
+      expect(aircraftArtworkAssetFor('空客321-231 / 737-800'), isNull);
+    },
+  );
+
   test('shared family artwork does not share collection Hero identities', () {
     expect(
       aircraftArtworkAssetFor('B767-200'),

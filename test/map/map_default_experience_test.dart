@@ -106,12 +106,58 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
+  testWidgets('home creates globe only on first use and keeps it', (
+    tester,
+  ) async {
+    final controller = _Controller();
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(_app(HomePage(controller: controller)));
+    await tester.pump();
+    expect(find.byType(GlobeMap, skipOffstage: false), findsNothing);
+    await tester.tap(find.byIcon(Icons.map_outlined));
+    await tester.pump();
+    final globe = tester.state(find.byType(GlobeMap));
+    await tester.tap(find.byIcon(Icons.public_rounded));
+    await tester.pump();
+    expect(
+      tester.state(find.byType(GlobeMap, skipOffstage: false)),
+      same(globe),
+    );
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('switching tabs keeps the same detailed map state', (
+    tester,
+  ) async {
+    final controller = _Controller();
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(
+      _app(HomePage(controller: controller, isActive: true)),
+    );
+    await tester.pump();
+    final original = tester.state(find.byType(DetailMap));
+
+    await tester.pumpWidget(
+      _app(HomePage(controller: controller, isActive: false)),
+    );
+    await tester.pump();
+    expect(tester.state(find.byType(DetailMap)), same(original));
+
+    await tester.pumpWidget(
+      _app(HomePage(controller: controller, isActive: true)),
+    );
+    await tester.pump();
+    expect(tester.state(find.byType(DetailMap)), same(original));
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
   testWidgets('home fullscreen retains route arrows across map projections', (
     tester,
   ) async {
     final controller = _Controller();
     addTearDown(controller.dispose);
     await tester.pumpWidget(_app(HomePage(controller: controller)));
+    final homeMap = tester.state(find.byType(DetailMap));
     await tester.tap(find.byTooltip('横向全屏地图'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 350));
@@ -119,6 +165,9 @@ void main() {
     final fullscreen = find.byType(MapFullscreenPage);
     expect(fullscreen, findsOneWidget);
     final detail = tester.widget<DetailMap>(
+      find.descendant(of: fullscreen, matching: find.byType(DetailMap)),
+    );
+    final fullscreenMap = tester.state(
       find.descendant(of: fullscreen, matching: find.byType(DetailMap)),
     );
     expect(detail.showRouteArrows, isTrue);
@@ -136,6 +185,23 @@ void main() {
     );
     expect(globe.active, isTrue);
     expect(globe.showRouteArrows, isTrue);
+    await tester.tap(
+      find.descendant(
+        of: fullscreen,
+        matching: find.byIcon(Icons.map_outlined),
+      ),
+    );
+    await tester.pump();
+    expect(
+      tester.state(
+        find.descendant(of: fullscreen, matching: find.byType(DetailMap)),
+      ),
+      same(fullscreenMap),
+    );
+    Navigator.of(tester.element(fullscreen)).pop();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(tester.state(find.byType(DetailMap)), same(homeMap));
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
   });

@@ -3,6 +3,9 @@ import 'package:flight_footprint/data/flight_repository.dart';
 import 'package:flight_footprint/domain/flight.dart';
 import 'package:flight_footprint/domain/transfer_decision.dart';
 import 'package:flight_footprint/domain/visited_place.dart';
+
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -140,6 +143,57 @@ void main() {
     expect(repository.decisions, hasLength(1));
     expect(repository.decisions.single.outboundFlightId, 'out-one');
   });
+
+  test('a refresh started before confirmation cannot erase the saved decision from UI state', () async {
+    final base = DateTime.utc(2026, 1, 1);
+    final inbound = _flight(
+      id: 'in',
+      status: FlightStatus.completed,
+      departedAt: base,
+      arrivedAt: base.add(const Duration(hours: 2)),
+    );
+    final outbound = _flight(
+      id: 'out',
+      status: FlightStatus.completed,
+      departedAt: base.add(const Duration(hours: 4)),
+      arrivedAt: base.add(const Duration(hours: 6)),
+    ).copyWith(departureIata: 'PEK', arrivalIata: 'HND');
+    final repo = _DelayedDecisionRepository([inbound, outbound]);
+    final controller = FlightDataController(repo);
+    addTearDown(controller.dispose);
+    await controller.refresh(now: base);
+    repo.delayNextRead = true;
+    final refreshing = controller.refresh(now: base);
+    await repo.readStarted.future;
+    await controller.decideTransfer(
+      inbound,
+      outbound,
+      TransferDecisionStatus.confirmed,
+    );
+    repo.delayedResult.complete([]);
+    await refreshing;
+    expect(
+      controller.transferDecisionFor(inbound, outbound)?.status,
+      TransferDecisionStatus.confirmed,
+    );
+    expect(repo.decisions.single.status, TransferDecisionStatus.confirmed);
+  });
+}
+
+class _DelayedDecisionRepository extends _FakeRepository {
+  _DelayedDecisionRepository(super.stored);
+  bool delayNextRead = false;
+  final readStarted = Completer<void>();
+  final delayedResult = Completer<List<TransferDecision>>();
+  @override
+  Future<List<TransferDecision>> listTransferDecisions() {
+    if (delayNextRead) {
+      delayNextRead = false;
+      readStarted.complete();
+      return delayedResult.future;
+    }
+    return super.listTransferDecisions();
+  }
 }
 
 class _FakeRepository extends FlightRepository {

@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:flutter/services.dart';
+import 'package:flutter/foundation.dart';
 
 import 'airport_localization.dart';
 import '../domain/airport.dart';
@@ -25,9 +26,7 @@ class AirportCountry {
 
 class AirportCatalog {
   AirportCatalog(this._airports, {Map<String, String> timeZoneIds = const {}})
-    : _airportsByCountry = _buildCountryIndex(_airports),
-      _searchIndex = _buildSearchIndex(_airports.values),
-      _timeZoneIds = Map.unmodifiable({
+    : _timeZoneIds = Map.unmodifiable({
         for (final entry in timeZoneIds.entries)
           if (entry.key.trim().isNotEmpty && entry.value.trim().isNotEmpty)
             entry.key.trim().toUpperCase(): entry.value.trim(),
@@ -36,8 +35,12 @@ class AirportCatalog {
   static const assetPath = 'assets/data/airport-coordinates.json';
   static const timeZoneAssetPath = 'assets/data/airport-timezones.json';
   final Map<String, Airport> _airports;
-  final Map<String, List<Airport>> _airportsByCountry;
-  final List<_AirportSearchEntry> _searchIndex;
+  late final Map<String, List<Airport>> _airportsByCountry = _buildCountryIndex(
+    _airports,
+  );
+  late final List<_AirportSearchEntry> _searchIndex = _buildSearchIndex(
+    _airports.values,
+  );
   final Map<String, String> _timeZoneIds;
 
   late final List<AirportCountry> _countries =
@@ -92,7 +95,11 @@ class AirportCatalog {
       assets.loadString(assetPath),
       assets.loadString(timeZoneAssetPath),
     ]);
-    final decodedZones = jsonDecode(values[1]);
+    return compute(_parseLoadedAirportCatalog, (values[0], values[1]));
+  }
+
+  static AirportCatalog _parseLoadedAirportCatalog((String, String) values) {
+    final decodedZones = jsonDecode(values.$2);
     final zones = <String, String>{};
     if (decodedZones is Map) {
       for (final entry in decodedZones.entries) {
@@ -101,7 +108,7 @@ class AirportCatalog {
         if (code.isNotEmpty && zoneId.isNotEmpty) zones[code] = zoneId;
       }
     }
-    return AirportCatalog.fromJsonString(values[0], timeZoneIds: zones);
+    return AirportCatalog.fromJsonString(values.$1, timeZoneIds: zones);
   }
 
   Iterable<Airport> get values => _airports.values;

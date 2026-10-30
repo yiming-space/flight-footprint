@@ -1,9 +1,9 @@
 {
-  "version": "1.6.1",
-  "build": 20,
-  "releaseUrl": "https://github.com/yiming-space/flight-footprint/releases/tag/v1.6.1",
-  "apkUrl": "https://github.com/yiming-space/flight-footprint/releases/download/v1.6.1/app-release.apk",
-  "apkSize": 147184556,
-  "apkSha256": "7f8f3dd20e76d3ac58eac2a30fb2efe2eb66297e6643d95f270143036fbbf577",
-  "notes": "压缩通用 Android 安装包，减小下载体积。保留截图识别、日历航班确认及旅行足迹优化。"
+  "version": "1.6.2",
+  "build": 21,
+  "releaseUrl": "https://github.com/yiming-space/flight-footprint/releases/tag/v1.6.2",
+  "apkUrl": "https://github.com/yiming-space/flight-footprint/releases/download/v1.6.2/app-release.apk",
+  "apkSize": 147186568,
+  "apkSha256": "5068458801a874ec1d8f087d193eef42cf6cbabae3a35422fa58334460256579",
+  "notes": "优化启动速度和详细地图缓存，修复机型插画匹配及中转确认显示。"
 }
